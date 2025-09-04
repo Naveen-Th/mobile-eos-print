@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "Thermal Receipt Printer",
+    "slug": "thermal-receipt-printer-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.thermalprinter.mobile",
+      "buildNumber": "1.0.0",
+      "infoPlist": {
+        "NSBluetoothPeripheralUsageDescription": "This app uses Bluetooth to connect to thermal printers",
+        "NSBluetoothAlwaysUsageDescription": "This app uses Bluetooth to connect to thermal printers"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "package": "com.thermalprinter.mobile",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_ADVERTISE",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.INTERNET"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "scheme": "thermal-receipt-printer",
+    "platforms": [
+      "ios",
+      "android"
+    ],
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "e68faa82-fb7c-4cd4-84fa-4b9211ebca86"
+      }
+    }
+  }
+}

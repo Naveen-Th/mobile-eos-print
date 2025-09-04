@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.firebaseapp.com https://*.googleapis.com wss://*.firebaseio.com;">
+    <title>Thermal Receipt Printer - Desktop</title>
+    <style>
+        /* Prevent FOUC (Flash of Unstyled Content) */
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background-color: #f8fafc;
+            overflow: hidden;
+        }
+        
+        /* Loading screen */
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #dbeafe 0%, #c7d2fe 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+        
+        .loading-content {
+            text-align: center;
+        }
+        
+        .loading-icon {
+            width: 64px;
+            height: 64px;
+            background-color: #2563eb;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 16px;
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        .loading-text {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 8px;
+        }
+        
+        .loading-subtext {
+            font-size: 14px;
+            color: #6b7280;
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: .5;
+            }
+        }
+        
+        /* Hide loading screen when app is ready */
+        .app-ready #loading {
+            display: none;
+        }
+        
+        /* Desktop window adjustments */
+        html {
+            height: 100%;
+            overflow: hidden;
+        }
+        
+        #root {
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        /* Scrollbar styling for desktop */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1;
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background-color: #94a3b8;
+        }
+    </style>
+</head>
+<body>
+    <!-- Global polyfills - MUST come first -->
+    <script>
+        // Define global for Node.js compatibility
+        if (typeof global === 'undefined') {
+            var global = globalThis || window || self;
+        }
+        
+        // Define process for Node.js compatibility
+        if (typeof process === 'undefined') {
+            var process = {
+                env: {
+                    NODE_ENV: 'development'
+                },
+                browser: true,
+                version: '',
+                platform: 'browser'
+            };
+        }
+        
+        // Buffer polyfill placeholder
+        if (typeof Buffer === 'undefined') {
+            window.Buffer = window.Buffer || {};
+        }
+        
+        console.log('Global polyfills loaded:', {
+            global: typeof global,
+            process: typeof process,
+            Buffer: typeof Buffer,
+            globalThis: typeof globalThis
+        });
+    </script>
+    <!-- Loading Screen -->
+    <div id="loading">
+        <div class="loading-content">
+            <div class="loading-icon">
+                <svg width="32" height="32" fill="white" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                </svg>
+            </div>
+            <div class="loading-text">Thermal Receipt Printer</div>
+            <div class="loading-subtext">Loading desktop application...</div>
+        </div>
+    </div>
+
+    <!-- Main App Container -->
+    <div id="root"></div>
+
+    <!-- Error Fallback -->
+    <script>
+        // Remove loading screen when React app is ready
+        window.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                const loading = document.getElementById('loading');
+                if (loading) {
+                    loading.style.transition = 'opacity 0.3s ease-out';
+                    loading.style.opacity = '0';
+                    setTimeout(() => {
+                        loading.style.display = 'none';
+                        document.body.classList.add('app-ready');
+                    }, 300);
+                }
+            }, 2000); // Show loading for at least 2 seconds
+        });
+
+        // Global error handler
+        window.addEventListener('error', (event) => {
+            console.error('Global error:', event.error);
+            
+            // Show error message
+            const root = document.getElementById('root');
+            if (root && !root.innerHTML.trim()) {
+                root.innerHTML = `
+                    <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #dbeafe 0%, #c7d2fe 100%); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;">
+                        <div style="text-align: center; background: white; padding: 32px; border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); max-width: 400px; margin: 20px;">
+                            <div style="width: 48px; height: 48px; background-color: #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
+                                <svg width="24" height="24" fill="white" viewBox="0 0 24 24">
+                                    <path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+                                </svg>
+                            </div>
+                            <h2 style="font-size: 20px; font-weight: 600; color: #1f2937; margin-bottom: 8px;">Application Error</h2>
+                            <p style="color: #6b7280; margin-bottom: 16px;">The application failed to load. Please restart the application.</p>
+                            <button onclick="window.location.reload()" style="background-color: #2563eb; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 500; cursor: pointer;">
+                                Reload Application
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+        });
+
+        // Log app information
+        console.log('Thermal Receipt Printer Desktop App starting...');
+        console.log('User Agent:', navigator.userAgent);
+        console.log('Platform:', navigator.platform);
+        console.log('Online:', navigator.onLine);
+    </script>
+</body>
+</html>
