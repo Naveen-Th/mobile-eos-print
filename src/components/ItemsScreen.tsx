@@ -4,11 +4,58 @@ import { ItemDetails } from '../types';
 import ItemService from '../services/ItemService';
 import StockService from '../services/StockService';
 import ItemForm from './ItemForm';
+import { useItems, useCreateItem, useUpdateItem, useDeleteItem, useUpdateStock } from '../hooks/useSyncManager';
+import { usePendingUpdates } from '../store/syncStore';
+import { db, auth } from '../config/firebase';
+import { collection } from 'firebase/firestore';
 
 const ItemsScreen: React.FC = () => {
-  const [items, setItems] = useState<ItemDetails[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  // TanStack Query hooks for items
+  const { 
+    data: items = [], 
+    isLoading, 
+    error, 
+    refetch 
+  } = useItems();
+  
+  // Debug logging
+  useEffect(() => {
+    console.log('🔍 ItemsScreen Debug:');
+    console.log('- Items count:', items?.length || 0);
+    console.log('- Is Loading:', isLoading);
+    console.log('- Error:', error?.message || 'none');
+    console.log('- Items data:', items);
+    console.log('- Firebase config status:', {
+      hasAuth: !!auth,
+      hasDb: !!db,
+      isConnected: db ? 'likely' : 'no'
+    });
+  }, [items, isLoading, error]);
+  
+  // Test Firebase connection
+  useEffect(() => {
+    const testConnection = async () => {
+      try {
+        console.log('🧪 Testing Firebase connection...');
+        const testCollection = collection(db, 'item_details');
+        console.log('✅ Firebase collection reference created successfully');
+      } catch (error) {
+        console.error('❌ Firebase connection test failed:', error);
+      }
+    };
+    testConnection();
+  }, []);
+  
+  // Mutation hooks
+  const createItemMutation = useCreateItem();
+  const updateItemMutation = useUpdateItem();
+  const deleteItemMutation = useDeleteItem();
+  const updateStockMutation = useUpdateStock();
+  
+  // Zustand state for pending updates
+  const pendingUpdates = usePendingUpdates();
+  
+  // Local UI state
   const [showForm, setShowForm] = useState(false);
   const [editingItem, setEditingItem] = useState<ItemDetails | null>(null);
   const [isFormLoading, setIsFormLoading] = useState(false);
@@ -16,110 +63,33 @@ const ItemsScreen: React.FC = () => {
   const [sortBy, setSortBy] = useState<'name' | 'price'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedCategory, setSelectedCategory] = useState<'All' | 'Beverages' | 'Food'>('All');
-  const [pendingStockUpdates, setPendingStockUpdates] = useState<Set<string>>(new Set());
-  const pendingStockUpdatesRef = useRef<Set<string>>(new Set());
-  
-  // Keep ref in sync with state
-  useEffect(() => {
-    pendingStockUpdatesRef.current = pendingStockUpdates;
-  }, [pendingStockUpdates]);
 
-  useEffect(() => {
-    // Subscribe to real-time updates (this handles initial loading too)
-    const unsubscribe = ItemService.subscribeToItems(
-      (updatedItems) => {
-        console.log('Received real-time items update:', updatedItems.length, 'items');
-        
-        // Smart merge of real-time updates with optimistic changes
-        setItems(prevItems => {
-          const currentPendingUpdates = pendingStockUpdatesRef.current;
-          
-          // If no pending updates, use Firebase data directly
-          if (currentPendingUpdates.size === 0) {
-            console.log('📥 Using Firebase data directly (no pending updates)');
-            return updatedItems;
-          }
-          
-          // For items with pending updates, we need to be more careful
-          return updatedItems.map(firebaseItem => {
-            const hasPendingUpdate = currentPendingUpdates.has(firebaseItem.id);
-            
-            if (hasPendingUpdate) {
-              const optimisticItem = prevItems.find(item => item.id === firebaseItem.id);
-              if (optimisticItem) {
-                // Only preserve optimistic stock if it's significantly different from Firebase
-                // This helps detect when the Firebase update contains our own changes
-                const stockDifference = Math.abs(optimisticItem.stocks - firebaseItem.stocks);
-                
-                if (stockDifference <= 1) {
-                  // Firebase likely has our changes - use it and auto-clear pending
-                  console.log(`✅ Firebase synced for item ${firebaseItem.id}: ${firebaseItem.stocks} (was optimistic: ${optimisticItem.stocks})`);
-                  
-                  // Auto-clear the pending update since Firebase now has the correct value
-                  setTimeout(() => {
-                    setPendingStockUpdates(prev => {
-                      const newSet = new Set(prev);
-                      if (newSet.delete(firebaseItem.id)) {
-                        console.log(`✨ Auto-cleared pending update for item ${firebaseItem.id}`);
-                      }
-                      return newSet;
-                    });
-                  }, 100); // Small delay to avoid state updates during render
-                  
-                  return firebaseItem;
-                } else {
-                  // Keep optimistic value as Firebase might not have our changes yet
-                  console.log(`⏳ Preserving optimistic stock for item ${firebaseItem.id}: ${optimisticItem.stocks} (Firebase: ${firebaseItem.stocks})`);
-                  return {
-                    ...firebaseItem,
-                    stocks: optimisticItem.stocks
-                  };
-                }
-              }
-            }
-            
-            return firebaseItem;
-          });
-        });
-        
-        setIsLoading(false);
-      },
-      (error) => {
-        console.error('Error subscribing to items:', error);
-        setIsLoading(false);
-      }
+  // Check if item has pending updates
+  const isItemPending = (itemId: string) => {
+    return Array.from(pendingUpdates.values()).some(
+      update => update.documentId === itemId && update.collection === 'item_details'
     );
-
-    return () => unsubscribe();
-  }, []); // Remove dependency to prevent subscription recreation
+  };
 
   const refreshItems = async () => {
     try {
-      setRefreshing(true);
-      
-      // Clear any stuck pending updates during manual refresh
-      setPendingStockUpdates(new Set());
-      console.log('Cleared all pending stock updates during refresh');
-      
-      // Force refresh the item data from Firestore
-      await ItemService.forceRefresh();
-      console.log('Items force refreshed');
+      console.log('Refreshing items...');
+      await refetch();
+      console.log('Items refreshed successfully');
     } catch (error) {
       console.error('Error refreshing items:', error);
       alert('Failed to refresh items. Please try again.');
-    } finally {
-      setRefreshing(false);
     }
   };
 
   const handleCreateItem = async (itemData: Omit<ItemDetails, 'id'>) => {
     try {
       setIsFormLoading(true);
-      await ItemService.createItem(itemData);
+      await createItemMutation.mutateAsync(itemData);
       setShowForm(false);
-      // Items will be updated via the real-time subscription
+      console.log('✅ Item created successfully');
     } catch (error) {
-      console.error('Error creating item:', error);
+      console.error('❌ Error creating item:', error);
       throw error; // Re-throw so ItemForm can handle it
     } finally {
       setIsFormLoading(false);
@@ -131,12 +101,15 @@ const ItemsScreen: React.FC = () => {
 
     try {
       setIsFormLoading(true);
-      await ItemService.updateItem(editingItem.id, itemData);
+      await updateItemMutation.mutateAsync({
+        itemId: editingItem.id,
+        itemData
+      });
       setEditingItem(null);
       setShowForm(false);
-      // Items will be updated via the real-time subscription
+      console.log('✅ Item updated successfully');
     } catch (error) {
-      console.error('Error updating item:', error);
+      console.error('❌ Error updating item:', error);
       throw error; // Re-throw so ItemForm can handle it
     } finally {
       setIsFormLoading(false);
@@ -149,10 +122,10 @@ const ItemsScreen: React.FC = () => {
     }
 
     try {
-      await ItemService.deleteItem(itemId);
-      // Items will be updated via the real-time subscription
+      await deleteItemMutation.mutateAsync(itemId);
+      console.log('✅ Item deleted successfully');
     } catch (error) {
-      console.error('Error deleting item:', error);
+      console.error('❌ Error deleting item:', error);
       alert('Failed to delete item. Please try again.');
     }
   };
@@ -167,112 +140,42 @@ const ItemsScreen: React.FC = () => {
     setEditingItem(null);
   };
 
-  // Optimistic update helper
-  const updateItemStockOptimistically = (itemId: string, stockChange: number) => {
-    setItems(prevItems => 
-      prevItems.map(item => {
-        if (item.id === itemId) {
-          const newStock = Math.max(0, item.stocks + stockChange);
-          console.log(`Optimistic update for item ${itemId}: ${item.stocks} → ${newStock} (change: ${stockChange})`);
-          return { ...item, stocks: newStock };
-        }
-        return item;
-      })
-    );
-  };
-
-  // Rollback optimistic update on error
-  const rollbackItemStockUpdate = (itemId: string, stockChange: number) => {
-    setItems(prevItems => 
-      prevItems.map(item => 
-        item.id === itemId 
-          ? { ...item, stocks: Math.max(0, item.stocks - stockChange) }
-          : item
-      )
-    );
-  };
-
   // Handle stock operations with optimistic updates
-  const handleAddStock = async (itemId: string, quantity: number) => {
-    const currentItem = items.find(item => item.id === itemId);
-    console.log(`Adding ${quantity} stock to item ${itemId}. Current stock: ${currentItem?.stocks}`);
-    
-    // Add to pending updates for visual feedback
-    setPendingStockUpdates(prev => {
-      const newSet = new Set(prev).add(itemId);
-      console.log(`Added ${itemId} to pending stock updates. Pending items:`, Array.from(newSet));
-      return newSet;
-    });
-    
-    // Optimistic update - immediately update the UI
-    updateItemStockOptimistically(itemId, quantity);
-    
-    try {
-      await StockService.addStock(itemId, quantity);
-      console.log(`Successfully added ${quantity} stock to item ${itemId} in Firebase`);
-      
-      // Brief wait for real-time sync - auto-clear will handle the rest
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Success - Firebase will sync and the real-time listener will confirm the change
-    } catch (error) {
-      console.error('Error adding stock:', error);
-      // Rollback the optimistic update on error
-      rollbackItemStockUpdate(itemId, quantity);
-      alert(`Failed to add stock. Error: ${error.message}`);
-    } finally {
-      // Remove from pending updates after allowing time for Firebase sync
-      setPendingStockUpdates(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(itemId);
-        console.log(`Removed ${itemId} from pending stock updates. Remaining pending:`, Array.from(newSet));
-        return newSet;
-      });
-    }
+  const handleAddStock = async (itemId: string, quantity: number = 1) => {
+    updateStockMutation.mutate(
+      { itemId, stockChange: quantity },
+      {
+        onSuccess: (data) => {
+          console.log(`✅ Stock added successfully:`, data);
+        },
+        onError: (error) => {
+          console.error('❌ Failed to add stock:', error);
+          alert(`Failed to add stock. Error: ${error.message}`);
+        },
+      }
+    );
   };
 
-  const handleSubtractStock = async (itemId: string, quantity: number) => {
-    // Check if we have enough stock before optimistic update
+  const handleSubtractStock = async (itemId: string, quantity: number = 1) => {
+    // Check current stock before attempting subtraction
     const currentItem = items.find(item => item.id === itemId);
-    if (!currentItem || currentItem.stocks < quantity) {
+    if (!currentItem || (currentItem.stocks || 0) < quantity) {
       alert(`Insufficient stock. Available: ${currentItem?.stocks || 0}, Requested: ${quantity}`);
       return;
     }
-    
-    console.log(`Subtracting ${quantity} stock from item ${itemId}. Current stock: ${currentItem.stocks}`);
-    
-    // Add to pending updates for visual feedback
-    setPendingStockUpdates(prev => {
-      const newSet = new Set(prev).add(itemId);
-      console.log(`Added ${itemId} to pending stock updates. Pending items:`, Array.from(newSet));
-      return newSet;
-    });
-    
-    // Optimistic update - immediately update the UI
-    updateItemStockOptimistically(itemId, -quantity);
-    
-    try {
-      await StockService.subtractStock(itemId, quantity);
-      console.log(`Successfully subtracted ${quantity} stock from item ${itemId} in Firebase`);
-      
-      // Brief wait for real-time sync - auto-clear will handle the rest
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Success - Firebase will sync and the real-time listener will confirm the change
-    } catch (error) {
-      console.error('Error subtracting stock:', error);
-      // Rollback the optimistic update on error
-      rollbackItemStockUpdate(itemId, -quantity);
-      alert(`Failed to subtract stock. Error: ${error.message}`);
-    } finally {
-      // Remove from pending updates after allowing time for Firebase sync
-      setPendingStockUpdates(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(itemId);
-        console.log(`Removed ${itemId} from pending stock updates. Remaining pending:`, Array.from(newSet));
-        return newSet;
-      });
-    }
+
+    updateStockMutation.mutate(
+      { itemId, stockChange: -quantity },
+      {
+        onSuccess: (data) => {
+          console.log(`✅ Stock subtracted successfully:`, data);
+        },
+        onError: (error) => {
+          console.error('❌ Failed to subtract stock:', error);
+          alert(`Failed to subtract stock. Error: ${error.message}`);
+        },
+      }
+    );
   };
 
   // Filter and sort items
@@ -331,17 +234,17 @@ const ItemsScreen: React.FC = () => {
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <TouchableOpacity
               onPress={refreshItems}
-              disabled={refreshing}
+              disabled={isLoading}
               style={{
                 width: 50,
                 height: 50,
                 borderRadius: 25,
-                backgroundColor: refreshing ? '#9ca3af' : '#10b981',
+                backgroundColor: isLoading ? '#9ca3af' : '#10b981',
                 justifyContent: 'center',
                 alignItems: 'center'
               }}
             >
-              {refreshing ? (
+              {isLoading ? (
                 <ActivityIndicator size="small" color="white" />
               ) : (
                 <Text style={{ color: 'white', fontSize: 16 }}>🔄</Text>
@@ -409,7 +312,27 @@ const ItemsScreen: React.FC = () => {
 
       {/* Items List */}
       <ScrollView style={{ flex: 1, paddingHorizontal: 20 }}>
-        {isLoading ? (
+        {error ? (
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 50 }}>
+            <Text style={{ fontSize: 18, color: '#ef4444', marginBottom: 10 }}>
+              ❌ Error loading items
+            </Text>
+            <Text style={{ color: '#6b7280', textAlign: 'center', marginBottom: 20 }}>
+              {error.message}
+            </Text>
+            <TouchableOpacity
+              onPress={() => refetch()}
+              style={{
+                backgroundColor: '#3b82f6',
+                paddingHorizontal: 20,
+                paddingVertical: 12,
+                borderRadius: 8
+              }}
+            >
+              <Text style={{ color: 'white', fontWeight: 'bold' }}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : isLoading ? (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 50 }}>
             <ActivityIndicator size="large" color="#3b82f6" />
             <Text style={{ marginTop: 10, color: '#6b7280' }}>Loading items...</Text>
@@ -441,8 +364,10 @@ const ItemsScreen: React.FC = () => {
           </View>
         ) : (
           filteredAndSortedItems.map((item) => (
-            <View
+            <TouchableOpacity
               key={item.id}
+              onPress={() => handleEditItem(item)}
+              activeOpacity={0.7}
               style={{
                 backgroundColor: 'white',
                 borderRadius: 16,
@@ -456,13 +381,27 @@ const ItemsScreen: React.FC = () => {
               }}
             >
               <View style={{ marginBottom: 12 }}>
-                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1f2937', marginBottom: 4 }}>
-                  {item.item_name}
-                </Text>
-                <Text style={{ color: '#6b7280', fontSize: 14 }}>
-                  {item.item_name.toLowerCase()} - Available in store
-                </Text>
-                <Text style={{ color: '#9ca3af', fontSize: 12, marginTop: 2 }}>GENERAL</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1f2937', marginBottom: 4 }}>
+                      {item.item_name}
+                    </Text>
+                    <Text style={{ color: '#6b7280', fontSize: 14 }}>
+                      {item.item_name.toLowerCase()} - Available in store
+                    </Text>
+                    <Text style={{ color: '#9ca3af', fontSize: 12, marginTop: 2 }}>GENERAL • Tap to edit</Text>
+                  </View>
+                  <View style={{
+                    backgroundColor: '#f3f4f6',
+                    borderRadius: 15,
+                    width: 30,
+                    height: 30,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}>
+                    <Text style={{ fontSize: 12, color: '#6b7280' }}>✏️</Text>
+                  </View>
+                </View>
               </View>
 
               <View style={{
@@ -470,85 +409,16 @@ const ItemsScreen: React.FC = () => {
                 justifyContent: 'space-between',
                 alignItems: 'center'
               }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <View style={{
-                    backgroundColor: item.stocks > 20 ? '#10b981' : item.stocks > 10 ? '#f59e0b' : '#ef4444',
-                    paddingHorizontal: 12,
-                    paddingVertical: 6,
-                    borderRadius: 12,
-                    marginRight: 15,
-                    opacity: pendingStockUpdates.has(item.id) ? 0.7 : 1
-                  }}>
-                    <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>
-                      {item.stocks} in stock{pendingStockUpdates.has(item.id) ? ' (updating...)' : ''}
-                    </Text>
-                  </View>
-
-                  <View style={{ flexDirection: 'row', gap: 10 }}>
-                    {/* Edit Button */}
-                    <TouchableOpacity
-                      onPress={() => handleEditItem(item)}
-                      style={{
-                        backgroundColor: '#3b82f6',
-                        width: 36,
-                        height: 36,
-                        borderRadius: 18,
-                        justifyContent: 'center',
-                        alignItems: 'center'
-                      }}
-                    >
-                      <Text style={{ color: 'white', fontSize: 16 }}>✏️</Text>
-                    </TouchableOpacity>
-
-                    {/* Delete Button */}
-                    <TouchableOpacity
-                      onPress={() => handleDeleteItem(item.id, item.item_name)}
-                      style={{
-                        backgroundColor: '#ef4444',
-                        width: 36,
-                        height: 36,
-                        borderRadius: 18,
-                        justifyContent: 'center',
-                        alignItems: 'center'
-                      }}
-                    >
-                      <Text style={{ color: 'white', fontSize: 16 }}>🗑️</Text>
-                    </TouchableOpacity>
-
-                    {/* Subtract Stock Button */}
-                    <TouchableOpacity
-                      onPress={() => handleSubtractStock(item.id, 1)}
-                      disabled={pendingStockUpdates.has(item.id) || item.stocks <= 0}
-                      style={{
-                        backgroundColor: pendingStockUpdates.has(item.id) || item.stocks <= 0 ? '#9ca3af' : '#f59e0b',
-                        width: 36,
-                        height: 36,
-                        borderRadius: 18,
-                        justifyContent: 'center',
-                        alignItems: 'center'
-                      }}
-                    >
-                      <Text style={{ color: 'white', fontSize: 16 }}>-</Text>
-                    </TouchableOpacity>
-
-                    {/* Add Stock Button */}
-                    <TouchableOpacity
-                      onPress={() => handleAddStock(item.id, 1)}
-                      disabled={pendingStockUpdates.has(item.id)}
-                      style={{
-                        backgroundColor: pendingStockUpdates.has(item.id) ? '#9ca3af' : '#10b981',
-                        width: 36,
-                        height: 36,
-                        borderRadius: 18,
-                        justifyContent: 'center',
-                        alignItems: 'center'
-                      }}
-                    >
-                      <Text style={{ color: 'white', fontSize: 16 }}>
-                        {pendingStockUpdates.has(item.id) ? '⏳' : '+'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
+                <View style={{
+                  backgroundColor: item.stocks > 20 ? '#10b981' : item.stocks > 10 ? '#f59e0b' : '#ef4444',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 12,
+                  opacity: isItemPending(item.id) ? 0.7 : 1
+                }}>
+                  <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>
+                    {item.stocks || 0} in stock{isItemPending(item.id) ? ' (updating...)' : ''}
+                  </Text>
                 </View>
 
                 <Text style={{
@@ -559,7 +429,7 @@ const ItemsScreen: React.FC = () => {
                   ${item.price.toFixed(2)}
                 </Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ))
         )}
       </ScrollView>

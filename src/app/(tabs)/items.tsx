@@ -11,7 +11,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ItemService from '../../services/ItemService';
 import StockService from '../../services/StockService';
 import { ItemDetails } from '../../types';
-import AddItemModal from '../../components/AddItemModal';
+import AddItemModalSynced from '../../components/AddItemModalSynced';
+import { useItems, useCreateItem, useUpdateItem, useDeleteItem, useUpdateStock } from '../../hooks/useSyncManager';
+import { usePendingUpdates } from '../../store/syncStore';
 
 // Import new components
 import ItemsHeader from '../../components/Items/ItemsHeader';
@@ -20,10 +22,25 @@ import DeleteConfirmationModal from '../../components/Items/DeleteConfirmationMo
 import EditItemModal from '../../components/Items/EditItemModal';
 
 const ItemsScreen: React.FC = () => {
-  const [items, setItems] = useState<ItemDetails[]>([]);
-  const [loading, setLoading] = useState(true);
+  // TanStack Query hooks for items
+  const { 
+    data: items = [], 
+    isLoading: loading, 
+    error, 
+    refetch 
+  } = useItems();
+  
+  // Mutation hooks
+  const createItemMutation = useCreateItem();
+  const updateItemMutation = useUpdateItem();
+  const deleteItemMutation = useDeleteItem();
+  const updateStockMutation = useUpdateStock();
+  
+  // Zustand state for pending updates
+  const pendingUpdates = usePendingUpdates();
+  
+  // Local UI state
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   
   // Search, Filter, Sort states
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,27 +61,20 @@ const ItemsScreen: React.FC = () => {
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  useEffect(() => {
-    loadItems();
-  }, []);
-
-  const loadItems = async () => {
-    try {
-      setError(null);
-      const itemData = await ItemService.getAllItems();
-      setItems(itemData);
-    } catch (err) {
-      console.error('Error loading items:', err);
-      setError('Failed to load items. Please try again.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+  // Check if item has pending updates
+  const isItemPending = (itemId: string) => {
+    return Array.from(pendingUpdates.values()).some(
+      update => update.documentId === itemId && update.collection === 'item_details'
+    );
   };
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadItems();
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   // Filter and sort items
@@ -106,13 +116,18 @@ const ItemsScreen: React.FC = () => {
 
   // Stock management functions
   const handleAddStock = async (itemId: string) => {
-    try {
-      await StockService.addStock(itemId, 1);
-      Alert.alert('Success', 'Stock added successfully!');
-    } catch (error) {
-      console.error('Error adding stock:', error);
-      Alert.alert('Error', 'Failed to add stock');
-    }
+    updateStockMutation.mutate(
+      { itemId, stockChange: 1 },
+      {
+        onSuccess: (data) => {
+          console.log(`✅ Stock added successfully:`, data);
+        },
+        onError: (error) => {
+          console.error('❌ Failed to add stock:', error);
+          Alert.alert('Error', 'Failed to add stock');
+        },
+      }
+    );
   };
 
   // Edit functions
@@ -125,8 +140,10 @@ const ItemsScreen: React.FC = () => {
     if (!editingItem) return;
     
     try {
-      await ItemService.updateItem(editingItem.id, itemData);
-      await loadItems(); // Refresh the list
+      await updateItemMutation.mutateAsync({
+        itemId: editingItem.id,
+        itemData
+      });
     } catch (error) {
       throw error; // Re-throw so modal can handle it
     }
@@ -156,21 +173,18 @@ const ItemsScreen: React.FC = () => {
       switch (deleteMode) {
         case 'single':
           if (itemToDelete) {
-            await ItemService.deleteItem(itemToDelete);
-            setItems(items.filter(i => i.id !== itemToDelete));
+            await deleteItemMutation.mutateAsync(itemToDelete);
           }
           break;
         case 'multiple':
           const selectedIds = Array.from(selectedItems);
-          await Promise.all(selectedIds.map(id => ItemService.deleteItem(id)));
-          setItems(items.filter(i => !selectedItems.has(i.id)));
+          await Promise.all(selectedIds.map(id => deleteItemMutation.mutateAsync(id)));
           setSelectedItems(new Set());
           setIsSelectionMode(false);
           break;
         case 'all':
           const allIds = filteredAndSortedItems.map(i => i.id);
-          await Promise.all(allIds.map(id => ItemService.deleteItem(id)));
-          setItems(items.filter(i => !allIds.includes(i.id)));
+          await Promise.all(allIds.map(id => deleteItemMutation.mutateAsync(id)));
           break;
       }
       Alert.alert(
@@ -268,7 +282,7 @@ const ItemsScreen: React.FC = () => {
           onDeleteAll={handleDeleteAll}
           onClearSelection={clearSelection}
           onToggleFilters={() => setShowFilters(!showFilters)}
-          onRefresh={loadItems}
+          onRefresh={onRefresh}
           onSearchChange={setSearchQuery}
           onClearSearch={() => setSearchQuery('')}
           onSortByChange={(sortBy) => setSortBy(sortBy)}
@@ -299,10 +313,9 @@ const ItemsScreen: React.FC = () => {
         )}
         
         {/* Modals */}
-        <AddItemModal
+        <AddItemModalSynced
           visible={showAddModal}
           onClose={() => setShowAddModal(false)}
-          onItemAdded={loadItems}
         />
 
         <EditItemModal

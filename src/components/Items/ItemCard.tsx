@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ItemDetails } from '../../types';
+import { usePendingUpdates } from '../../store/syncStore';
 
 interface ItemCardProps {
   item: ItemDetails;
@@ -32,6 +33,12 @@ const ItemCard: React.FC<ItemCardProps> = ({
   onDeleteItem,
   onAddStock,
 }) => {
+  const pendingUpdates = usePendingUpdates();
+  
+  // Check if item has pending updates
+  const isItemPending = Array.from(pendingUpdates.values()).some(
+    update => update.documentId === item.id && update.collection === 'item_details'
+  );
   const getStockColor = (stock: number) => {
     if (stock > 20) return '#10b981';
     if (stock > 10) return '#f59e0b';
@@ -57,7 +64,7 @@ const ItemCard: React.FC<ItemCardProps> = ({
         isSelected && styles.cardSelected,
         isSelectionMode && styles.cardSelectionMode,
       ]}
-      onPress={onPress}
+      onPress={isSelectionMode ? onPress : () => onEditItem(item)}
       onLongPress={onLongPress}
       activeOpacity={0.7}
     >
@@ -88,45 +95,21 @@ const ItemCard: React.FC<ItemCardProps> = ({
           </View>
 
           {/* Stock Badge */}
-          <View style={[styles.stockBadge, { backgroundColor: getStockColor(item.stocks || 0) }]}>
+          <View style={[styles.stockBadge, { 
+            backgroundColor: getStockColor(item.stocks || 0),
+            opacity: isItemPending ? 0.7 : 1
+          }]}>
             <Ionicons 
               name={getStockIcon(item.stocks || 0)} 
               size={12} 
               color="white" 
             />
             <Text style={styles.stockText}>
-              {getStockText(item.stocks || 0)}
+              {getStockText(item.stocks || 0)}{isItemPending ? ' (updating...)' : ''}
             </Text>
           </View>
         </View>
 
-        {/* Actions */}
-        {!isSelectionMode && (
-          <View style={styles.cardActions}>
-            <TouchableOpacity
-              style={[styles.actionButton, styles.editButton]}
-              onPress={() => onEditItem(item)}
-            >
-              <Ionicons name="pencil-outline" size={16} color="#3b82f6" />
-              <Text style={styles.editButtonText}>Edit</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.actionButton, styles.stockButton]}
-              onPress={() => onAddStock(item.id)}
-            >
-              <Ionicons name="add-circle-outline" size={16} color="#10b981" />
-              <Text style={styles.stockButtonText}>+1</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.actionButton, styles.deleteButton]}
-              onPress={() => onDeleteItem(item.id)}
-            >
-              <Ionicons name="trash-outline" size={16} color="#ef4444" />
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
     </TouchableOpacity>
   );
@@ -177,7 +160,7 @@ const styles = StyleSheet.create({
   },
   cardContent: {
     padding: 16,
-    paddingLeft: isSelectionMode => isSelectionMode ? 44 : 16,
+    paddingLeft: 16,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -214,43 +197,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: 'white',
     marginLeft: 4,
-  },
-  cardActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    flex: 1,
-    marginHorizontal: 4,
-    justifyContent: 'center',
-  },
-  editButton: {
-    backgroundColor: '#eff6ff',
-  },
-  editButtonText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#3b82f6',
-    marginLeft: 4,
-  },
-  stockButton: {
-    backgroundColor: '#f0fdf4',
-  },
-  stockButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#10b981',
-    marginLeft: 4,
-  },
-  deleteButton: {
-    backgroundColor: '#fef2f2',
-    paddingHorizontal: 12,
   },
 });
 

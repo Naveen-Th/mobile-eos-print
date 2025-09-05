@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,9 +6,11 @@ import {
   StyleSheet,
   ScrollView,
   Switch,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import PartyManagementScreen from '../../screens/PartyManagementScreen';
 
 interface SettingItem {
   id: string;
@@ -21,6 +23,8 @@ interface SettingItem {
 }
 
 const SettingsScreen: React.FC = () => {
+  const [showPartyManagement, setShowPartyManagement] = useState(false);
+  
   const settingsData: SettingItem[] = [
     {
       id: '1',
@@ -48,6 +52,14 @@ const SettingsScreen: React.FC = () => {
     },
     {
       id: '4',
+      title: 'Party Name',
+      subtitle: 'Manage party details',
+      type: 'navigation',
+      icon: 'people-outline',
+      onPress: () => setShowPartyManagement(true),
+    },
+    {
+      id: '5',
       title: 'Receipt Template',
       subtitle: 'Customize receipt format',
       type: 'navigation',
@@ -55,7 +67,7 @@ const SettingsScreen: React.FC = () => {
       onPress: () => console.log('Receipt template pressed'),
     },
     {
-      id: '5',
+      id: '6',
       title: 'Auto Print',
       subtitle: 'Automatically print receipts',
       type: 'toggle',
@@ -63,7 +75,7 @@ const SettingsScreen: React.FC = () => {
       value: true,
     },
     {
-      id: '6',
+      id: '7',
       title: 'Sound Notifications',
       subtitle: 'Play sound for print confirmations',
       type: 'toggle',
@@ -71,7 +83,7 @@ const SettingsScreen: React.FC = () => {
       value: false,
     },
     {
-      id: '7',
+      id: '8',
       title: 'Backup Data',
       subtitle: 'Backup receipts and settings',
       type: 'navigation',
@@ -79,7 +91,7 @@ const SettingsScreen: React.FC = () => {
       onPress: () => console.log('Backup pressed'),
     },
     {
-      id: '8',
+      id: '9',
       title: 'App Version',
       subtitle: '1.0.0',
       type: 'info',
@@ -158,21 +170,21 @@ const SettingsScreen: React.FC = () => {
         <View style={styles.settingsSection}>
           <Text style={styles.sectionTitle}>App Settings</Text>
           <View style={styles.settingsCard}>
-            {settingsData.slice(0, 4).map(renderSettingItem)}
+            {settingsData.slice(0, 5).map(renderSettingItem)}
           </View>
         </View>
 
         <View style={styles.settingsSection}>
           <Text style={styles.sectionTitle}>Preferences</Text>
           <View style={styles.settingsCard}>
-            {settingsData.slice(4, 6).map(renderSettingItem)}
+            {settingsData.slice(5, 7).map(renderSettingItem)}
           </View>
         </View>
 
         <View style={styles.settingsSection}>
           <Text style={styles.sectionTitle}>Data & Info</Text>
           <View style={styles.settingsCard}>
-            {settingsData.slice(6).map(renderSettingItem)}
+            {settingsData.slice(7).map(renderSettingItem)}
           </View>
         </View>
 
@@ -184,6 +196,16 @@ const SettingsScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
       </ScrollView>
+      
+      {/* Party Management Modal */}
+      <Modal
+        visible={showPartyManagement}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowPartyManagement(false)}
+      >
+        <PartyManagementScreen onBack={() => setShowPartyManagement(false)} />
+      </Modal>
     </SafeAreaView>
   );
 };

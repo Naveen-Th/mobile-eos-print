@@ -1,5 +1,11 @@
 import { create } from 'zustand';
-import { devtools, subscribeWithSelector, immer } from 'zustand/middleware';
+import { devtools, subscribeWithSelector } from 'zustand/middleware';
+import { immer } from 'zustand/middleware/immer';
+import { enableMapSet } from 'immer';
+import { Platform } from 'react-native';
+
+// Enable Immer MapSet plugin for Map and Set support
+enableMapSet();
 
 export interface ConnectionState {
   isOnline: boolean;
@@ -23,12 +29,12 @@ export interface SyncState {
   // Connection management
   connection: ConnectionState;
   
-  // Optimistic updates tracking
-  pendingUpdates: Map<string, OptimisticUpdate>;
-  failedUpdates: Map<string, OptimisticUpdate>;
+  // Optimistic updates tracking (using Record instead of Map)
+  pendingUpdates: Record<string, OptimisticUpdate>;
+  failedUpdates: Record<string, OptimisticUpdate>;
   
-  // Real-time listeners tracking
-  activeListeners: Set<string>;
+  // Real-time listeners tracking (using array instead of Set)
+  activeListeners: string[];
   
   // Performance metrics
   metrics: {
@@ -48,10 +54,10 @@ export interface SyncState {
   removeActiveListener: (listenerId: string) => void;
   updateMetrics: (syncTime?: number, failed?: boolean) => void;
   reset: () => void;
-}
+};
 
 const initialConnectionState: ConnectionState = {
-  isOnline: navigator.onLine ?? true,
+  isOnline: true, // React Native doesn't have navigator.onLine
   isConnected: false,
   lastSync: null,
   connectionQuality: 'excellent',
@@ -63,9 +69,9 @@ export const useSyncStore = create<SyncState>()(
     subscribeWithSelector(
       immer((set, get) => ({
         connection: initialConnectionState,
-        pendingUpdates: new Map(),
-        failedUpdates: new Map(),
-        activeListeners: new Set(),
+        pendingUpdates: {},
+        failedUpdates: {},
+        activeListeners: [],
         metrics: {
           totalSyncs: 0,
           failedSyncs: 0,
@@ -79,45 +85,50 @@ export const useSyncStore = create<SyncState>()(
 
         addOptimisticUpdate: (update) =>
           set((state) => {
-            state.pendingUpdates.set(update.id, update);
+            state.pendingUpdates[update.id] = update;
           }),
 
         removeOptimisticUpdate: (id) =>
           set((state) => {
-            state.pendingUpdates.delete(id);
+            delete state.pendingUpdates[id];
           }),
 
         moveToFailed: (id) =>
           set((state) => {
-            const update = state.pendingUpdates.get(id);
+            const update = state.pendingUpdates[id];
             if (update) {
-              state.pendingUpdates.delete(id);
-              state.failedUpdates.set(id, update);
+              delete state.pendingUpdates[id];
+              state.failedUpdates[id] = update;
             }
           }),
 
         retryFailedUpdate: (id) =>
           set((state) => {
-            const update = state.failedUpdates.get(id);
+            const update = state.failedUpdates[id];
             if (update) {
-              state.failedUpdates.delete(id);
-              state.pendingUpdates.set(id, update);
+              delete state.failedUpdates[id];
+              state.pendingUpdates[id] = update;
             }
           }),
 
         clearFailedUpdates: () =>
           set((state) => {
-            state.failedUpdates.clear();
+            state.failedUpdates = {};
           }),
 
         addActiveListener: (listenerId) =>
           set((state) => {
-            state.activeListeners.add(listenerId);
+            if (!state.activeListeners.includes(listenerId)) {
+              state.activeListeners.push(listenerId);
+            }
           }),
 
         removeActiveListener: (listenerId) =>
           set((state) => {
-            state.activeListeners.delete(listenerId);
+            const index = state.activeListeners.indexOf(listenerId);
+            if (index > -1) {
+              state.activeListeners.splice(index, 1);
+            }
           }),
 
         updateMetrics: (syncTime, failed = false) =>
@@ -135,9 +146,9 @@ export const useSyncStore = create<SyncState>()(
 
         reset: () =>
           set((state) => {
-            state.pendingUpdates.clear();
-            state.failedUpdates.clear();
-            state.activeListeners.clear();
+            state.pendingUpdates = {};
+            state.failedUpdates = {};
+            state.activeListeners = [];
             state.connection = initialConnectionState;
             state.metrics = {
               totalSyncs: 0,
@@ -153,6 +164,14 @@ export const useSyncStore = create<SyncState>()(
 
 // Selector hooks for better performance
 export const useConnectionState = () => useSyncStore((state) => state.connection);
-export const usePendingUpdates = () => useSyncStore((state) => state.pendingUpdates);
-export const useFailedUpdates = () => useSyncStore((state) => state.failedUpdates);
+export const usePendingUpdates = () => {
+  const updates = useSyncStore((state) => state.pendingUpdates);
+  // Convert Record to Map for compatibility with existing code
+  return new Map(Object.entries(updates));
+};
+export const useFailedUpdates = () => {
+  const updates = useSyncStore((state) => state.failedUpdates);
+  // Convert Record to Map for compatibility with existing code  
+  return new Map(Object.entries(updates));
+};
 export const useSyncMetrics = () => useSyncStore((state) => state.metrics);

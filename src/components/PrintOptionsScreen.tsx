@@ -18,12 +18,16 @@ import { StorageService } from '../services/StorageService';
 import { DirectFileSystemService } from '../services/DirectFileSystemService';
 import ReceiptFirebaseService from '../services/ReceiptFirebaseService';
 import StockService from '../services/StockService';
+import { Alert as RNAlert } from 'react-native';
 import { Alert, ReceiptAlerts } from './common';
 import {
   formatCurrency,
   generateId,
   generateReceiptNumber,
   validateCustomerInfo,
+  calculateTotals,
+  isValidMoneyAmount,
+  roundMoney,
 } from '../utils';
 
 interface PrintOptionsScreenProps {
@@ -49,20 +53,25 @@ export const PrintOptionsScreen: React.FC<PrintOptionsScreenProps> = ({
   const items = cartItems || cartState.items;
   const customer = customerName || cartState.customerName;
   
-  // Calculate totals for provided items or use cart state
-  const subtotal = cartItems 
-    ? cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0)
-    : cartState.subtotal;
-  const tax = subtotal * 0.08; // 8% tax rate
-  const total = subtotal + tax;
+  // Calculate totals for provided items or use cart state with precise arithmetic
+  const totals = cartItems 
+    ? calculateTotals(cartItems, 8) // 8% tax rate as percentage
+    : {
+        subtotal: cartState.subtotal,
+        tax: cartState.tax,
+        total: cartState.total,
+        discount: cartState.discount
+      };
+  
+  const { subtotal, tax, total, discount } = totals;
 
-  // Mock company settings
+  // Mock company settings with percentage tax rate
   const companySettings = {
     name: 'My Store',
     address: '123 Business St, City, State 12345',
     phone: '(555) 123-4567',
     email: 'info@mystore.com',
-    taxRate: 0.08,
+    taxRate: 8, // Tax rate as percentage (8% instead of 0.08)
   };
 
   const handleBackPress = () => {
@@ -116,53 +125,126 @@ export const PrintOptionsScreen: React.FC<PrintOptionsScreenProps> = ({
   };
 
   const validateData = (): boolean => {
-    if (items.length === 0) {
-      Alert.warning('No items to print', '🛒 Empty Cart');
+    if (!items || items.length === 0) {
+      RNAlert.alert('No Items', 'Cart is empty. Add items before printing.', [{ text: 'OK' }]);
       return false;
     }
 
-    // Validate customer information
-    const customerErrors = validateCustomerInfo({
-      customerName: customer?.trim(),
-    });
+    // Validate each item has required properties
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item.id || !item.name || !isValidMoneyAmount(item.price) || typeof item.quantity !== 'number') {
+        RNAlert.alert(
+          'Invalid Item',
+          `Item ${i + 1} has missing or invalid data. Please refresh and try again.`,
+          [{ text: 'OK' }]
+        );
+        return false;
+      }
+      
+      if (item.quantity <= 0) {
+        RNAlert.alert(
+          'Invalid Quantity',
+          `Item "${item.name}" has invalid quantity. Please update and try again.`,
+          [{ text: 'OK' }]
+        );
+        return false;
+      }
+    }
 
-    if (customerErrors.length > 0) {
-      ReceiptAlerts.validationError('Customer Information', customerErrors[0].message);
-      return false;
+    // Validate customer information if provided
+    if (customer) {
+      const customerErrors = validateCustomerInfo({
+        customerName: customer.trim(),
+      });
+
+      if (customerErrors.length > 0) {
+        RNAlert.alert(
+          'Invalid Customer Information',
+          customerErrors[0].message,
+          [{ text: 'OK' }]
+        );
+        return false;
+      }
     }
 
     return true;
   };
 
   const createReceipt = (): Receipt => {
+    // Ensure we have valid data before creating receipt
+    const validatedItems = items.map(item => ({
+      ...item,
+      id: item.id || generateId(),
+      name: item.name || 'Unknown Item',
+      price: typeof item.price === 'number' ? item.price : 0,
+      quantity: typeof item.quantity === 'number' && item.quantity > 0 ? item.quantity : 1,
+    }));
+    
     return {
       id: generateId(),
-      items: items,
-      subtotal: subtotal,
-      tax: tax,
-      total: total,
+      items: validatedItems,
+      subtotal: roundMoney(Math.max(0, subtotal || 0)),
+      tax: roundMoney(Math.max(0, tax || 0)),
+      total: roundMoney(Math.max(0, total || 0)),
+      discount: roundMoney(Math.max(0, discount || 0)),
       date: new Date(),
       receiptNumber: generateReceiptNumber(),
-      companyName: companySettings.name,
-      companyAddress: companySettings.address,
+      companyName: companySettings.name || 'Unknown Company',
+      companyAddress: companySettings.address || 'No Address',
       footerMessage: 'Thank you for your business!',
-      customerName: customer,
+      customerName: customer?.trim() || undefined,
     };
   };
 
-  const subtractStockForItems = async (receiptItems: any[]) => {
+  const subtractStockForItems = async (receiptItems: any[]): Promise<{ success: boolean; errors: string[] }> => {
+    const errors: string[] = [];
+    let successCount = 0;
+    
     try {
+      // Process items sequentially to avoid race conditions
       for (const item of receiptItems) {
-        // For items from cart, we need to find the corresponding item in Firebase by name
-        // This assumes item.name matches the item_name in Firebase
-        await StockService.subtractStock(item.id, item.quantity);
-        console.log(`Subtracted ${item.quantity} from stock for item: ${item.name}`);
+        try {
+          // Validate item data
+          if (!item.id || typeof item.quantity !== 'number' || item.quantity <= 0) {
+            errors.push(`Invalid item data for "${item.name || 'unknown item'}"`);  
+            continue;
+          }
+          
+          // Check if item has sufficient stock before attempting to subtract
+          const hasSufficientStock = await StockService.hasSufficientStock(item.id, item.quantity);
+          if (!hasSufficientStock) {
+            errors.push(`Insufficient stock for "${item.name}". Please check inventory.`);
+            continue;
+          }
+          
+          // Subtract stock
+          await StockService.subtractStock(item.id, item.quantity);
+          console.log(`Successfully subtracted ${item.quantity} from stock for item: ${item.name}`);
+          successCount++;
+        } catch (itemError: any) {
+          console.error(`Error updating stock for item ${item.name}:`, itemError);
+          errors.push(`Failed to update stock for "${item.name}": ${itemError.message || 'Unknown error'}`);
+        }
       }
-      console.log('Stock levels updated successfully for all items');
-      return true;
-    } catch (error) {
-      console.error('Error updating stock levels:', error);
-      return false;
+      
+      const allSuccessful = errors.length === 0;
+      console.log(`Stock update summary: ${successCount}/${receiptItems.length} items updated successfully`);
+      
+      if (errors.length > 0) {
+        console.warn('Stock update errors:', errors);
+      }
+      
+      return {
+        success: allSuccessful,
+        errors
+      };
+    } catch (error: any) {
+      console.error('Critical error in stock update process:', error);
+      return {
+        success: false,
+        errors: [`Critical error: ${error.message || 'Unknown error'}`]
+      };
     }
   };
 

@@ -6,7 +6,32 @@
   <component name="ChangeListManager">
     <list default="true" id="0584559d-6515-4de5-8967-61fa3aa61661" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/../../App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/../../App.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../eas.json" beforeDir="false" afterPath="$PROJECT_DIR$/eas.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/App.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/package-lock.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/App.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/app/(tabs)/_layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/_layout.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/app/(tabs)/items.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/items.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/app/(tabs)/receipts.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/receipts.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/app/(tabs)/settings.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/settings.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/Items/ItemCard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/Items/ItemCard.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/ItemsScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/ItemsScreen.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/ItemsScreenNew.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/ItemsScreenNew.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/PrintOptionsScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/PrintOptionsScreen.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/ReceiptCreationScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/ReceiptCreationScreen.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/ReceiptsScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/ReceiptsScreen.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/context/CartContext.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/context/CartContext.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/hooks/useSyncManager.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/hooks/useSyncManager.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/layout/AppLayout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/layout/AppLayout.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/providers/QueryProvider.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/providers/QueryProvider.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/MobileAuthService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/MobileAuthService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/ReceiptFirebaseService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ReceiptFirebaseService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/StockService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/StockService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/store/syncStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/store/syncStore.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/types/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/types/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/index.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../../package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/../../package-lock.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../../package.json" beforeDir="false" afterPath="$PROJECT_DIR$/../../package.json" afterDir="false" />
     </list>

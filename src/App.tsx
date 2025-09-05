@@ -4,6 +4,10 @@ import { QueryProvider } from './providers/QueryProvider';
 import { useConnectionMonitor } from './hooks/useSyncManager';
 import ItemsScreenNew from './components/ItemsScreenNew';
 import SyncStatus from './components/SyncStatus';
+import { enableMapSet } from 'immer';
+
+// Enable Immer MapSet plugin for Map and Set support
+enableMapSet();
 
 // Connection monitor component
 const ConnectionMonitor: React.FC = () => {

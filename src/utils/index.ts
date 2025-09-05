@@ -1,19 +1,32 @@
 import {ReceiptItem, ValidationError} from '../types';
+import { MoneyUtils } from './MoneyUtils';
 
 /**
  * Format currency amount with proper locale and currency symbol
+ * Updated to use MoneyUtils for precise formatting
  */
 export const formatCurrency = (
   amount: number,
-  currency = 'USD',
-  locale = 'en-US',
+  currency = 'INR',
+  locale = 'en-IN',
 ): string => {
-  return new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+  // Use MoneyUtils for precise formatting
+  if (!MoneyUtils.isValidMoney(amount)) {
+    return currency === 'INR' ? '₹0.00' : '$0.00';
+  }
+  
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(MoneyUtils.round(amount));
+  } catch (error) {
+    console.error('Error formatting currency:', error);
+    const symbol = currency === 'INR' ? '₹' : '$';
+    return MoneyUtils.format(amount, symbol);
+  }
 };
 
 /**
@@ -125,53 +138,113 @@ export const generateReceiptNumber = (): string => {
 };
 
 /**
- * Calculate cart totals
+ * Calculate cart totals with precise monetary arithmetic
+ * Updated to use MoneyUtils for floating-point safe calculations
  */
 export const calculateTotals = (
   items: ReceiptItem[],
-  taxRate = 0.08,
-): {subtotal: number; tax: number; total: number} => {
-  const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const tax = subtotal * taxRate;
-  const total = subtotal + tax;
+  taxRate = 8, // Store as percentage (8% instead of 0.08)
+  globalDiscount = 0,
+  globalDiscountType: 'percentage' | 'fixed' = 'percentage'
+): {subtotal: number; tax: number; total: number; discount: number} => {
+  try {
+    // Validate inputs
+    if (!Array.isArray(items)) {
+      throw new Error('Items must be an array');
+    }
+    
+    if (items.length === 0) {
+      return {
+        subtotal: 0,
+        tax: 0,
+        total: 0,
+        discount: 0
+      };
+    }
 
-  return {
-    subtotal: parseFloat(subtotal.toFixed(2)),
-    tax: parseFloat(tax.toFixed(2)),
-    total: parseFloat(total.toFixed(2)),
-  };
+    // Convert items to format expected by MoneyUtils
+    const itemsForCalculation = items.map(item => ({
+      price: item.price || 0,
+      quantity: item.quantity || 0,
+      discount: item.discount || 0
+    }));
+
+    // Use MoneyUtils for precise calculations
+    const result = MoneyUtils.calculateCartTotals(
+      itemsForCalculation,
+      taxRate,
+      globalDiscount,
+      globalDiscountType
+    );
+
+    return result;
+  } catch (error) {
+    console.error('Error calculating totals:', error);
+    // Return safe defaults
+    return {
+      subtotal: 0,
+      tax: 0,
+      total: 0,
+      discount: 0
+    };
+  }
 };
 
 /**
- * Validate receipt item
+ * Validate receipt item with enhanced business rules
+ * Updated to use MoneyUtils for price validation
  */
 export const validateReceiptItem = (
   item: Partial<ReceiptItem>,
 ): ValidationError[] => {
   const errors: ValidationError[] = [];
 
+  // Validate item name
   if (!item.name || item.name.trim() === '') {
     errors.push({field: 'name', message: 'Item name is required'});
-  } else if (item.name.length > 50) {
-    errors.push({field: 'name', message: 'Item name must be 50 characters or less'});
+  } else if (item.name.length > 100) {
+    errors.push({field: 'name', message: 'Item name must be 100 characters or less'});
+  } else if (item.name.trim().length < 2) {
+    errors.push({field: 'name', message: 'Item name must be at least 2 characters'});
   }
 
+  // Validate price using MoneyUtils
   if (item.price === undefined || item.price === null) {
     errors.push({field: 'price', message: 'Price is required'});
-  } else if (item.price < 0) {
-    errors.push({field: 'price', message: 'Price must be positive'});
-  } else if (item.price > 999999.99) {
-    errors.push({field: 'price', message: 'Price is too large'});
+  } else if (!MoneyUtils.isValidMoney(item.price)) {
+    if (item.price < 0) {
+      errors.push({field: 'price', message: 'Price must be positive'});
+    } else if (item.price > 999999.99) {
+      errors.push({field: 'price', message: 'Price is too large (maximum ₹999,999.99)'});
+    } else {
+      errors.push({field: 'price', message: 'Invalid price format'});
+    }
+  } else if (item.price < 0.01) {
+    errors.push({field: 'price', message: 'Price must be at least ₹0.01'});
   }
 
+  // Validate quantity
   if (item.quantity === undefined || item.quantity === null) {
     errors.push({field: 'quantity', message: 'Quantity is required'});
+  } else if (typeof item.quantity !== 'number' || isNaN(item.quantity)) {
+    errors.push({field: 'quantity', message: 'Quantity must be a valid number'});
   } else if (item.quantity <= 0) {
     errors.push({field: 'quantity', message: 'Quantity must be greater than 0'});
   } else if (item.quantity > 9999) {
-    errors.push({field: 'quantity', message: 'Quantity is too large'});
+    errors.push({field: 'quantity', message: 'Quantity is too large (maximum 9,999)'});
   } else if (!Number.isInteger(item.quantity)) {
     errors.push({field: 'quantity', message: 'Quantity must be a whole number'});
+  }
+
+  // Validate optional discount
+  if (item.discount !== undefined && item.discount !== null) {
+    if (typeof item.discount !== 'number' || isNaN(item.discount)) {
+      errors.push({field: 'discount', message: 'Discount must be a valid number'});
+    } else if (item.discount < 0) {
+      errors.push({field: 'discount', message: 'Discount cannot be negative'});
+    } else if (item.discount > 100) {
+      errors.push({field: 'discount', message: 'Discount cannot exceed 100%'});
+    }
   }
 
   return errors;
@@ -237,7 +310,13 @@ export const validateCompanySettings = (settings: {
   }
 
   if (settings.taxRate !== undefined) {
-    if (settings.taxRate < 0 || settings.taxRate > 1) {
+    // Expect tax rate as percentage (0-100) instead of decimal (0-1)
+    if (typeof settings.taxRate !== 'number' || isNaN(settings.taxRate)) {
+      errors.push({
+        field: 'taxRate',
+        message: 'Tax rate must be a valid number',
+      });
+    } else if (settings.taxRate < 0 || settings.taxRate > 100) {
       errors.push({
         field: 'taxRate',
         message: 'Tax rate must be between 0% and 100%',
@@ -303,21 +382,28 @@ export const createSeparatorLine = (width = 48, char = '-'): string => {
 
 /**
  * Format item line for receipt (name on left, price on right)
+ * Updated to use MoneyUtils for price formatting
  */
 export const formatReceiptItemLine = (
   name: string,
-  price: string,
+  price: number | string,
   width = 48,
 ): string => {
   const sanitizedName = sanitizeForPrint(name);
-  const maxNameLength = width - price.length - 1; // -1 for space
+  
+  // Format price using MoneyUtils if it's a number
+  const formattedPrice = typeof price === 'number' 
+    ? MoneyUtils.format(price, '₹')
+    : price;
+  
+  const maxNameLength = width - formattedPrice.length - 1; // -1 for space
   
   const truncatedName = sanitizedName.length > maxNameLength 
     ? sanitizedName.substring(0, maxNameLength - 3) + '...'
     : sanitizedName;
     
-  const padding = width - truncatedName.length - price.length;
-  return truncatedName + ' '.repeat(Math.max(1, padding)) + price;
+  const padding = width - truncatedName.length - formattedPrice.length;
+  return truncatedName + ' '.repeat(Math.max(1, padding)) + formattedPrice;
 };
 
 /**
@@ -362,4 +448,67 @@ export const retryWithBackoff = async <T>(
   }
   
   throw lastError!;
+};
+
+/**
+ * Calculate item total (price × quantity) with precise arithmetic
+ */
+export const calculateItemTotal = (
+  price: number,
+  quantity: number,
+  discount = 0
+): number => {
+  const itemTotal = MoneyUtils.multiply(price, quantity);
+  return discount > 0 ? MoneyUtils.applyDiscount(itemTotal, discount) : itemTotal;
+};
+
+/**
+ * Apply discount to an amount
+ */
+export const applyDiscount = (
+  amount: number,
+  discountPercent: number
+): number => {
+  return MoneyUtils.applyDiscount(amount, discountPercent);
+};
+
+/**
+ * Calculate tax on an amount
+ */
+export const calculateTax = (
+  amount: number,
+  taxRatePercent: number
+): number => {
+  return MoneyUtils.multiply(amount, taxRatePercent / 100);
+};
+
+/**
+ * Round monetary value to 2 decimal places
+ */
+export const roundMoney = (amount: number): number => {
+  return MoneyUtils.round(amount);
+};
+
+/**
+ * Validate if a value is a valid monetary amount
+ */
+export const isValidMoneyAmount = (amount: any): boolean => {
+  return MoneyUtils.isValidMoney(amount);
+};
+
+/**
+ * Add multiple monetary amounts safely
+ */
+export const addMoneyAmounts = (...amounts: number[]): number => {
+  return amounts.reduce((sum, amount) => MoneyUtils.add(sum, amount), 0);
+};
+
+/**
+ * Subtract monetary amounts safely
+ */
+export const subtractMoneyAmounts = (
+  minuend: number,
+  subtrahend: number
+): number => {
+  return MoneyUtils.subtract(minuend, subtrahend);
 };

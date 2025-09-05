@@ -3,6 +3,10 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import MobileApp from './src/MobileApp';
 import { AlertProvider } from './src/components/common/Alert';
+import { enableMapSet } from 'immer';
+
+// Enable Immer MapSet plugin for Map and Set support
+enableMapSet();
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();

@@ -11,18 +11,15 @@ import {
 import { Alert, ReceiptAlerts } from './common';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useCart } from '../context/CartContext';
 import { PrintOptionsScreen } from './PrintOptionsScreen';
 import SearchableDropdown from './SearchableDropdown';
-import { ItemDetails, Receipt, ReceiptItem } from '../types';
+import { ItemDetails } from '../types';
 import ItemService from '../services/ItemService';
-import ReceiptFirebaseService from '../services/ReceiptFirebaseService';
 import CustomerService, { UniqueCustomer } from '../services/CustomerService';
-import StockService from '../services/StockService';
+import { useReceiptStore } from '../stores/receiptStore';
+import { useReceiptIntegration } from '../hooks/useReceiptIntegration';
 import {
   formatCurrency,
-  generateReceiptNumber,
-  generateId,
   validateCustomerInfo,
 } from '../utils/index';
 
@@ -35,169 +32,74 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
   onClose,
   visible,
 }) => {
-  const { state: cartState, addItem, updateQuantity, removeItem, clearCart, updateCustomerInfo } = useCart();
-  const [availableItems, setAvailableItems] = useState<ItemDetails[]>([]);
-  const [isLoadingItems, setIsLoadingItems] = useState(true);
-  const [customerError, setCustomerError] = useState<string>('');
-  const [businessNameError, setBusinessNameError] = useState<string>('');
-  const [businessPhoneError, setBusinessPhoneError] = useState<string>('');
-  const [isProcessing, setIsProcessing] = useState(false);
+  // Use integration hook for better organization
+  const { store, cartCompatibility } = useReceiptIntegration(visible);
+  
+  // Destructure store values for easier access
+  const {
+    formItems,
+    customer,
+    availableItems,
+    isLoadingItems,
+    itemsError,
+    isProcessing,
+    errors,
+    receiptTotals,
+    addFormItem,
+    removeFormItem,
+    updateFormItem,
+    selectItem,
+    updateCustomerInfo,
+    setAutoFilledFields,
+    setItemsLoading,
+    setItemsError,
+    validateForm,
+    createReceipt,
+    clearForm,
+    setError,
+    clearError
+  } = store;
+  
   const [showPrintOptions, setShowPrintOptions] = useState(false);
-  const [optimisticReceiptId, setOptimisticReceiptId] = useState<string | null>(null);
   
   // Customer search state
   const [customerSearchResults, setCustomerSearchResults] = useState<UniqueCustomer[]>([]);
   const [isSearchingCustomers, setIsSearchingCustomers] = useState(false);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
-  const [isNewCustomer, setIsNewCustomer] = useState(false);
-  
-  // Track which fields were auto-filled (only show badge if selected from dropdown)
-  const [autoFilledFields, setAutoFilledFields] = useState({
-    businessName: false,
-    businessPhone: false
-  });
-  
-  // Form state for adding items
-  const [formItems, setFormItems] = useState<Array<{
-    id: string;
-    selectedItemId: string;
-    price: string;
-    quantity: string;
-  }>>([{ id: '1', selectedItemId: '', price: '0.00', quantity: '1' }]);
   
   // Dropdown state
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  useEffect(() => {
-    if (visible) {
-      // Start real-time customer listener
-      CustomerService.setupRealtimeListener();
+  // Items subscription is now handled by the integration hook
 
-      // Subscribe to real-time item updates (this handles initial loading too)
-      const unsubscribe = ItemService.subscribeToItems(
-        (items) => {
-          console.log('Received real-time items update:', items.length, 'items');
-          setAvailableItems(items);
-          setIsLoadingItems(false);
-        },
-        (error) => {
-          console.error('Error subscribing to items:', error);
-          Alert.error('Failed to load items. Please try again.', '⚠️ Error Loading Items');
-          setIsLoadingItems(false);
-        }
-      );
-      return () => {
-        unsubscribe();
-        // We keep the customer listener alive across screens to maintain cache freshness
-      };
-    }
-  }, [visible]);
+  // Form item functions are now handled by the store
+  const addNewItemForm = addFormItem;
+  const removeItemForm = removeFormItem;
 
-  const addNewItemForm = () => {
-    const newId = (formItems.length + 1).toString();
-    setFormItems([...formItems, { 
-      id: newId, 
-      selectedItemId: '', 
-      price: '0.00', 
-      quantity: '1' 
-    }]);
+  // Form item update is now handled by the store with better validation
+  const handleUpdateFormItem = (id: string, field: string, value: string) => {
+    updateFormItem(id, field as any, value);
   };
 
-  const removeItemForm = (id: string) => {
-    if (formItems.length > 1) {
-      setFormItems(formItems.filter(item => item.id !== id));
-    }
-  };
-
-  const updateFormItem = async (id: string, field: string, value: string) => {
-    // Update the form item
-    setFormItems(formItems.map(item => 
-      item.id === id ? { ...item, [field]: value } : item
-    ));
-    
-    // If updating quantity, validate against available stock in real-time
-    if (field === 'quantity' && value) {
-      const formItem = formItems.find(item => item.id === id);
-      if (formItem && formItem.selectedItemId) {
-        const selectedItem = availableItems.find(item => item.id === formItem.selectedItemId);
-        if (selectedItem) {
-          const requestedQuantity = parseInt(value);
-          const currentStock = selectedItem.stocks || 0;
-          
-          if (requestedQuantity > currentStock) {
-            // Show warning with real-time stock info
-            setTimeout(() => {
-              ReceiptAlerts.validationError(
-                'Insufficient Stock',
-                `Not enough stock for "${selectedItem.item_name}".\n\nRequested: ${requestedQuantity}\nAvailable: ${currentStock}\n\nPlease adjust the quantity or check if stock was recently updated.`
-              );
-            }, 300); // Reduced delay for better responsiveness
-          }
-        }
-      }
-    }
-  };
-
-  const handleItemSelect = (formId: string, itemId: string) => {
+  // Item selection is now handled by the store with better error handling
+  const handleItemSelect = async (formId: string, itemId: string) => {
     console.log('handleItemSelect called with:', formId, itemId);
-    const selectedItem = availableItems.find(item => item.id === itemId);
-    console.log('Selected item found:', selectedItem);
-    
-    if (selectedItem) {
-      // Check if item has sufficient stock for minimum quantity (1)
-      const currentStock = selectedItem.stocks || 0;
-      if (currentStock <= 0) {
-        ReceiptAlerts.validationError(
-          'Out of Stock',
-          `"${selectedItem.item_name}" is currently out of stock.\n\nAvailable: ${currentStock}\n\nPlease choose a different item or restock first.`
-        );
-        return;
-      }
-      
-      console.log('Updating form item with:', {
-        selectedItemId: itemId,
-        price: selectedItem.price.toFixed(2)
-      });
-      
-      // Update the form item
-      setFormItems(prevItems => 
-        prevItems.map(item => 
-          item.id === formId 
-            ? { ...item, selectedItemId: itemId, price: selectedItem.price.toFixed(2) }
-            : item
-        )
-      );
-    }
+    await selectItem(formId, itemId);
   };
 
-  const clearForm = () => {
-    setFormItems([{ id: '1', selectedItemId: '', price: '0.00', quantity: '1' }]);
-    updateCustomerInfo({ 
-      customerName: '',
-      businessName: '',
-      businessPhone: ''
-    });
-    setCustomerError('');
-    setBusinessNameError('');
-    setBusinessPhoneError('');
-    setIsNewCustomer(false);
+  // Clear form function now handled by store
+  const handleClearForm = () => {
+    clearForm();
     setCustomerSearchResults([]);
     setShowCustomerDropdown(false);
-    setAutoFilledFields({ businessName: false, businessPhone: false });
   };
 
-  const handleQuantityChange = (itemId: string, newQuantity: number) => {
-    if (newQuantity <= 0) {
-      removeItem(itemId);
-    } else {
-      updateQuantity(itemId, newQuantity);
-    }
-  };
+  // Quantity changes are handled through the store now
 
   const handleCustomerNameChange = (text: string) => {
     updateCustomerInfo({ customerName: text });
-    setCustomerError(''); // Clear error when typing
+    clearError('customer'); // Clear error when typing
     
     // Clear auto-filled flags when customer name is manually changed
     // This indicates the user is typing, not selecting from dropdown
@@ -210,11 +112,11 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
       try {
         const recentCustomers = await CustomerService.getRecentCustomers(10);
         setCustomerSearchResults(Array.isArray(recentCustomers) ? recentCustomers : []);
-        setIsNewCustomer(false);
+        updateCustomerInfo({ isNewCustomer: false });
       } catch (error) {
         console.error('Error loading recent customers:', error);
         setCustomerSearchResults([]);
-        setIsNewCustomer(false);
+        updateCustomerInfo({ isNewCustomer: false });
       } finally {
         setIsSearchingCustomers(false);
       }
@@ -224,7 +126,7 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     setIsSearchingCustomers(true);
     try {
       const results = await CustomerService.searchCustomers(query);
-      const safeResults = results || [];
+      const safeResults = Array.isArray(results) ? results : [];
       setCustomerSearchResults(safeResults);
       
       // Check if this is a new customer
@@ -232,11 +134,11 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
       const existingCustomer = safeResults.find(
         (customer: UniqueCustomer) => customer.customerName.toLowerCase() === trimmedQuery
       );
-      setIsNewCustomer(!existingCustomer);
+      updateCustomerInfo({ isNewCustomer: !existingCustomer });
     } catch (error) {
       console.error('Error searching customers:', error);
       setCustomerSearchResults([]);
-      setIsNewCustomer(!!query.trim());
+      updateCustomerInfo({ isNewCustomer: !!query.trim() });
     } finally {
       setIsSearchingCustomers(false);
     }
@@ -247,7 +149,8 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     updateCustomerInfo({
       customerName: customer.customerName,
       businessName: customer.businessName || '',
-      businessPhone: customer.businessPhone || ''
+      businessPhone: customer.businessPhone || '',
+      isNewCustomer: false
     });
     
     // Track which fields were actually auto-filled
@@ -256,11 +159,10 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
       businessPhone: !!(customer.businessPhone && customer.businessPhone.trim())
     });
     
-    // Clear any errors and flags
-    setCustomerError('');
-    setBusinessNameError('');
-    setBusinessPhoneError('');
-    setIsNewCustomer(false);
+    // Clear any errors
+    clearError('customer');
+    clearError('businessName');
+    clearError('businessPhone');
     
     // Hide dropdown
     setShowCustomerDropdown(false);
@@ -285,56 +187,11 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     }, 200);
   };
 
-  const validateReceipt = (): boolean => {
-    if (cartState.items.length === 0) {
-      ReceiptAlerts.validationError('Receipt Items', 'Please add at least one item to the receipt');
-      return false;
-    }
+  // Validation is now handled by the store
 
-    // Validate customer information
-    const customerErrors = validateCustomerInfo({
-      customerName: cartState.customerName?.trim(),
-    });
+  // Form validation is now handled by the store
 
-    if (customerErrors && customerErrors.length > 0) {
-      setCustomerError(customerErrors[0].message);
-      return false;
-    }
-
-    return true;
-  };
-
-  const validateReceiptForm = (): boolean => {
-    const validItems = formItems.filter(item => 
-      item.selectedItemId && 
-      parseFloat(item.price) > 0 && 
-      parseInt(item.quantity) > 0
-    );
-
-    if (validItems.length === 0) {
-      ReceiptAlerts.validationError('Receipt Items', 'Please add at least one valid item to the receipt');
-      return false;
-    }
-
-    // Validate customer information
-    const customerErrors = validateCustomerInfo({
-      customerName: cartState.customerName?.trim(),
-    });
-
-    if (customerErrors && customerErrors.length > 0) {
-      setCustomerError(customerErrors[0].message);
-      return false;
-    }
-
-    return true;
-  };
-
-  const calculateReceiptTotals = (items: ReceiptItem[]) => {
-    const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    const tax = subtotal * 0.1; // 10% tax rate
-    const total = subtotal + tax;
-    return { subtotal, tax, total };
-  };
+  // Totals calculation is now handled by the store
 
   // Cleanup function for when component unmounts
   useEffect(() => {
@@ -345,109 +202,23 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
   }, []);
 
   const handleCreateReceipt = async () => {
-    if (!validateReceiptForm()) {
-      return;
-    }
-
     try {
-      setIsProcessing(true);
-
-      // Convert form items to receipt items
-      const validItems = formItems.filter(item => 
-        item.selectedItemId && 
-        parseFloat(item.price) > 0 && 
-        parseInt(item.quantity) > 0
-      );
-
-      // Check stock availability for all items before creating receipt
-      for (const formItem of validItems) {
-        const selectedItem = availableItems.find(item => item.id === formItem.selectedItemId);
-        if (selectedItem) {
-          const requestedQuantity = parseInt(formItem.quantity);
-          const hasStock = await StockService.hasLuckyStock(selectedItem.id, requestedQuantity);
-          
-          if (!hasStock) {
-            const currentStock = await StockService.getItemStock(selectedItem.id);
-            ReceiptAlerts.validationError(
-              'Insufficient Stock',
-              `Not enough stock for "${selectedItem.item_name}".\n\nRequested: ${requestedQuantity}\nAvailable: ${currentStock}\n\nPlease adjust the quantity or choose a different item.`
-            );
-            setIsProcessing(false);
-            return;
-          }
-        }
-      }
-
-      const receiptItems: ReceiptItem[] = validItems.map(formItem => {
-        const selectedItem = availableItems.find(item => item.id === formItem.selectedItemId);
-        return {
-          id: formItem.id,
-          name: selectedItem?.item_name || '',
-          price: parseFloat(formItem.price),
-          quantity: parseInt(formItem.quantity),
-        };
-      });
-
-      const totals = calculateReceiptTotals(receiptItems);
-
-      // Create receipt object
-      const receipt: Receipt = {
-        id: generateId(),
-        receiptNumber: generateReceiptNumber(),
-        items: receiptItems,
-        subtotal: totals.subtotal,
-        tax: totals.tax,
-        total: totals.total,
-        date: new Date(),
-        companyName: 'My Thermal Receipt Store',
-        companyAddress: '123 Business St, City, State 12345',
-        businessName: cartState.businessName?.trim() || undefined,
-        businessPhone: cartState.businessPhone?.trim() || undefined,
-        footerMessage: 'Thank you for your business!',
-        customerName: cartState.customerName?.trim(),
-      };
-
-      // Save receipt to Firebase receipts collection
-      const result = await ReceiptFirebaseService.saveReceipt(receipt, 'thermal');
+      const result = await createReceipt();
       
-      if (result.success) {
-        // Subtract quantities from stock after successful receipt creation
-        try {
-          for (const item of receiptItems) {
-            const selectedItem = availableItems.find(availableItem => availableItem.item_name === item.name);
-            if (selectedItem) {
-              await StockService.subtractStock(selectedItem.id, item.quantity);
-              console.log(`Subtracted ${item.quantity} from stock for item: ${item.name}`);
-            }
-          }
-          console.log('Stock levels updated successfully for all items');
-        } catch (stockError) {
-          console.error('Error updating stock levels:', stockError);
-          // Still show success message but warn about stock update
+      if (result.success && result.receipt) {
+        if (customer.isNewCustomer) {
           ReceiptAlerts.receiptCreatedSuccessfully(
-            `Receipt ${receipt.receiptNumber} created successfully!\n\n⚠️ Note: There was an issue updating stock levels. Please check inventory manually.`
+            `Receipt ${result.receipt.receiptNumber} created successfully!\n\n✨ New customer "${customer.customerName}" has been added to your customer database.\n📦 Stock levels updated automatically.`
           );
-          clearForm();
-          onClose();
-          return;
-        }
-        
-        if (isNewCustomer) {
-          ReceiptAlerts.receiptCreatedSuccessfully(
-            `Receipt ${receipt.receiptNumber} created successfully!\n\n✨ New customer "${cartState.customerName}" has been added to your customer database.\n📦 Stock levels updated automatically.`
-          );
+          // Clear customer cache to include the new customer in future searches
+          CustomerService.clearCache();
         } else {
           ReceiptAlerts.receiptCreatedSuccessfully(
-            `Receipt ${receipt.receiptNumber} created successfully!\n\n📦 Stock levels updated automatically.`
+            `Receipt ${result.receipt.receiptNumber} created successfully!\n\n📦 Stock levels updated automatically.`
           );
         }
         
-        // Clear customer cache to include the new customer in future searches
-        if (isNewCustomer) {
-          CustomerService.clearCache();
-        }
-        
-        clearForm();
+        handleClearForm();
         onClose();
       } else {
         ReceiptAlerts.receiptSaveError(result.error || 'Failed to create receipt');
@@ -455,12 +226,16 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     } catch (error) {
       console.error('Error creating receipt:', error);
       ReceiptAlerts.receiptSaveError('Failed to create receipt. Please try again.');
-    } finally {
-      setIsProcessing(false);
     }
   };
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
+    // Validate form first
+    const isValid = await validateForm();
+    if (!isValid) {
+      return;
+    }
+
     const validItems = formItems.filter(item => 
       item.selectedItemId && 
       parseFloat(item.price) > 0 && 
@@ -472,32 +247,11 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
       return;
     }
 
-    // Validate customer information
-    const customerErrors = validateCustomerInfo({
-      customerName: cartState.customerName?.trim(),
-    });
-
-    if (customerErrors.length > 0) {
-      setCustomerError(customerErrors[0].message);
-      return;
-    }
-
-    // Create cart items for the print modal
-    const cartItems = validItems.map(formItem => {
-      const selectedItem = availableItems.find(item => item.id === formItem.selectedItemId);
-      return {
-        id: formItem.id,
-        name: selectedItem?.item_name || '',
-        price: parseFloat(formItem.price),
-        quantity: parseInt(formItem.quantity),
-      };
-    });
-
     setShowPrintOptions(true);
   };
 
   const handlePrintComplete = () => {
-    clearForm();
+    handleClearForm();
     onClose();
   };
 
@@ -522,8 +276,8 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     return (
       <PrintOptionsScreen
         onClose={() => setShowPrintOptions(false)}
-        cartItems={cartItems}
-        customerName={cartState.customerName}
+        cartItems={cartCompatibility.items}
+        customerName={cartCompatibility.customerName}
         onPrintComplete={handlePrintComplete}
       />
     );
@@ -680,7 +434,7 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
               <Text className="absolute left-3 top-3 text-gray-500 text-base z-10">$</Text>
               <TextInput
                 value={formItem.price}
-                onChangeText={(value) => updateFormItem(formItem.id, 'price', value)}
+                onChangeText={(value) => handleUpdateFormItem(formItem.id, 'price', value)}
                 placeholder="0.00"
                 keyboardType="numeric"
                 className="border border-gray-300 rounded-lg pl-8 pr-3 py-3 text-base"
@@ -695,11 +449,15 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
             </Text>
             <TextInput
               value={formItem.quantity}
-              onChangeText={(value) => updateFormItem(formItem.id, 'quantity', value)}
+              onChangeText={(value) => handleUpdateFormItem(formItem.id, 'quantity', value)}
               placeholder="1"
               keyboardType="numeric"
               className="border border-gray-300 rounded-lg px-3 py-3 text-base"
             />
+            {/* Show stock error for this form item */}
+            {formItem.stockError && (
+              <Text className="text-red-500 text-sm mt-1">{formItem.stockError}</Text>
+            )}
           </View>
         </View>
       </View>
@@ -777,18 +535,18 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
                     <Text className="text-sm font-medium text-gray-700">
                       Customer Name <Text className="text-red-500">*</Text>
                     </Text>
-                    {isNewCustomer && (
+                    {customer.isNewCustomer && (
                       <View className="px-2 py-1 bg-blue-100 rounded-full">
                         <Text className="text-xs text-blue-600 font-medium">✨ New Customer</Text>
                       </View>
                     )}
                   </View>
                   <SearchableDropdown
-                    value={cartState.customerName || ''}
+                    value={customer.customerName || ''}
                     onChangeText={handleCustomerNameChange}
                     onSelectCustomer={handleCustomerSelect}
                     placeholder="Enter customer name"
-                    error={customerError}
+                    error={errors.customer}
                     searchResults={customerSearchResults}
                     isSearching={isSearchingCustomers}
                     showDropdown={showCustomerDropdown}
@@ -804,27 +562,27 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
                     <Text className="text-sm font-medium text-gray-700">
                       Business Name
                     </Text>
-                    {cartState.businessName && autoFilledFields.businessName && (
+                    {customer.businessName && customer.autoFilledFields.businessName && (
                       <View className="ml-2 px-2 py-1 bg-green-100 rounded-full">
                         <Text className="text-xs text-green-600">Auto-filled</Text>
                       </View>
                     )}
                   </View>
                   <TextInput
-                    value={cartState.businessName || ''}
+                    value={customer.businessName || ''}
                     onChangeText={(text) => {
                       updateCustomerInfo({ businessName: text });
-                      setBusinessNameError('');
+                      clearError('businessName');
                       // Clear auto-filled flag when user manually types
-                      setAutoFilledFields(prev => ({ ...prev, businessName: false }));
+                      setAutoFilledFields({ businessName: false });
                     }}
                     placeholder="Enter business name (optional)"
                     className={`border rounded-lg px-3 py-3 text-base ${
-                      businessNameError ? 'border-red-300' : 'border-gray-300'
+                      errors.businessName ? 'border-red-300' : 'border-gray-300'
                     }`}
                   />
-                  {businessNameError && (
-                    <Text className="text-red-500 text-sm mt-1">{businessNameError}</Text>
+                  {errors.businessName && (
+                    <Text className="text-red-500 text-sm mt-1">{errors.businessName}</Text>
                   )}
                 </View>
 
@@ -834,28 +592,28 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
                     <Text className="text-sm font-medium text-gray-700">
                       Business Phone
                     </Text>
-                    {cartState.businessPhone && autoFilledFields.businessPhone && (
+                    {customer.businessPhone && customer.autoFilledFields.businessPhone && (
                       <View className="ml-2 px-2 py-1 bg-green-100 rounded-full">
                         <Text className="text-xs text-green-600">Auto-filled</Text>
                       </View>
                     )}
                   </View>
                   <TextInput
-                    value={cartState.businessPhone || ''}
+                    value={customer.businessPhone || ''}
                     onChangeText={(text) => {
                       updateCustomerInfo({ businessPhone: text });
-                      setBusinessPhoneError('');
+                      clearError('businessPhone');
                       // Clear auto-filled flag when user manually types
-                      setAutoFilledFields(prev => ({ ...prev, businessPhone: false }));
+                      setAutoFilledFields({ businessPhone: false });
                     }}
                     placeholder="Enter business phone (optional)"
                     keyboardType="phone-pad"
                     className={`border rounded-lg px-3 py-3 text-base ${
-                      businessPhoneError ? 'border-red-300' : 'border-gray-300'
+                      errors.businessPhone ? 'border-red-300' : 'border-gray-300'
                     }`}
                   />
-                  {businessPhoneError && (
-                    <Text className="text-red-500 text-sm mt-1">{businessPhoneError}</Text>
+                  {errors.businessPhone && (
+                    <Text className="text-red-500 text-sm mt-1">{errors.businessPhone}</Text>
                   )}
                 </View>
               </View>
@@ -863,10 +621,27 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
 
             {/* Items Form Section */}
             <View className="mb-6">
+              {/* Form-level errors */}
+              {errors.form && (
+                <View className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
+                  <Text className="text-red-700 text-sm font-medium">{errors.form}</Text>
+                </View>
+              )}
+              
               {isLoadingItems ? (
                 <View className="bg-white rounded-lg p-8 items-center">
                   <ActivityIndicator size="large" color="#3b82f6" />
                   <Text className="text-gray-500 mt-2">Loading items...</Text>
+                </View>
+              ) : itemsError ? (
+                <View className="bg-red-50 border border-red-200 rounded-lg p-8 items-center">
+                  <Text className="text-red-600 text-center">{itemsError}</Text>
+                  <TouchableOpacity 
+                    onPress={() => setItemsLoading(true)}
+                    className="mt-4 px-4 py-2 bg-red-100 rounded-lg"
+                  >
+                    <Text className="text-red-600 font-medium">Retry</Text>
+                  </TouchableOpacity>
                 </View>
               ) : (
                 formItems.map((formItem, index) => renderItemForm(formItem, index))
@@ -886,7 +661,7 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
           gap: 8,
         }}>
           <TouchableOpacity
-            onPress={clearForm}
+            onPress={handleClearForm}
             style={{
               backgroundColor: '#f3f4f6',
               borderRadius: 8,

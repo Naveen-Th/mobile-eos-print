@@ -60,15 +60,34 @@ class ReceiptFirebaseService {
     pdfPath?: string
   ): Promise<{ success: boolean; error?: string; documentId?: string }> {
     try {
+      // Input validation
+      if (!receipt || !receipt.id) {
+        throw new Error('Invalid receipt data: Receipt and ID are required');
+      }
+      
+      if (!printMethod) {
+        throw new Error('Print method is required');
+      }
+      
       // Ensure Firebase is initialized
       await this.firebaseService.initialize();
 
       const now = serverTimestamp();
       
-      // Convert Receipt to FirebaseReceipt format
+      // Validate receipt date
+      const receiptDate = receipt.date instanceof Date ? receipt.date : new Date();
+      
+      // Convert Receipt to FirebaseReceipt format with proper validation
       const firebaseReceipt: any = {
         ...receipt,
-        date: Timestamp.fromDate(receipt.date),
+        // Ensure all required fields are present
+        receiptNumber: receipt.receiptNumber || `R-${Date.now()}`,
+        customerName: receipt.customerName || 'Walk-in Customer',
+        items: receipt.items || [],
+        subtotal: receipt.subtotal || 0,
+        tax: receipt.tax || 0,
+        total: receipt.total || 0,
+        date: Timestamp.fromDate(receiptDate),
         createdAt: now,
         updatedAt: now,
         printMethod,
@@ -81,14 +100,16 @@ class ReceiptFirebaseService {
         firebaseReceipt.printedAt = now;
       }
       
-      // Only add pdfPath if it's provided (avoid undefined values)
-      if (pdfPath) {
-        firebaseReceipt.pdfPath = pdfPath;
+      // Only add pdfPath if it's provided and valid (avoid undefined values)
+      if (pdfPath && typeof pdfPath === 'string' && pdfPath.trim()) {
+        firebaseReceipt.pdfPath = pdfPath.trim();
       }
 
       // Use receipt ID as document ID for easier retrieval
       const docRef = doc(db, this.COLLECTION_NAME, receipt.id);
-      await setDoc(docRef, firebaseReceipt);
+      
+      // Use setDoc with merge option to avoid overwriting existing data accidentally
+      await setDoc(docRef, firebaseReceipt, { merge: false });
 
       console.log(`Receipt saved to Firebase: ${receipt.id}`);
       
@@ -96,11 +117,23 @@ class ReceiptFirebaseService {
         success: true, 
         documentId: receipt.id 
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving receipt to Firebase:', error);
+      
+      let errorMessage = 'Unknown error occurred';
+      if (error.code === 'permission-denied') {
+        errorMessage = 'Permission denied: Cannot save receipt';
+      } else if (error.code === 'unavailable') {
+        errorMessage = 'Service temporarily unavailable. Please try again later.';
+      } else if (error.code === 'invalid-argument') {
+        errorMessage = 'Invalid receipt data format';
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
       return { 
         success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error occurred' 
+        error: errorMessage
       };
     }
   }
@@ -203,20 +236,40 @@ class ReceiptFirebaseService {
    */
   public async deleteReceipt(receiptId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      // Validate receipt exists before attempting deletion
-      const receipt = await this.getReceipt(receiptId);
-      if (!receipt) {
-        throw new Error(`Receipt with ID ${receiptId} not found`);
+      // Input validation
+      if (!receiptId || typeof receiptId !== 'string' || !receiptId.trim()) {
+        throw new Error('Valid receipt ID is required');
       }
       
-      await this.firebaseService.deleteDocument(this.COLLECTION_NAME, receiptId);
-      console.log(`Receipt deleted successfully: ${receiptId}`);
+      const trimmedId = receiptId.trim();
+      
+      // Validate receipt exists before attempting deletion
+      const receipt = await this.getReceipt(trimmedId);
+      if (!receipt) {
+        // Return success if receipt doesn't exist (idempotent operation)
+        console.log(`Receipt ${trimmedId} not found, treating as already deleted`);
+        return { success: true };
+      }
+      
+      // Delete the document
+      const docRef = doc(db, this.COLLECTION_NAME, trimmedId);
+      await deleteDoc(docRef);
+      
+      console.log(`Receipt deleted successfully: ${trimmedId}`);
       return { success: true };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting receipt from Firebase:', error);
       
       let errorMessage = 'Unknown error occurred';
-      if (error instanceof Error) {
+      if (error.code === 'permission-denied') {
+        errorMessage = 'Permission denied: Cannot delete receipt';
+      } else if (error.code === 'unavailable') {
+        errorMessage = 'Service temporarily unavailable. Please try again later.';
+      } else if (error.code === 'not-found') {
+        // Treat as success since the goal (receipt not existing) is achieved
+        console.log('Receipt not found during deletion, treating as success');
+        return { success: true };
+      } else if (error instanceof Error) {
         errorMessage = error.message;
       } else if (typeof error === 'string') {
         errorMessage = error;

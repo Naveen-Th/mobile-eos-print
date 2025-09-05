@@ -281,8 +281,11 @@ const ItemsScreenNew: React.FC = () => {
             const isPending = isItemPending(item.id);
             
             return (
-              <View
+              <TouchableOpacity
                 key={item.id}
+                onPress={() => handleEditItem(item)}
+                disabled={isPending}
+                activeOpacity={0.7}
                 style={{
                   backgroundColor: 'white',
                   borderRadius: 16,
@@ -293,17 +296,31 @@ const ItemsScreenNew: React.FC = () => {
                   shadowOpacity: 0.1,
                   shadowRadius: 3,
                   elevation: 2,
-                  opacity: isPending ? 0.8 : 1,
+                  opacity: isPending ? 0.6 : 1,
                 }}
               >
                 <View style={{ marginBottom: 12 }}>
-                  <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1f2937', marginBottom: 4 }}>
-                    {item.item_name}
-                  </Text>
-                  <Text style={{ color: '#6b7280', fontSize: 14 }}>
-                    {item.item_name.toLowerCase()} - Available in store
-                  </Text>
-                  <Text style={{ color: '#9ca3af', fontSize: 12, marginTop: 2 }}>GENERAL</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1f2937', marginBottom: 4 }}>
+                        {item.item_name}
+                      </Text>
+                      <Text style={{ color: '#6b7280', fontSize: 14 }}>
+                        {item.item_name.toLowerCase()} - Available in store
+                      </Text>
+                      <Text style={{ color: '#9ca3af', fontSize: 12, marginTop: 2 }}>GENERAL • Tap to edit</Text>
+                    </View>
+                    <View style={{
+                      backgroundColor: '#f3f4f6',
+                      borderRadius: 15,
+                      width: 30,
+                      height: 30,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}>
+                      <Text style={{ fontSize: 12, color: '#6b7280' }}>✏️</Text>
+                    </View>
+                  </View>
                 </View>
 
                 <View style={{
@@ -317,65 +334,10 @@ const ItemsScreenNew: React.FC = () => {
                       paddingHorizontal: 12,
                       paddingVertical: 6,
                       borderRadius: 12,
-                      marginRight: 15,
                     }}>
                       <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>
                         {item.stocks} in stock{isPending ? ' (syncing...)' : ''}
                       </Text>
-                    </View>
-
-                    <View style={{ flexDirection: 'row', gap: 10 }}>
-                      {/* Edit Button */}
-                      <TouchableOpacity
-                        onPress={() => handleEditItem(item)}
-                        disabled={isPending}
-                        style={{
-                          backgroundColor: isPending ? '#9ca3af' : '#3b82f6',
-                          width: 36,
-                          height: 36,
-                          borderRadius: 18,
-                          justifyContent: 'center',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <Text style={{ color: 'white', fontSize: 16 }}>✏️</Text>
-                      </TouchableOpacity>
-
-                      {/* Subtract Stock Button */}
-                      <TouchableOpacity
-                        onPress={() => handleSubtractStock(item.id, 1)}
-                        disabled={isPending || item.stocks <= 0}
-                        style={{
-                          backgroundColor: (isPending || item.stocks <= 0) ? '#9ca3af' : '#f59e0b',
-                          width: 36,
-                          height: 36,
-                          borderRadius: 18,
-                          justifyContent: 'center',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <Text style={{ color: 'white', fontSize: 16 }}>
-                          {isPending ? '⏳' : '-'}
-                        </Text>
-                      </TouchableOpacity>
-
-                      {/* Add Stock Button */}
-                      <TouchableOpacity
-                        onPress={() => handleAddStock(item.id, 1)}
-                        disabled={isPending}
-                        style={{
-                          backgroundColor: isPending ? '#9ca3af' : '#10b981',
-                          width: 36,
-                          height: 36,
-                          borderRadius: 18,
-                          justifyContent: 'center',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <Text style={{ color: 'white', fontSize: 16 }}>
-                          {isPending ? '⏳' : '+'}
-                        </Text>
-                      </TouchableOpacity>
                     </View>
                   </View>
 
@@ -387,7 +349,7 @@ const ItemsScreenNew: React.FC = () => {
                     ${item.price.toFixed(2)}
                   </Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           })
         )}

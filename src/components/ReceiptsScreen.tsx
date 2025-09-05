@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,8 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
-import ReceiptFirebaseService, { FirebaseReceipt } from '../services/ReceiptFirebaseService';
+import { FirebaseReceipt } from '../services/ReceiptFirebaseService';
+import { useReceipts } from '../hooks/useSyncManager';
 import { formatCurrency, formatReceiptDate } from '../utils';
 
 interface ReceiptsScreenProps {
@@ -225,56 +226,34 @@ const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClos
 };
 
 export const ReceiptsScreen: React.FC<ReceiptsScreenProps> = () => {
-  const [receipts, setReceipts] = useState<FirebaseReceipt[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Use sync manager hooks for receipts
+  const {
+    data: receiptsData = [],
+    isLoading: loading,
+    error,
+    refetch
+  } = useReceipts();
+  
+  // Sort receipts by creation date (newest first)
+  const receipts = receiptsData.sort((a, b) => {
+    const dateA = a.createdAt?.toDate?.() || a.date.toDate();
+    const dateB = b.createdAt?.toDate?.() || b.date.toDate();
+    return dateB.getTime() - dateA.getTime();
+  });
+  
+  // Local UI state
   const [selectedReceipt, setSelectedReceipt] = useState<FirebaseReceipt | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'printed' | 'exported'>('all');
   const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    // Set up real-time listener for receipts
-    const unsubscribe = ReceiptFirebaseService.subscribeToReceipts(
-      (receiptData) => {
-        console.log('Received real-time receipt update:', receiptData.length, 'receipts');
-        
-        // Sort receipts by creation date (newest first)
-        const sortedReceipts = receiptData.sort((a, b) => {
-          const dateA = a.createdAt?.toDate?.() || a.date.toDate();
-          const dateB = b.createdAt?.toDate?.() || b.date.toDate();
-          return dateB.getTime() - dateA.getTime();
-        });
-        
-        setReceipts(sortedReceipts);
-        setLoading(false);
-        setError(null);
-      },
-      (err) => {
-        console.error('Error in receipt subscription:', err);
-        setError('Failed to load receipts. Please try again.');
-        setLoading(false);
-      }
-    );
-
-    // Cleanup subscription on unmount
-    return () => {
-      unsubscribe();
-    };
-  }, []);
-
   const loadReceipts = async () => {
     try {
       setRefreshing(true);
-      setError(null);
-      
-      // Force refresh the receipt data from Firestore
-      await ReceiptFirebaseService.forceRefresh();
-      
-      console.log('Receipts force refreshed');
+      await refetch();
+      console.log('Receipts refreshed successfully');
     } catch (err) {
       console.error('Error refreshing receipts:', err);
-      setError('Failed to refresh receipts. Please try again.');
     } finally {
       setRefreshing(false);
     }
@@ -343,7 +322,7 @@ export const ReceiptsScreen: React.FC<ReceiptsScreenProps> = () => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <h3 className="text-lg font-semibold text-gray-900 mb-2">Error Loading Receipts</h3>
-          <p className="text-gray-500 mb-4">{error}</p>
+          <p className="text-gray-500 mb-4">{error?.message || 'An error occurred'}</p>
           <button 
             onClick={loadReceipts}
             className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"

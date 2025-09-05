@@ -9,6 +9,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ReceiptFirebaseService, { FirebaseReceipt } from '../../services/ReceiptFirebaseService';
+import { useReceipts } from '../../hooks/useSyncManager';
+import { usePendingUpdates } from '../../store/syncStore';
 
 // Import components
 import ReceiptDetailModal from '../../components/Receipts/ReceiptDetailModal';
@@ -20,10 +22,25 @@ import LoadingState from '../../components/Receipts/LoadingState';
 import ErrorState from '../../components/Receipts/ErrorState';
 
 const ReceiptsScreen: React.FC = () => {
-  const [receipts, setReceipts] = useState<FirebaseReceipt[]>([]);
-  const [loading, setLoading] = useState(true);
+  // TanStack Query hooks for receipts
+  const { 
+    data: receipts = [], 
+    isLoading: loading, 
+    error, 
+    refetch 
+  } = useReceipts();
+  
+  // Debug: Log what receipts screen is receiving
+  console.log('🚿 [RECEIPTS SCREEN DEBUG] Receipts data:', receipts);
+  console.log('🚿 [RECEIPTS SCREEN DEBUG] Is loading:', loading);
+  console.log('🚿 [RECEIPTS SCREEN DEBUG] Error:', error);
+  console.log('🚿 [RECEIPTS SCREEN DEBUG] Receipts length:', receipts?.length);
+  
+  // Zustand state for pending updates
+  const pendingUpdates = usePendingUpdates();
+  
+  // Local UI state
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [selectedReceipt, setSelectedReceipt] = useState<FirebaseReceipt | null>(null);
   
   // Search, Filter, Sort states
@@ -43,27 +60,15 @@ const ReceiptsScreen: React.FC = () => {
   const [pendingDeletions, setPendingDeletions] = useState<Set<string>>(new Set());
   const [pendingStatusUpdates, setPendingStatusUpdates] = useState<Set<string>>(new Set());
 
-  // Helper function to update receipt status optimistically
-  const updateReceiptStatusOptimistically = (receiptId: string, newStatus: 'printed' | 'exported' | 'draft') => {
-    setReceipts(prevReceipts => 
-      prevReceipts.map(receipt => 
-        receipt.id === receiptId 
-          ? { ...receipt, status: newStatus, updatedAt: { toDate: () => new Date() } as any }
-          : receipt
-      )
-    );
-  };
-
-  // Helper function to handle receipt status updates with optimistic updates
-  const handleReceiptStatusUpdate = async (receiptId: string, newStatus: 'printed' | 'exported' | 'draft') => {
+  // Helper function to handle receipt status updates (simplified - relies on real-time sync)
+  const handleReceiptStatusUpdate = React.useCallback(async (receiptId: string, newStatus: 'printed' | 'exported' | 'draft') => {
+    if (!receiptId || typeof receiptId !== 'string') {
+      console.error('Invalid receipt ID provided for status update');
+      return;
+    }
+    
     // Add to pending updates
     setPendingStatusUpdates(prev => new Set(prev).add(receiptId));
-    
-    // Store original receipt for potential rollback
-    const originalReceipt = receipts.find(r => r.id === receiptId);
-    
-    // Optimistic update
-    updateReceiptStatusOptimistically(receiptId, newStatus);
     
     try {
       const result = await ReceiptFirebaseService.updateReceiptStatus(receiptId, newStatus, new Date());
@@ -73,19 +78,13 @@ const ReceiptsScreen: React.FC = () => {
       }
       
       console.log(`Receipt ${receiptId} status updated to ${newStatus}`);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating receipt status:', error);
-      
-      // Rollback on error
-      if (originalReceipt) {
-        setReceipts(prevReceipts => 
-          prevReceipts.map(receipt => 
-            receipt.id === receiptId ? originalReceipt : receipt
-          )
-        );
-      }
-      
-      Alert.alert('Error', `Failed to update receipt status: ${error.message}`);
+      Alert.alert(
+        'Update Failed', 
+        `Failed to update receipt status: ${error.message || 'Unknown error'}`,
+        [{ text: 'OK' }]
+      );
     } finally {
       // Remove from pending updates
       setPendingStatusUpdates(prev => {
@@ -94,98 +93,41 @@ const ReceiptsScreen: React.FC = () => {
         return newSet;
       });
     }
-  };
-
-  useEffect(() => {
-    let unsubscribe: (() => void) | null = null;
-    
-    // Set up real-time subscription
-    const setupSubscription = () => {
-      setLoading(true);
-      setError(null);
-      
-      unsubscribe = ReceiptFirebaseService.subscribeToReceipts(
-        (updatedReceipts) => {
-          console.log('Received real-time receipt updates:', updatedReceipts.length);
-          
-          // Sort receipts by creation date (newest first)
-          const sortedReceipts = updatedReceipts.sort((a, b) => {
-            try {
-              const dateA = a.createdAt?.toDate?.() || (a.date?.toDate ? a.date.toDate() : new Date(0));
-              const dateB = b.createdAt?.toDate?.() || (b.date?.toDate ? b.date.toDate() : new Date(0));
-              return dateB.getTime() - dateA.getTime();
-            } catch (error) {
-              console.error('Error sorting receipts by date:', error);
-              return 0;
-            }
-          });
-          
-          setReceipts(sortedReceipts);
-          setLoading(false);
-          setRefreshing(false);
-        },
-        (error) => {
-          console.error('Real-time receipt subscription error:', error);
-          setError('Failed to load receipts. Please try again.');
-          setLoading(false);
-          setRefreshing(false);
-        }
-      );
-    };
-    
-    setupSubscription();
-    
-    // Cleanup subscription on unmount
-    return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-    };
   }, []);
 
-  const loadReceipts = async () => {
-    // This method is now mainly used for manual refresh
-    // The real-time subscription handles most updates automatically
+  // Check if receipt has pending updates
+  const isReceiptPending = (receiptId: string) => {
+    return Array.from(pendingUpdates.values()).some(
+      update => update.documentId === receiptId && update.collection === 'receipts'
+    );
+  };
+
+  const loadReceipts = React.useCallback(async () => {
+    setRefreshing(true);
     try {
-      setError(null);
-      setRefreshing(true);
-      
-      // Force a fresh fetch by temporarily stopping and restarting the listener
-      ReceiptFirebaseService.stopRealtimeListener();
-      
-      const receiptData = await ReceiptFirebaseService.getAllReceipts();
-      
-      // Sort receipts by creation date (newest first)
-      const sortedReceipts = receiptData.sort((a, b) => {
-        try {
-          const dateA = a.createdAt?.toDate?.() || (a.date?.toDate ? a.date.toDate() : new Date(0));
-          const dateB = b.createdAt?.toDate?.() || (b.date?.toDate ? b.date.toDate() : new Date(0));
-          return dateB.getTime() - dateA.getTime();
-        } catch (error) {
-          console.error('Error sorting receipts by date:', error);
-          return 0;
-        }
-      });
-      
-      setReceipts(sortedReceipts);
-      
-      // Restart the real-time listener
-      ReceiptFirebaseService.setupRealtimeListener();
-      
+      // Don't call refetch for real-time collections - data comes from listener
+      console.log('Skipping refetch for real-time collection - data comes from Firebase listener');
+      // Just simulate a brief loading state
+      await new Promise(resolve => setTimeout(resolve, 300));
+      console.log('Receipts refresh completed (real-time data)');
     } catch (err) {
-      console.error('Error loading receipts:', err);
-      setError('Failed to load receipts. Please try again.');
+      console.error('Error refreshing receipts:', err);
+      Alert.alert(
+        'Error',
+        'Failed to refresh receipts. Please check your connection.',
+        [{ text: 'OK' }]
+      );
     } finally {
       setRefreshing(false);
     }
-  };
+  }, []); // Removed refetch from dependencies
 
   const onRefresh = async () => {
     setRefreshing(true);
     await loadReceipts();
   };
 
-  const formatReceiptDate = (date: any) => {
+  const formatReceiptDate = React.useCallback((date: any) => {
     try {
       let dateObj: Date;
       
@@ -198,15 +140,15 @@ const ReceiptsScreen: React.FC = () => {
         dateObj = date;
       }
       // If it's a Firebase Timestamp with toDate method
-      else if (typeof date.toDate === 'function') {
+      else if (date && typeof date.toDate === 'function') {
         dateObj = date.toDate();
       }
       // If it's a timestamp number
-      else if (typeof date === 'number') {
+      else if (typeof date === 'number' && !isNaN(date)) {
         dateObj = new Date(date);
       }
       // If it's a string
-      else if (typeof date === 'string') {
+      else if (typeof date === 'string' && date.trim()) {
         dateObj = new Date(date);
       }
       else {
@@ -214,37 +156,63 @@ const ReceiptsScreen: React.FC = () => {
         return 'Invalid Date';
       }
       
-      return dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      // Validate the date object
+      if (isNaN(dateObj.getTime())) {
+        console.warn('Invalid date object created from:', date);
+        return 'Invalid Date';
+      }
+      
+      // Format the date consistently
+      const dateOptions: Intl.DateTimeFormatOptions = {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      };
+      
+      const timeOptions: Intl.DateTimeFormatOptions = {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      };
+      
+      const formattedDate = dateObj.toLocaleDateString(undefined, dateOptions);
+      const formattedTime = dateObj.toLocaleTimeString(undefined, timeOptions);
+      
+      return `${formattedDate} at ${formattedTime}`;
     } catch (error) {
-      console.error('Error formatting date:', error, date);
+      console.error('Error formatting date:', error, 'Input:', date);
       return 'Invalid Date';
     }
-  };
-  const getStatusColor = (status: string) => {
-    switch (status) {
+  }, []);
+  const getStatusColor = React.useCallback((status: string) => {
+    switch (status?.toLowerCase()) {
       case 'printed':
-        return '#10b981';
+        return '#10b981'; // Green
       case 'exported':
-        return '#3b82f6';
+        return '#3b82f6'; // Blue
       case 'draft':
-        return '#6b7280';
+        return '#f59e0b'; // Yellow/Orange
+      case 'failed':
+        return '#ef4444'; // Red
       default:
-        return '#6b7280';
+        return '#6b7280'; // Gray
     }
-  };
+  }, []);
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
+  const getStatusIcon = React.useCallback((status: string) => {
+    switch (status?.toLowerCase()) {
       case 'printed':
         return 'checkmark-circle';
       case 'exported':
         return 'download';
       case 'draft':
         return 'time';
+      case 'failed':
+        return 'close-circle';
       default:
         return 'help-circle';
     }
-  };
+  }, []);
 
   // Filter and sort receipts
   const filteredAndSortedReceipts = useMemo(() => {
@@ -324,9 +292,8 @@ const ReceiptsScreen: React.FC = () => {
             receiptIdsToDelete = [receiptToDelete];
             receiptsToBackup = receipts.filter(r => r.id === receiptToDelete);
             
-            // Mark as pending and optimistically remove
+            // Mark as pending
             setPendingDeletions(prev => new Set(prev).add(receiptToDelete));
-            optimisticallyRemoveReceipts([receiptToDelete]);
             
             await ReceiptFirebaseService.deleteReceipt(receiptToDelete);
           }
@@ -335,13 +302,12 @@ const ReceiptsScreen: React.FC = () => {
           receiptIdsToDelete = Array.from(selectedReceipts);
           receiptsToBackup = receipts.filter(r => selectedReceipts.has(r.id));
           
-          // Mark as pending and optimistically remove
+          // Mark as pending
           setPendingDeletions(prev => {
             const newSet = new Set(prev);
             receiptIdsToDelete.forEach(id => newSet.add(id));
             return newSet;
           });
-          optimisticallyRemoveReceipts(receiptIdsToDelete);
           
           await Promise.all(receiptIdsToDelete.map(id => ReceiptFirebaseService.deleteReceipt(id)));
           setSelectedReceipts(new Set());
@@ -351,13 +317,12 @@ const ReceiptsScreen: React.FC = () => {
           receiptIdsToDelete = filteredAndSortedReceipts.map(r => r.id);
           receiptsToBackup = [...filteredAndSortedReceipts];
           
-          // Mark as pending and optimistically remove
+          // Mark as pending
           setPendingDeletions(prev => {
             const newSet = new Set(prev);
             receiptIdsToDelete.forEach(id => newSet.add(id));
             return newSet;
           });
-          optimisticallyRemoveReceipts(receiptIdsToDelete);
           
           await Promise.all(receiptIdsToDelete.map(id => ReceiptFirebaseService.deleteReceipt(id)));
           break;
@@ -371,10 +336,7 @@ const ReceiptsScreen: React.FC = () => {
     } catch (error) {
       console.error('Error deleting receipts:', error);
       
-      // Rollback optimistic updates on error
-      if (receiptsToBackup.length > 0) {
-        rollbackReceiptDeletion(receiptsToBackup);
-      }
+      // Note: Real-time sync will automatically revert any failed deletes
       
       Alert.alert('Error', 'Failed to delete receipt(s). Please try again.');
     } finally {
@@ -411,29 +373,7 @@ const ReceiptsScreen: React.FC = () => {
     setIsSelectionMode(false);
   };
 
-  // Optimistic delete helper functions
-  const optimisticallyRemoveReceipts = (receiptIds: string[]) => {
-    setReceipts(prevReceipts => 
-      prevReceipts.filter(receipt => !receiptIds.includes(receipt.id))
-    );
-  };
-
-  const rollbackReceiptDeletion = (deletedReceipts: FirebaseReceipt[]) => {
-    setReceipts(prevReceipts => {
-      const restoredReceipts = [...prevReceipts, ...deletedReceipts];
-      // Re-sort by creation date (newest first)
-      return restoredReceipts.sort((a, b) => {
-        try {
-          const dateA = a.createdAt?.toDate?.() || (a.date?.toDate ? a.date.toDate() : new Date(0));
-          const dateB = b.createdAt?.toDate?.() || (b.date?.toDate ? b.date.toDate() : new Date(0));
-          return dateB.getTime() - dateA.getTime();
-        } catch (error) {
-          console.error('Error sorting receipts by date:', error);
-          return 0;
-        }
-      });
-    });
-  };
+  // Note: Optimistic updates are handled by the real-time sync system
 
   const renderReceiptItem = ({ item }: { item: FirebaseReceipt }) => {
     const isSelected = selectedReceipts.has(item.id);
@@ -468,17 +408,18 @@ const ReceiptsScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3b82f6" />
-      </View>
+      <LoadingState message="Loading receipts..." />
     );
   }
 
   if (error) {
     return (
-      <View style={styles.errorContainer}>
-        <ActivityIndicator size="large" color="#ef4444" />
-      </View>
+      <ErrorState 
+        error={error}
+        onRetry={loadReceipts}
+        title="Failed to load receipts"
+        message="There was an error loading your receipts. Please check your connection and try again."
+      />
     );
   }
 

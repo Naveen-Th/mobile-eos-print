@@ -2,6 +2,7 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { View, Text } from 'react-native';
+import { MobileUser } from '../../services/MobileAuthService';
 
 // Import screens
 import HomeScreen from './index';
@@ -11,7 +12,12 @@ import SettingsScreen from './settings';
 
 const Tab = createBottomTabNavigator();
 
-export default function TabLayout() {
+interface TabLayoutProps {
+  user?: MobileUser | null;
+  onLogout?: () => void;
+}
+
+export default function TabLayout({ user, onLogout }: TabLayoutProps) {
   return (
     <Tab.Navigator
       screenOptions={{

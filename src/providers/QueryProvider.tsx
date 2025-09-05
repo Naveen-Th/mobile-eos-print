@@ -56,13 +56,6 @@ const defaultOptions: DefaultOptions = {
 const createQueryClient = () => {
   return new QueryClient({
     defaultOptions,
-    logger: {
-      log: console.log,
-      warn: console.warn,
-      error: (error) => {
-        console.error('🚨 React Query Error:', error);
-      },
-    },
   });
 };
 
@@ -90,7 +83,6 @@ export const QueryProvider: React.FC<QueryProviderProps> = ({ children }) => {
       {__DEV__ && Platform.OS === 'web' && (
         <ReactQueryDevtools 
           initialIsOpen={false}
-          position="bottom-right"
         />
       )}
     </QueryClientProvider>

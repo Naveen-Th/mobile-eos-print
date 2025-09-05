@@ -66,47 +66,98 @@ class MobileAuthService {
     try {
       console.log('Attempting mobile sign in for:', email);
       
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      // Input validation
+      if (!email?.trim() || !password?.trim()) {
+        throw new Error('Email and password are required');
+      }
+      
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
       const user = userCredential.user;
 
-      // Update last login time
-      await this.updateLastLoginTime(user.uid);
+      if (!user) {
+        throw new Error('Authentication failed - no user returned');
+      }
 
-      // Get user profile from Firestore
+      // Get user profile from Firestore first (this will create one if it doesn't exist)
       const userProfile = await this.getUserProfile(user.uid);
+      
+      // Update last login time after getting profile
+      try {
+        await this.updateLastLoginTime(user.uid);
+      } catch (updateError) {
+        console.warn('Failed to update last login time:', updateError);
+        // Don't fail the login for this
+      }
 
       const mobileUser: MobileUser = {
         uid: user.uid,
         email: user.email,
-        displayName: user.displayName,
+        displayName: user.displayName || userProfile?.displayName || 'User',
         photoURL: user.photoURL,
         emailVerified: user.emailVerified,
         role: userProfile?.role || 'viewer',
-        isActive: userProfile?.isActive || true,
+        isActive: userProfile?.isActive !== false, // Default to true unless explicitly false
         lastLoginAt: userProfile?.lastLoginAt,
         createdAt: userProfile?.createdAt
       };
 
       // Store user in AsyncStorage for offline access
-      await AsyncStorage.setItem(this.LAST_USER_KEY, JSON.stringify({
-        email: user.email,
-        displayName: user.displayName,
-        role: userProfile?.role || 'viewer'
-      }));
+      try {
+        await AsyncStorage.setItem(this.LAST_USER_KEY, JSON.stringify({
+          uid: user.uid,
+          email: user.email,
+          displayName: mobileUser.displayName,
+          role: mobileUser.role,
+          lastLogin: new Date().toISOString()
+        }));
+      } catch (storageError) {
+        console.warn('Failed to store user in AsyncStorage:', storageError);
+        // Don't fail the login for this
+      }
 
       console.log('Mobile sign in successful');
       return mobileUser;
     } catch (error: any) {
       console.error('Mobile sign in error:', error);
       
+      // Handle specific Firebase auth errors
+      let errorMessage = 'An error occurred during login';
+      
+      if (error.code) {
+        switch (error.code) {
+          case 'auth/user-not-found':
+            errorMessage = 'No account found with this email address';
+            break;
+          case 'auth/wrong-password':
+            errorMessage = 'Incorrect password';
+            break;
+          case 'auth/invalid-email':
+            errorMessage = 'Invalid email address';
+            break;
+          case 'auth/user-disabled':
+            errorMessage = 'This account has been disabled';
+            break;
+          case 'auth/too-many-requests':
+            errorMessage = 'Too many failed attempts. Please try again later';
+            break;
+          case 'auth/network-request-failed':
+            errorMessage = 'Network error. Please check your internet connection';
+            break;
+          default:
+            errorMessage = error.message || errorMessage;
+        }
+      } else {
+        errorMessage = error.message || errorMessage;
+      }
+      
       // Show mobile alert for error
       Alert.alert(
         'Login Failed',
-        error.message || 'An error occurred during login',
+        errorMessage,
         [{ text: 'OK' }]
       );
       
-      throw error;
+      throw new Error(errorMessage);
     }
   }
 
@@ -179,21 +230,31 @@ class MobileAuthService {
    */
   public async signOut(): Promise<void> {
     try {
+      // Clear current user state
+      this.currentUser = null;
+      
+      // Sign out from Firebase
       await firebaseSignOut(auth);
       
       // Clear stored user data
-      await AsyncStorage.removeItem(this.LAST_USER_KEY);
+      try {
+        await AsyncStorage.removeItem(this.LAST_USER_KEY);
+      } catch (storageError) {
+        console.warn('Failed to clear AsyncStorage on signout:', storageError);
+      }
       
       console.log('Mobile sign out successful');
-      
-      // Show alert
-      Alert.alert(
-        'Signed Out',
-        'You have been successfully signed out',
-        [{ text: 'OK' }]
-      );
     } catch (error: any) {
       console.error('Mobile sign out error:', error);
+      
+      // Even if Firebase signout fails, clear local state
+      this.currentUser = null;
+      try {
+        await AsyncStorage.removeItem(this.LAST_USER_KEY);
+      } catch (storageError) {
+        console.warn('Failed to clear AsyncStorage on signout error:', storageError);
+      }
+      
       throw error;
     }
   }
@@ -274,7 +335,22 @@ class MobileAuthService {
       if (docSnap.exists()) {
         return { uid, ...docSnap.data() };
       }
-      return null;
+      
+      // If user profile doesn't exist, create a default one
+      console.warn(`User profile not found for UID: ${uid}. Creating default profile.`);
+      const defaultProfile = {
+        email: auth.currentUser?.email || '',
+        displayName: auth.currentUser?.displayName || 'User',
+        role: 'viewer' as const,
+        permissions: this.getDefaultPermissions('viewer'),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        lastLoginAt: serverTimestamp(),
+        isActive: true
+      };
+      
+      await setDoc(userDocRef, defaultProfile);
+      return { uid, ...defaultProfile };
     } catch (error) {
       console.error('Error getting user profile:', error);
       return null;
