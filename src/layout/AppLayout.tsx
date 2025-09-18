@@ -73,11 +73,13 @@ const AppLayout: React.FC<AppLayoutProps> = ({ user: propUser, onLogout }) => {
   const handleLogout = useCallback(async () => {
     try {
       console.log('AppLayout: Logging out user...');
-      await MobileAuthService.signOut();
       
-      // Call the provided onLogout callback if available
+      // Call the provided onLogout callback first if available (for MobileApp coordination)
       if (onLogout && typeof onLogout === 'function') {
-        onLogout();
+        await onLogout();
+      } else {
+        // If no callback provided, handle logout directly
+        await MobileAuthService.signOut();
       }
     } catch (error) {
       console.error('AppLayout: Logout error:', error);
@@ -86,6 +88,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ user: propUser, onLogout }) => {
         'Failed to logout properly. Please try again.',
         [{ text: 'OK' }]
       );
+      throw error; // Re-throw to let caller handle if needed
     }
   }, [onLogout]);
 

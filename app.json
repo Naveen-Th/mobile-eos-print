@@ -47,7 +47,8 @@
     "scheme": "thermal-receipt-printer",
     "platforms": [
       "ios",
-      "android"
+      "android",
+      "web"
     ],
     "extra": {
       "router": {

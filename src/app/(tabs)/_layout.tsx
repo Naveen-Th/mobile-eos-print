@@ -74,14 +74,15 @@ export default function TabLayout({ user, onLogout }: TabLayoutProps) {
       />
       <Tab.Screen
         name="settings"
-        component={SettingsScreen}
         options={{
           title: 'Settings',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="settings-outline" size={size} color={color} />
           ),
         }}
-      />
+      >
+        {(props) => <SettingsScreen {...props} user={user} onLogout={onLogout} />}
+      </Tab.Screen>
     </Tab.Navigator>
   );
 }

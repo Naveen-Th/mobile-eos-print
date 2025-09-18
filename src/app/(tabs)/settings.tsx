@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,14 @@ import {
   ScrollView,
   Switch,
   Modal,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import PartyManagementScreen from '../../screens/PartyManagementScreen';
+import PrinterSetupScreen from '../../screens/PrinterSetupScreen';
+import MobileAuthService, { MobileUser } from '../../services/MobileAuthService';
 
 interface SettingItem {
   id: string;
@@ -22,8 +26,27 @@ interface SettingItem {
   onPress?: () => void;
 }
 
-const SettingsScreen: React.FC = () => {
+interface SettingsScreenProps {
+  user?: MobileUser | null;
+  onLogout?: () => void;
+}
+
+const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
   const [showPartyManagement, setShowPartyManagement] = useState(false);
+  const [showPrinterSetup, setShowPrinterSetup] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userInitial, setUserInitial] = useState<string>('U');
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  
+  useEffect(() => {
+    // Use passed user prop first, then fallback to auth service
+    const currentUser = user || MobileAuthService.getCurrentUser();
+    if (currentUser && currentUser.email) {
+      setUserEmail(currentUser.email);
+      // Set initial to first character of email or display name
+      setUserInitial((currentUser.displayName?.charAt(0) || currentUser.email.charAt(0) || 'U').toUpperCase());
+    }
+  }, [user]);
   
   const settingsData: SettingItem[] = [
     {
@@ -32,7 +55,7 @@ const SettingsScreen: React.FC = () => {
       subtitle: 'Configure thermal printers',
       type: 'navigation',
       icon: 'print-outline',
-      onPress: () => console.log('Printer config pressed'),
+      onPress: () => setShowPrinterSetup(true),
     },
     {
       id: '2',
@@ -99,9 +122,44 @@ const SettingsScreen: React.FC = () => {
     },
   ];
 
-  const handleSignOut = () => {
-    console.log('Sign out pressed');
-    // Handle sign out logic
+  const handleSignOut = async () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            setIsSigningOut(true);
+            try {
+              console.log('Sign out pressed');
+              // Use the onLogout prop if available, otherwise use the auth service directly
+              if (onLogout) {
+                // onLogout might be async, so we await it
+                await onLogout();
+              } else {
+                await MobileAuthService.signOut();
+              }
+              console.log('Sign out successful');
+            } catch (error) {
+              console.error('Sign out error:', error);
+              Alert.alert(
+                'Sign Out Error',
+                'Failed to sign out. Please try again.',
+                [{ text: 'OK' }]
+              );
+            } finally {
+              setIsSigningOut(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const renderSettingItem = (item: SettingItem) => {
@@ -158,10 +216,10 @@ const SettingsScreen: React.FC = () => {
         {/* User Profile Section */}
         <View style={styles.profileSection}>
           <View style={styles.profileIcon}>
-            <Text style={styles.profileInitial}>N</Text>
+            <Text style={styles.profileInitial}>{userInitial}</Text>
           </View>
           <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>naveen@rareminds.in</Text>
+            <Text style={styles.profileName}>{userEmail || 'User Email'}</Text>
             <Text style={styles.profileRole}>Viewer</Text>
           </View>
         </View>
@@ -190,9 +248,19 @@ const SettingsScreen: React.FC = () => {
 
         {/* Sign Out Button */}
         <View style={styles.signOutSection}>
-          <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
-            <Ionicons name="log-out-outline" size={20} color="#dc2626" />
-            <Text style={styles.signOutText}>Sign Out</Text>
+          <TouchableOpacity 
+            style={[styles.signOutButton, isSigningOut && styles.signOutButtonDisabled]} 
+            onPress={handleSignOut}
+            disabled={isSigningOut}
+          >
+            {isSigningOut ? (
+              <ActivityIndicator size="small" color="#dc2626" />
+            ) : (
+              <Ionicons name="log-out-outline" size={20} color="#dc2626" />
+            )}
+            <Text style={styles.signOutText}>
+              {isSigningOut ? 'Signing Out...' : 'Sign Out'}
+            </Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -206,6 +274,17 @@ const SettingsScreen: React.FC = () => {
       >
         <PartyManagementScreen onBack={() => setShowPartyManagement(false)} />
       </Modal>
+      
+      {/* Printer Setup Screen */}
+      {showPrinterSetup && (
+        <PrinterSetupScreen
+          onClose={() => setShowPrinterSetup(false)}
+          onPrinterSelected={(printer) => {
+            console.log('Printer selected:', printer);
+            setShowPrinterSetup(false);
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -356,6 +435,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#dc2626',
     marginLeft: 8,
+  },
+  signOutButtonDisabled: {
+    opacity: 0.6,
   },
 });
 

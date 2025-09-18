@@ -8,6 +8,7 @@ import {
   updateDoc,
   addDoc,
   deleteDoc,
+  getDocs,
   serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -110,6 +111,12 @@ export function useRealtimeCollection<T = any>(
             try {
               queryClient.setQueryData(queryKey, documents);
               console.log(`💾 Updated React Query cache for key:`, queryKey);
+              console.log(`📊 Cache now contains ${documents.length} items for ${collectionName}`);
+              
+              // Debug: Log items for debugging
+              if (collectionName === 'item_details' && documents.length > 0) {
+                console.log('🏷️ [ITEMS DEBUG] Items in cache:', documents.map(item => ({ id: item.id, name: (item as any).item_name, stocks: (item as any).stocks })));
+              }
               
               // Debug: Verify what got stored in cache for receipts
               if (collectionName === 'receipts') {
@@ -208,15 +215,37 @@ export function useRealtimeCollection<T = any>(
   
   return useQuery({
     queryKey,
-    queryFn: () => [] as T[], // Initial empty data, real-time listener will populate
+    queryFn: async () => {
+      // Fallback query function to fetch data when real-time listener hasn't loaded data yet
+      console.log(`🔄 Fallback queryFn called for ${collectionName}`);
+      try {
+        const colRef = collection(db, collectionName);
+        const snapshot = await getDocs(colRef);
+        const documents = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+          } as T;
+        });
+        console.log(`✅ Fallback fetch for ${collectionName} returned ${documents.length} documents`);
+        return documents;
+      } catch (error) {
+        console.error(`❌ Fallback fetch failed for ${collectionName}:`, error);
+        return [] as T[];
+      }
+    },
     enabled,
-    staleTime: Infinity, // Always fresh due to real-time updates
+    staleTime: 5000, // 5 seconds - allow some staleness but not infinite
     gcTime: 10 * 60 * 1000, // 10 minutes
     select: options.select,
-    // Don't refetch automatically - real-time listener handles data
-    refetchOnMount: false,
+    // Allow refetch on mount as fallback when real-time isn't working
+    refetchOnMount: 'always',
     refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
+    refetchOnReconnect: true,
+    // Retry configuration
+    retry: 3,
+    retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 30000),
   });
 }
 
@@ -337,10 +366,28 @@ const selectItems = (data: any[]) => data.map(item => ({
 
 // Specific hooks for collections
 export function useItems() {
-  return useRealtimeCollection('item_details', {
+  const queryResult = useRealtimeCollection('item_details', {
     enabled: true,
     select: selectItems,
+    onSuccess: (data) => {
+      console.log('✅ Items loaded via real-time listener:', data.length);
+    },
+    onError: (error) => {
+      console.error('❌ Items loading error:', error);
+    },
   });
+  
+  // Add debugging for the query result
+  useEffect(() => {
+    console.log('🏷️ [useItems DEBUG] Query state changed:');
+    console.log('  - Data count:', queryResult.data?.length || 0);
+    console.log('  - Is loading:', queryResult.isLoading);
+    console.log('  - Is fetching:', queryResult.isFetching);
+    console.log('  - Error:', queryResult.error?.message || 'none');
+    console.log('  - Status:', queryResult.status);
+  }, [queryResult.data, queryResult.isLoading, queryResult.error, queryResult.status, queryResult.isFetching]);
+  
+  return queryResult;
 }
 
 // Create a stable select function outside the component to prevent re-creation

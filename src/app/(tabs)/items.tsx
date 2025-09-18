@@ -6,6 +6,8 @@ import {
   RefreshControl,
   ActivityIndicator,
   StyleSheet,
+  Text,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ItemService from '../../services/ItemService';
@@ -61,6 +63,15 @@ const ItemsScreen: React.FC = () => {
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Debug: Track items data changes
+  useEffect(() => {
+    console.log('🏷️ [ITEMS SCREEN DEBUG] Items data changed:');
+    console.log('  - Count:', items.length);
+    console.log('  - Loading:', loading);
+    console.log('  - Error:', error?.message || 'none');
+    console.log('  - Items:', items.map(item => ({ id: item.id, name: item.item_name, stocks: item.stocks })));
+  }, [items, loading, error]);
+
   // Check if item has pending updates
   const isItemPending = (itemId: string) => {
     return Array.from(pendingUpdates.values()).some(
@@ -69,11 +80,22 @@ const ItemsScreen: React.FC = () => {
   };
 
   const onRefresh = async () => {
+    console.log('🔄 Manual refresh initiated');
+    console.log('📊 Current items count before refresh:', items.length);
+    console.log('📄 Current items:', items.map(item => ({ id: item.id, name: item.item_name })));
+    
     setRefreshing(true);
     try {
-      await refetch();
+      console.log('🔄 Calling refetch...');
+      const result = await refetch();
+      console.log('✅ Refetch completed:', result);
+      console.log('📊 Items count after refetch:', result.data?.length || 0);
+    } catch (error) {
+      console.error('❌ Refetch failed:', error);
+      Alert.alert('Error', 'Failed to refresh items. Please try again.');
     } finally {
       setRefreshing(false);
+      console.log('🔄 Refresh completed, refreshing state set to false');
     }
   };
 
@@ -292,7 +314,28 @@ const ItemsScreen: React.FC = () => {
 
         {filteredAndSortedItems.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <ActivityIndicator size="large" color="#9ca3af" />
+            <Text style={{ fontSize: 18, color: '#6b7280', marginBottom: 10, textAlign: 'center' }}>
+              {searchQuery ? 'No items found' : 'No items yet'}
+            </Text>
+            <Text style={{ color: '#9ca3af', textAlign: 'center', marginBottom: 20, fontSize: 14 }}>
+              {searchQuery
+                ? 'Try adjusting your search terms'
+                : 'Start by adding your first item to the inventory'
+              }
+            </Text>
+            {!searchQuery && (
+              <TouchableOpacity
+                onPress={() => setShowAddModal(true)}
+                style={{
+                  backgroundColor: '#3b82f6',
+                  paddingHorizontal: 20,
+                  paddingVertical: 12,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ color: 'white', fontWeight: 'bold' }}>Add Your First Item</Text>
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
           <FlatList

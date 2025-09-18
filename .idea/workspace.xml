@@ -6,32 +6,45 @@
   <component name="ChangeListManager">
     <list default="true" id="0584559d-6515-4de5-8967-61fa3aa61661" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/../../App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/../../App.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/android-adaptive-foreground/android-adaptive-foreground-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-transparent/icon_108.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/android-adaptive-foreground/android-adaptive-foreground-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-transparent/icon_162.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/android-adaptive-foreground/android-adaptive-foreground-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-transparent/icon_216.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/android-adaptive-foreground/android-adaptive-foreground-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-transparent/icon_324.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/android-adaptive-foreground/android-adaptive-foreground-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-transparent/icon_432.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/android-standard-circle/android-standard-circle-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-#FFFFFF/icon_108.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/android-standard-circle/android-standard-circle-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-#FFFFFF/icon_162.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/android-standard-circle/android-standard-circle-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-#FFFFFF/icon_216.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/android-standard-circle/android-standard-circle-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-#FFFFFF/icon_324.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/android-standard-circle/android-standard-circle-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-#FFFFFF/icon_432.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/android-standard-square/android-standard-square-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-#FFFFFF/icon_108.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/android-standard-square/android-standard-square-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-#FFFFFF/icon_162.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/android-standard-square/android-standard-square-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-#FFFFFF/icon_216.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/android-standard-square/android-standard-square-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-#FFFFFF/icon_324.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/android-standard-square/android-standard-square-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-#FFFFFF/icon_432.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/iconsuniversal-icon/iconsuniversal-icon-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-cover-#ffffff/App-Icon-1024x1024@1x.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/splash-android/splash-android-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-contain/icon_undefined.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.expo/web/cache/production/images/splash-ios/splash-ios-cdb30873bdf16770bfea1fe86e44db7476e504c2dca1542b0660b20f47f523a7-contain/icon_undefined.png" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/App.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app.json" beforeDir="false" afterPath="$PROJECT_DIR$/app.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ios/ThermalReceiptPrinter.xcodeproj/project.pbxproj" beforeDir="false" afterPath="$PROJECT_DIR$/ios/ThermalReceiptPrinter.xcodeproj/project.pbxproj" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/package-lock.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/App.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/MobileApp.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/MobileApp.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/app/(tabs)/_layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/_layout.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/app/(tabs)/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/index.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/app/(tabs)/items.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/items.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/app/(tabs)/receipts.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/receipts.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/app/(tabs)/settings.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/settings.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/components/Items/ItemCard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/Items/ItemCard.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/components/ItemsScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/ItemsScreen.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/components/ItemsScreenNew.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/ItemsScreenNew.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/components/PrintOptionsScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/PrintOptionsScreen.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/AddEditPartyModal.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/AddEditPartyModal.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/PointOfSale.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/PointOfSale.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/components/ReceiptCreationScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/ReceiptCreationScreen.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/components/ReceiptsScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/ReceiptsScreen.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/context/CartContext.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/context/CartContext.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/Receipts/ReceiptDetailModal.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/Receipts/ReceiptDetailModal.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/SearchableDropdown.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/SearchableDropdown.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/examples/StockManagementExample.tsx" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/src/hooks/useSyncManager.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/hooks/useSyncManager.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/layout/AppLayout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/layout/AppLayout.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/providers/QueryProvider.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/providers/QueryProvider.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/MobileAuthService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/MobileAuthService.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/ReceiptFirebaseService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ReceiptFirebaseService.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/StockService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/StockService.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/store/syncStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/store/syncStore.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/types/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/types/index.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/CustomerService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/CustomerService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/PersonDetailsService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/PersonDetailsService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/stores/receiptStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/stores/receiptStore.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../../package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/../../package-lock.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../../package.json" beforeDir="false" afterPath="$PROJECT_DIR$/../../package.json" afterDir="false" />
     </list>
@@ -65,7 +78,8 @@
     &quot;cf.first.check.clang-format&quot;: &quot;false&quot;,
     &quot;cidr.known.project.marker&quot;: &quot;true&quot;,
     &quot;git-widget-placeholder&quot;: &quot;master&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/Users/Apple/Documents/Print/ThermalReceiptPrinter/mobile&quot;
+    &quot;last_opened_file_path&quot;: &quot;/Users/Apple/Documents/Print/ThermalReceiptPrinter/mobile&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;device.mirroring&quot;
   }
 }</component>
   <component name="TaskManager">

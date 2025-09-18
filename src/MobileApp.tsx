@@ -24,9 +24,14 @@ const MobileApp: React.FC = () => {
 
   const handleSignOut = async () => {
     try {
+      console.log('MobileApp: Starting sign out process...');
       await MobileAuthService.signOut();
+      console.log('MobileApp: Sign out completed successfully');
     } catch (error) {
-      console.error('Sign out error:', error);
+      console.error('MobileApp: Sign out error:', error);
+      // Even if there's an error, we might want to clear the local state
+      // The auth state listener should handle clearing currentUser
+      throw error; // Re-throw to let caller handle
     }
   };
 

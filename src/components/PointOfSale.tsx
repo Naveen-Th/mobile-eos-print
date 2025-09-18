@@ -5,6 +5,9 @@ import { PrintOptionsScreen } from './PrintOptionsScreen';
 import { ReceiptPreviewScreen } from './ReceiptPreviewScreen';
 import { ReceiptsScreen } from './ReceiptsScreen';
 import ItemsScreen from './ItemsScreen';
+import PrinterSetupModal from './PrinterSetupModal';
+import PrinterStatusIndicatorWeb from './PrinterStatusIndicatorWeb';
+import ThermalPrinterService, { ThermalPrinter } from '../services/ThermalPrinterService';
 import { formatCurrency, validateCustomerInfo } from '../utils/index';
 
 interface PointOfSaleProps {
@@ -46,12 +49,22 @@ const PointOfSale: React.FC<PointOfSaleProps> = ({ user, onLogout }) => {
   const [showAddItemScreen, setShowAddItemScreen] = useState(false);
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
   const [showPrintOptions, setShowPrintOptions] = useState(false);
+  const [showPrinterSetup, setShowPrinterSetup] = useState(false);
   const [customerError, setCustomerError] = useState<string>('');
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', price: 0, quantity: 1 });
+  const [connectedPrinter, setConnectedPrinter] = useState<ThermalPrinter | null>(null);
   
   const { state: cartState, updateQuantity, removeItem, clearCart, updateCustomerInfo, updateItem } = useCart();
   const { items: cartItems, subtotal, tax, total } = cartState;
+  
+  const printerService = ThermalPrinterService.getInstance();
+  
+  // Load connected printer on component mount
+  React.useEffect(() => {
+    const connectedPrinter = printerService.getConnectedPrinter();
+    setConnectedPrinter(connectedPrinter);
+  }, []);
 
   const handlePreviewReceipt = () => {
     // Validate customer information before preview
@@ -118,6 +131,10 @@ const PointOfSale: React.FC<PointOfSaleProps> = ({ user, onLogout }) => {
   const handleCancelEdit = () => {
     setEditingItemId(null);
     setEditForm({ name: '', price: 0, quantity: 1 });
+  };
+  
+  const handlePrinterSelected = (printer: ThermalPrinter) => {
+    setConnectedPrinter(printer);
   };
 
   // Return PrintOptionsScreen if showing print options
@@ -372,15 +389,33 @@ const PointOfSale: React.FC<PointOfSaleProps> = ({ user, onLogout }) => {
     <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl shadow-gray-900/5 border border-gray-200/60 p-8">
       <div className="space-y-6">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Application Settings</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-6">Application Settings</h3>
+          
+          {/* Printer Status */}
+          <div className="mb-6">
+            <PrinterStatusIndicatorWeb 
+              showDetailedStatus={true}
+              onPress={() => setShowPrinterSetup(true)}
+              className="mb-4"
+            />
+          </div>
+          
           <div className="space-y-4">
             <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
               <div>
                 <h4 className="font-medium text-gray-900">Printer Configuration</h4>
-                <p className="text-sm text-gray-500">Configure thermal printers</p>
+                <p className="text-sm text-gray-500">
+                  {connectedPrinter 
+                    ? `Connected: ${connectedPrinter.name}`
+                    : 'No printer connected'
+                  }
+                </p>
               </div>
-              <button className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
-                Configure
+              <button 
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                onClick={() => setShowPrinterSetup(true)}
+              >
+                {connectedPrinter ? 'Manage' : 'Setup'}
               </button>
             </div>
             <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
@@ -517,6 +552,13 @@ const PointOfSale: React.FC<PointOfSaleProps> = ({ user, onLogout }) => {
           onReceiptProcessed={handleReceiptProcessed}
         />
       )}
+      
+      {/* Printer Setup Modal */}
+      <PrinterSetupModal
+        isOpen={showPrinterSetup}
+        onClose={() => setShowPrinterSetup(false)}
+        onPrinterSelected={handlePrinterSelected}
+      />
       
     </div>
   );

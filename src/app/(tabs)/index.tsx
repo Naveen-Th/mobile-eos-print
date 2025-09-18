@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import ReceiptCreationScreen from '../../components/ReceiptCreationScreen';
+import PrinterSetupScreen from '../../screens/PrinterSetupScreen';
 
 // Try to import LinearGradient, fallback to View if not available
 let LinearGradient: any;
@@ -47,6 +48,7 @@ const HomeScreen: React.FC = () => {
     avgOrder: 54.38,
   });
   const [showReceiptCreation, setShowReceiptCreation] = useState(false);
+  const [showPrinterSetup, setShowPrinterSetup] = useState(false);
 
   // Function to get greeting based on current time
   const getTimeBasedGreeting = (): string => {
@@ -84,8 +86,8 @@ const HomeScreen: React.FC = () => {
   };
 
   const handlePrinterSettings = () => {
-    console.log('Printer settings...');
-    Alert.alert('Printer', 'Configure thermal printer settings');
+    console.log('Opening printer setup...');
+    setShowPrinterSetup(true);
   };
 
   const handleBackup = () => {
@@ -225,22 +227,23 @@ const HomeScreen: React.FC = () => {
   );
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
-      <ScrollView 
-        className="flex-1"
-        contentContainerStyle={{ paddingBottom: 100 }}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
-        <View className="flex-row justify-between items-center px-5 pt-5 pb-8">
-          <View>
-            <Text className="text-gray-500 text-base mb-1">{getTimeBasedGreeting()}</Text>
-            <Text className="text-gray-900 text-2xl font-bold">My Thermal Receipt Store</Text>
+    <View style={{ flex: 1 }}>
+      <SafeAreaView className="flex-1 bg-gray-50">
+        <ScrollView 
+          className="flex-1"
+          contentContainerStyle={{ paddingBottom: 100 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header */}
+          <View className="flex-row justify-between items-center px-5 pt-5 pb-8">
+            <View>
+              <Text className="text-gray-500 text-base mb-1">{getTimeBasedGreeting()}</Text>
+              <Text className="text-gray-900 text-2xl font-bold">My Thermal Receipt Store</Text>
+            </View>
+            <TouchableOpacity className="p-1">
+              <Ionicons name="person-circle" size={40} color="#6b7280" />
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity className="p-1">
-            <Ionicons name="person-circle" size={40} color="#6b7280" />
-          </TouchableOpacity>
-        </View>
 
         {/* Today's Stats */}
         <View className="mb-8">
@@ -349,6 +352,18 @@ const HomeScreen: React.FC = () => {
         onClose={() => setShowReceiptCreation(false)}
       />
     </SafeAreaView>
+      
+      {/* Printer Setup Screen */}
+      {showPrinterSetup && (
+        <PrinterSetupScreen
+          onClose={() => setShowPrinterSetup(false)}
+          onPrinterSelected={(printer) => {
+            console.log('Printer selected:', printer);
+            setShowPrinterSetup(false);
+          }}
+        />
+      )}
+    </View>
   );
 };
 

@@ -19,6 +19,7 @@ export interface PersonDetail {
   personName: string;
   businessName: string;
   phoneNumber: string;
+  balanceDue: number;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -27,12 +28,14 @@ export interface CreatePersonDetailData {
   personName: string;
   businessName: string;
   phoneNumber: string;
+  balanceDue?: number;
 }
 
 export interface UpdatePersonDetailData {
   personName?: string;
   businessName?: string;
   phoneNumber?: string;
+  balanceDue?: number;
 }
 
 class PersonDetailsService {
@@ -80,6 +83,7 @@ class PersonDetailsService {
         personName: data.personName.trim(),
         businessName: data.businessName.trim(),
         phoneNumber: phoneValidation.formatted || data.phoneNumber,
+        balanceDue: data.balanceDue || 0,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -170,6 +174,7 @@ class PersonDetailsService {
       if (data.personName) updateData.personName = data.personName.trim();
       if (data.businessName) updateData.businessName = data.businessName.trim();
       if (data.phoneNumber) updateData.phoneNumber = data.phoneNumber;
+      if (data.balanceDue !== undefined) updateData.balanceDue = data.balanceDue;
       
       const docRef = doc(db, this.collectionName, id);
       await updateDoc(docRef, updateData);

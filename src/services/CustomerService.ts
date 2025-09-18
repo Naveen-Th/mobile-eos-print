@@ -6,27 +6,34 @@ import {
   orderBy,
   limit,
   onSnapshot,
-  Unsubscribe
+  Unsubscribe,
+  addDoc,
+  doc,
+  updateDoc,
+  serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import FirebaseService from './FirebaseService';
 import { debounce } from '../utils';
+import PersonDetailsService, { PersonDetail, CreatePersonDetailData, UpdatePersonDetailData } from './PersonDetailsService';
 
 export interface CustomerInfo {
   customerName: string;
   businessName?: string;
   businessPhone?: string;
+  balanceDue?: number;
   lastUsed?: Date;
 }
 
 export interface UniqueCustomer extends CustomerInfo {
-  receiptCount: number;
+  id?: string;
+  receiptCount?: number;
 }
 
 class CustomerService {
   private static instance: CustomerService;
   private firebaseService: typeof FirebaseService;
-  private readonly COLLECTION_NAME = 'receipts';
+  private readonly COLLECTION_NAME = 'person_details';
   private cachedCustomers: UniqueCustomer[] = [];
   private lastCacheUpdate: number = 0;
   private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -50,7 +57,14 @@ class CustomerService {
   /**
    * Search for customers by name with debouncing
    */
-  public searchCustomers = debounce(this.searchCustomersInternal.bind(this), 300);
+  public searchCustomers = debounce(this.searchCustomersInternal.bind(this), 150);
+  
+  /**
+   * Immediate search without debouncing (useful for single character searches)
+   */
+  public searchCustomersImmediate(searchTerm: string): Promise<UniqueCustomer[]> {
+    return this.searchCustomersInternal(searchTerm);
+  }
   
   private async searchCustomersInternal(searchTerm: string): Promise<UniqueCustomer[]> {
     try {
@@ -81,20 +95,54 @@ class CustomerService {
   }
 
   /**
-   * Search in cached customers
+   * Search in cached customers (case-insensitive)
    */
   private searchInCache(searchTerm: string): UniqueCustomer[] {
     if (!this.cachedCustomers || !Array.isArray(this.cachedCustomers)) {
+      console.log('No cached customers available for search');
       return [];
     }
     
     const term = searchTerm.toLowerCase().trim();
-    return this.cachedCustomers.filter(customer => 
-      customer && customer.customerName && (
-        customer.customerName.toLowerCase().includes(term) ||
-        (customer.businessName && customer.businessName.toLowerCase().includes(term))
-      )
-    ).slice(0, 10); // Limit to top 10 results
+    
+    if (!term) {
+      console.log('Empty search term, returning recent customers');
+      return this.cachedCustomers.slice(0, 10); // Return top 10 recent customers for empty search
+    }
+    
+    const results = this.cachedCustomers.filter(customer => {
+      if (!customer || !customer.customerName) {
+        return false;
+      }
+      
+      // Search by customer name (case-insensitive)
+      const customerName = customer.customerName.toLowerCase().trim();
+      if (customerName.includes(term)) {
+        return true;
+      }
+      
+      // Search by business name (case-insensitive)
+      if (customer.businessName) {
+        const businessName = customer.businessName.toLowerCase().trim();
+        if (businessName.includes(term)) {
+          return true;
+        }
+      }
+      
+      // Search by business phone (remove spaces and special characters for better matching)
+      if (customer.businessPhone) {
+        const cleanPhone = customer.businessPhone.replace(/[\s\-\(\)\+]/g, '').toLowerCase();
+        const cleanTerm = term.replace(/[\s\-\(\)\+]/g, '');
+        if (cleanPhone.includes(cleanTerm) || customer.businessPhone.toLowerCase().includes(term)) {
+          return true;
+        }
+      }
+      
+      return false;
+    }).slice(0, 20); // Increase limit to show more results
+    
+    console.log(`Search for '${searchTerm}' returned ${results.length} results`);
+    return results;
   }
 
   /**
@@ -133,88 +181,46 @@ class CustomerService {
   }
 
   /**
-   * Refresh customers cache from Firestore
+   * Refresh customers cache from Firestore person_details collection
    */
   private async refreshCustomersCache(): Promise<void> {
     try {
       await this.firebaseService.initialize();
       
-      // Get all receipts with customer information
-      const receiptsRef = collection(db, this.COLLECTION_NAME);
-      
-      // Try with composite index first, fallback if not available
-      let q;
-      try {
-        q = query(
-          receiptsRef,
-          where('customerName', '!=', null),
-          orderBy('customerName'),
-          orderBy('createdAt', 'desc')
-        );
-      } catch (indexError) {
-        console.log('Composite index not available, using simple query:', indexError);
-        q = query(
-          receiptsRef,
-          where('customerName', '!=', null)
-        );
-      }
+      // Get all person details
+      const personDetailsRef = collection(db, this.COLLECTION_NAME);
+      const q = query(personDetailsRef, orderBy('updatedAt', 'desc'));
       
       const querySnapshot = await getDocs(q);
       
-      // Group customers by name and aggregate their information
-      const customerMap = new Map<string, UniqueCustomer>();
+      // Convert person details to customer format
+      const customers: UniqueCustomer[] = [];
       
       querySnapshot.forEach(doc => {
-        const data = doc.data();
-        const customerName = data.customerName?.trim();
+        const data = doc.data() as PersonDetail;
         
-        if (!customerName) return;
+        if (!data.personName?.trim()) return;
         
-        const key = customerName.toLowerCase();
-        
-        if (customerMap.has(key)) {
-          const existing = customerMap.get(key)!;
-          existing.receiptCount++;
-          
-          // Update business info if current record has more complete information
-          if (data.businessName && !existing.businessName) {
-            existing.businessName = data.businessName;
-          }
-          if (data.businessPhone && !existing.businessPhone) {
-            existing.businessPhone = data.businessPhone;
-          }
-          
-          // Update last used date if this receipt is more recent
-          const receiptDate = data.createdAt?.toDate() || data.date?.toDate();
-          if (receiptDate && (!existing.lastUsed || receiptDate > existing.lastUsed)) {
-            existing.lastUsed = receiptDate;
-          }
-        } else {
-          customerMap.set(key, {
-            customerName: customerName,
-            businessName: data.businessName?.trim() || undefined,
-            businessPhone: data.businessPhone?.trim() || undefined,
-            lastUsed: data.createdAt?.toDate() || data.date?.toDate() || new Date(),
-            receiptCount: 1
-          });
-        }
+        customers.push({
+          id: doc.id,
+          customerName: data.personName.trim(),
+          businessName: data.businessName?.trim() || undefined,
+          businessPhone: data.phoneNumber?.trim() || undefined,
+          balanceDue: data.balanceDue || 0,
+          lastUsed: data.updatedAt?.toDate() || data.createdAt?.toDate() || new Date(),
+          receiptCount: 0 // Will be calculated separately if needed
+        });
       });
       
-      // Convert map to array and sort by usage frequency and recency
-      this.cachedCustomers = Array.from(customerMap.values())
-        .sort((a, b) => {
-          // First sort by receipt count (frequency)
-          if (b.receiptCount !== a.receiptCount) {
-            return b.receiptCount - a.receiptCount;
-          }
-          // Then by last used date (recency)
-          const aDate = a.lastUsed || new Date(0);
-          const bDate = b.lastUsed || new Date(0);
-          return bDate.getTime() - aDate.getTime();
-        });
+      // Sort by last used date (most recent first)
+      this.cachedCustomers = customers.sort((a, b) => {
+        const aDate = a.lastUsed || new Date(0);
+        const bDate = b.lastUsed || new Date(0);
+        return bDate.getTime() - aDate.getTime();
+      });
       
       this.lastCacheUpdate = Date.now();
-      console.log(`Customer cache refreshed with ${this.cachedCustomers.length} unique customers`);
+      console.log(`Customer cache refreshed with ${this.cachedCustomers.length} customers from person_details`);
     } catch (error) {
       console.error('Error refreshing customer cache:', error);
       // Ensure we have a valid empty array on error
@@ -241,30 +247,24 @@ class CustomerService {
         return cachedCustomer;
       }
 
-      // If not in cache, try direct Firestore query
-      await this.firebaseService.initialize();
-      
-      const receiptsRef = collection(db, this.COLLECTION_NAME);
-      const q = query(
-        receiptsRef,
-        where('customerName', '==', trimmedName),
-        orderBy('createdAt', 'desc'),
-        limit(1)
+      // If not in cache, try direct search using PersonDetailsService
+      const searchResults = await PersonDetailsService.searchPersonDetails(trimmedName);
+      const exactMatch = searchResults.find(person => 
+        person.personName.toLowerCase() === trimmedName.toLowerCase()
       );
-      
-      const querySnapshot = await getDocs(q);
-      
-      if (querySnapshot.empty) {
+
+      if (!exactMatch) {
         return null;
       }
 
-      const data = querySnapshot.docs[0].data();
       return {
-        customerName: trimmedName,
-        businessName: data.businessName?.trim() || undefined,
-        businessPhone: data.businessPhone?.trim() || undefined,
-        lastUsed: data.createdAt?.toDate() || data.date?.toDate() || new Date(),
-        receiptCount: 1 // We only got one result, actual count would need another query
+        id: exactMatch.id,
+        customerName: exactMatch.personName.trim(),
+        businessName: exactMatch.businessName?.trim() || undefined,
+        businessPhone: exactMatch.phoneNumber?.trim() || undefined,
+        balanceDue: exactMatch.balanceDue || 0,
+        lastUsed: exactMatch.updatedAt?.toDate() || exactMatch.createdAt?.toDate() || new Date(),
+        receiptCount: 0
       };
     } catch (error) {
       console.error('Error getting customer by name:', error);
@@ -281,30 +281,13 @@ class CustomerService {
     }
 
     try {
-      const receiptsRef = collection(db, this.COLLECTION_NAME);
-      
-      // Try with composite index first (customerName + createdAt)
-      let q;
-      try {
-        q = query(
-          receiptsRef,
-          where('customerName', '!=', null),
-          orderBy('customerName'),
-          orderBy('createdAt', 'desc')
-        );
-      } catch (indexError) {
-        console.log('Composite index not available, using simple query:', indexError);
-        // Fallback to simple query if composite index not available
-        q = query(
-          receiptsRef,
-          where('customerName', '!=', null)
-        );
-      }
+      const personDetailsRef = collection(db, this.COLLECTION_NAME);
+      const q = query(personDetailsRef, orderBy('updatedAt', 'desc'));
 
       this.realtimeListener = onSnapshot(
         q,
         (snapshot) => {
-          console.log('Real-time update: Customer data changed');
+          console.log('Real-time update: Person details data changed');
           this.processCustomerDataFromSnapshot(snapshot);
         },
         (error) => {
@@ -315,7 +298,7 @@ class CustomerService {
       );
 
       this.isListeningToRealtime = true;
-      console.log('Real-time customer listener established');
+      console.log('Real-time customer listener established for person_details');
     } catch (error) {
       console.error('Failed to setup real-time listener:', error);
       this.isListeningToRealtime = false;
@@ -335,63 +318,37 @@ class CustomerService {
   }
 
   /**
-   * Process customer data from Firestore snapshot
+   * Process customer data from Firestore snapshot (person_details)
    */
   private processCustomerDataFromSnapshot(snapshot: any): void {
     try {
-      const customerMap = new Map<string, UniqueCustomer>();
+      const customers: UniqueCustomer[] = [];
       
       snapshot.forEach((doc: any) => {
-        const data = doc.data();
-        const customerName = data.customerName?.trim();
+        const data = doc.data() as PersonDetail;
         
-        if (!customerName) return;
+        if (!data.personName?.trim()) return;
         
-        const key = customerName.toLowerCase();
-        
-        if (customerMap.has(key)) {
-          const existing = customerMap.get(key)!;
-          existing.receiptCount++;
-          
-          // Update business info if current record has more complete information
-          if (data.businessName && !existing.businessName) {
-            existing.businessName = data.businessName;
-          }
-          if (data.businessPhone && !existing.businessPhone) {
-            existing.businessPhone = data.businessPhone;
-          }
-          
-          // Update last used date if this receipt is more recent
-          const receiptDate = data.createdAt?.toDate() || data.date?.toDate();
-          if (receiptDate && (!existing.lastUsed || receiptDate > existing.lastUsed)) {
-            existing.lastUsed = receiptDate;
-          }
-        } else {
-          customerMap.set(key, {
-            customerName: customerName,
-            businessName: data.businessName?.trim() || undefined,
-            businessPhone: data.businessPhone?.trim() || undefined,
-            lastUsed: data.createdAt?.toDate() || data.date?.toDate() || new Date(),
-            receiptCount: 1
-          });
-        }
+        customers.push({
+          id: doc.id,
+          customerName: data.personName.trim(),
+          businessName: data.businessName?.trim() || undefined,
+          businessPhone: data.phoneNumber?.trim() || undefined,
+          balanceDue: data.balanceDue || 0,
+          lastUsed: data.updatedAt?.toDate() || data.createdAt?.toDate() || new Date(),
+          receiptCount: 0
+        });
       });
       
-      // Convert map to array and sort by usage frequency and recency
-      this.cachedCustomers = Array.from(customerMap.values())
-        .sort((a, b) => {
-          // First sort by receipt count (frequency)
-          if (b.receiptCount !== a.receiptCount) {
-            return b.receiptCount - a.receiptCount;
-          }
-          // Then by last used date (recency)
-          const aDate = a.lastUsed || new Date(0);
-          const bDate = b.lastUsed || new Date(0);
-          return bDate.getTime() - aDate.getTime();
-        });
+      // Sort by last used date (most recent first)
+      this.cachedCustomers = customers.sort((a, b) => {
+        const aDate = a.lastUsed || new Date(0);
+        const bDate = b.lastUsed || new Date(0);
+        return bDate.getTime() - aDate.getTime();
+      });
       
       this.lastCacheUpdate = Date.now();
-      console.log(`Real-time update: Customer cache updated with ${this.cachedCustomers.length} unique customers`);
+      console.log(`Real-time update: Customer cache updated with ${this.cachedCustomers.length} customers from person_details`);
     } catch (error) {
       console.error('Error processing customer data from snapshot:', error);
     }

@@ -12,6 +12,11 @@ interface FormItem {
   selectedItemId: string;
   price: string;
   quantity: string;
+  // New weight-based fields
+  kg?: string;
+  gms?: string;
+  pricePerKg?: string;
+  calculatedPrice?: string;
   // Temporary state for UI
   isValidating?: boolean;
   stockError?: string;
@@ -20,13 +25,7 @@ interface FormItem {
 // Customer information interface
 interface CustomerInfo {
   customerName: string;
-  businessName: string;
-  businessPhone: string;
   isNewCustomer: boolean;
-  autoFilledFields: {
-    businessName: boolean;
-    businessPhone: boolean;
-  };
 }
 
 // Receipt totals interface
@@ -56,8 +55,6 @@ interface ReceiptState {
   // Errors
   errors: {
     customer: string;
-    businessName: string;
-    businessPhone: string;
     form: string;
   };
   
@@ -76,7 +73,6 @@ interface ReceiptActions {
   
   // Customer actions
   updateCustomerInfo: (info: Partial<CustomerInfo>) => void;
-  setAutoFilledFields: (fields: Partial<CustomerInfo['autoFilledFields']>) => void;
   clearCustomerErrors: () => void;
   
   // Available items actions
@@ -102,16 +98,19 @@ interface ReceiptActions {
 
 // Initial state
 const initialState: ReceiptState = {
-  formItems: [{ id: '1', selectedItemId: '', price: '0.00', quantity: '1' }],
+  formItems: [{ 
+    id: '1', 
+    selectedItemId: '', 
+    price: '0.00', 
+    quantity: '1',
+    kg: '0',
+    gms: '0',
+    pricePerKg: '',
+    calculatedPrice: '0.00'
+  }],
   customer: {
     customerName: '',
-    businessName: '',
-    businessPhone: '',
-    isNewCustomer: false,
-    autoFilledFields: {
-      businessName: false,
-      businessPhone: false
-    }
+    isNewCustomer: false
   },
   availableItems: [],
   isLoadingItems: true,
@@ -120,8 +119,6 @@ const initialState: ReceiptState = {
   isValidating: false,
   errors: {
     customer: '',
-    businessName: '',
-    businessPhone: '',
     form: ''
   },
   currentReceipt: null,
@@ -146,7 +143,11 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             id: newId,
             selectedItemId: '',
             price: '0.00',
-            quantity: '1'
+            quantity: '1',
+            kg: '0',
+            gms: '0',
+            pricePerKg: '',
+            calculatedPrice: '0.00'
           });
         });
       },
@@ -164,6 +165,27 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
           const itemIndex = state.formItems.findIndex(item => item.id === id);
           if (itemIndex !== -1) {
             (state.formItems[itemIndex] as any)[field] = value;
+            
+            // Calculate price when kg, gms, or pricePerKg changes
+            if (field === 'kg' || field === 'gms' || field === 'pricePerKg') {
+              const formItem = state.formItems[itemIndex];
+              const kg = parseFloat(formItem.kg || '0');
+              const gms = parseFloat(formItem.gms || '0');
+              const pricePerKg = parseFloat(formItem.pricePerKg || '0');
+              
+              // Convert gms to kg and add to kg value
+              const totalKg = kg + (gms / 1000);
+              
+              // Calculate total price
+              const calculatedPrice = totalKg * pricePerKg;
+              
+              // Update the calculated price and main price fields
+              state.formItems[itemIndex].calculatedPrice = calculatedPrice.toFixed(2);
+              state.formItems[itemIndex].price = calculatedPrice.toFixed(2);
+              
+              // Set quantity based on total weight (for compatibility with existing logic)
+              state.formItems[itemIndex].quantity = totalKg > 0 ? totalKg.toFixed(3) : '0';
+            }
             
             // Clear stock error when updating
             if (field === 'quantity' || field === 'selectedItemId') {
@@ -207,6 +229,12 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
           if (itemIndex !== -1) {
             state.formItems[itemIndex].selectedItemId = itemId;
             state.formItems[itemIndex].price = selectedItem.price.toFixed(2);
+            // Auto-populate pricePerKg from Firebase (the price field contains per kg price)
+            state.formItems[itemIndex].pricePerKg = selectedItem.price.toFixed(2);
+            // Reset weight fields when new item is selected
+            state.formItems[itemIndex].kg = '0';
+            state.formItems[itemIndex].gms = '0';
+            state.formItems[itemIndex].calculatedPrice = '0.00';
             state.formItems[itemIndex].stockError = undefined;
           }
         });
@@ -227,26 +255,12 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
           if (info.customerName !== undefined) {
             state.errors.customer = '';
           }
-          if (info.businessName !== undefined) {
-            state.errors.businessName = '';
-          }
-          if (info.businessPhone !== undefined) {
-            state.errors.businessPhone = '';
-          }
-        });
-      },
-
-      setAutoFilledFields: (fields: Partial<CustomerInfo['autoFilledFields']>) => {
-        set((state) => {
-          Object.assign(state.customer.autoFilledFields, fields);
         });
       },
 
       clearCustomerErrors: () => {
         set((state) => {
           state.errors.customer = '';
-          state.errors.businessName = '';
-          state.errors.businessPhone = '';
         });
       },
 
@@ -307,8 +321,6 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
           state.isValidating = true;
           // Clear all errors
           state.errors.customer = '';
-          state.errors.businessName = '';
-          state.errors.businessPhone = '';
           state.errors.form = '';
         });
 
@@ -367,13 +379,14 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
         const state = get();
         const validItems = state.formItems.filter(item => 
           item.selectedItemId && 
-          parseFloat(item.price) > 0 && 
-          parseInt(item.quantity) > 0
+          parseFloat(item.calculatedPrice || item.price || '0') > 0
         );
 
-        const subtotal = validItems.reduce((sum, item) => 
-          sum + (parseFloat(item.price) * parseInt(item.quantity)), 0
-        );
+        const subtotal = validItems.reduce((sum, item) => {
+          // Use calculatedPrice if available (for weight-based items), otherwise use price
+          const itemPrice = parseFloat(item.calculatedPrice || item.price || '0');
+          return sum + itemPrice;
+        }, 0);
         
         const tax = subtotal * 0.1; // 10% tax rate
         const total = subtotal + tax;
@@ -435,15 +448,41 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
           // Convert form items to receipt items
           const receiptItems: ReceiptItem[] = validItems.map(formItem => {
             const selectedItem = state.availableItems.find(item => item.id === formItem.selectedItemId);
+            const kg = parseFloat(formItem.kg || '0');
+            const gms = parseFloat(formItem.gms || '0');
+            const totalWeight = kg + (gms / 1000);
+            
             return {
               id: formItem.id,
               name: selectedItem?.item_name || '',
-              price: parseFloat(formItem.price),
-              quantity: parseInt(formItem.quantity),
+              price: parseFloat(formItem.calculatedPrice || formItem.price || '0'),
+              quantity: totalWeight > 0 ? totalWeight : 1, // Use total weight as quantity
             };
           });
 
           const totals = state.calculateTotals();
+
+          // Fetch business details from person_details collection
+          let businessName = '';
+          let businessPhone = '';
+          
+          if (state.customer.customerName?.trim()) {
+            try {
+              // Import PersonDetailsService here to avoid circular dependencies
+              const { default: PersonDetailsService } = await import('../services/PersonDetailsService');
+              const personDetails = await PersonDetailsService.getPersonDetails();
+              const customerDetail = personDetails.find(person => 
+                person.personName.toLowerCase() === state.customer.customerName?.toLowerCase().trim()
+              );
+              
+              if (customerDetail) {
+                businessName = customerDetail.businessName || '';
+                businessPhone = customerDetail.phoneNumber || '';
+              }
+            } catch (error) {
+              console.warn('Could not fetch business details from person_details:', error);
+            }
+          }
 
           // Create receipt object
           const receipt: Receipt = {
@@ -456,8 +495,8 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             date: new Date(),
             companyName: 'My Thermal Receipt Store',
             companyAddress: '123 Business St, City, State 12345',
-            businessName: state.customer.businessName?.trim() || undefined,
-            businessPhone: state.customer.businessPhone?.trim() || undefined,
+            businessName: businessName || undefined,
+            businessPhone: businessPhone || undefined,
             footerMessage: 'Thank you for your business!',
             customerName: state.customer.customerName?.trim(),
           };
@@ -523,21 +562,22 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
       // Utility actions
       clearForm: () => {
         set((state) => {
-          state.formItems = [{ id: '1', selectedItemId: '', price: '0.00', quantity: '1' }];
+          state.formItems = [{ 
+            id: '1', 
+            selectedItemId: '', 
+            price: '0.00', 
+            quantity: '1',
+            kg: '0',
+            gms: '0',
+            pricePerKg: '',
+            calculatedPrice: '0.00'
+          }];
           state.customer = {
             customerName: '',
-            businessName: '',
-            businessPhone: '',
-            isNewCustomer: false,
-            autoFilledFields: {
-              businessName: false,
-              businessPhone: false
-            }
+            isNewCustomer: false
           };
           state.errors = {
             customer: '',
-            businessName: '',
-            businessPhone: '',
             form: ''
           };
           state.currentReceipt = null;
@@ -569,8 +609,6 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
         set((state) => {
           state.errors = {
             customer: '',
-            businessName: '',
-            businessPhone: '',
             form: ''
           };
         });

@@ -74,6 +74,14 @@ const AddEditPartyModal: React.FC<AddEditPartyModalProps> = ({
       }
       
       setFormData(prev => ({ ...prev, [field]: formatted }));
+    } else if (field === 'personName') {
+      // Capitalize first letter of each word for person name
+      const capitalizedValue = value
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+      
+      setFormData(prev => ({ ...prev, [field]: capitalizedValue }));
     } else {
       setFormData(prev => ({ ...prev, [field]: value }));
     }

@@ -24,6 +24,7 @@ interface SearchableDropdownProps {
   onFocus: () => void;
   onBlur: () => void;
   onSearch: (query: string) => void;
+  onAddParty?: () => void;
 }
 
 const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
@@ -38,6 +39,7 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
   onFocus,
   onBlur,
   onSearch,
+  onAddParty,
 }) => {
   const [inputHeight, setInputHeight] = useState(0);
   const [inputPosition, setInputPosition] = useState({ x: 0, y: 0 });
@@ -45,7 +47,7 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
   const containerRef = useRef<View>(null);
 
   const screenHeight = Dimensions.get('window').height;
-  const maxDropdownHeight = 200;
+  const maxDropdownHeight = 320; // Increased max height
 
   useEffect(() => {
     if (showDropdown && containerRef.current) {
@@ -96,38 +98,16 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
             fontSize: 16,
             fontWeight: '500',
             color: '#374151',
-            marginBottom: 2,
           }}>
             {customer.customerName}
           </Text>
-          {(customer.businessName || customer.businessPhone) && (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-              {customer.businessName && (
-                <Text style={{
-                  fontSize: 12,
-                  color: '#6b7280',
-                  marginRight: 12,
-                }}>
-                  📧 {customer.businessName}
-                </Text>
-              )}
-              {customer.businessPhone && (
-                <Text style={{
-                  fontSize: 12,
-                  color: '#6b7280',
-                }}>
-                  📞 {customer.businessPhone}
-                </Text>
-              )}
-            </View>
-          )}
         </View>
         <View style={{
           flexDirection: 'row',
           alignItems: 'center',
           marginLeft: 8,
         }}>
-          {customer.receiptCount > 1 && (
+          {(customer.receiptCount || 0) > 1 && (
             <View style={{
               backgroundColor: '#e5e7eb',
               borderRadius: 12,
@@ -153,10 +133,14 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
   // Calculate dropdown position
   const dropdownTop = inputPosition.y;
   const availableSpaceBelow = screenHeight - dropdownTop;
+  const estimatedItemHeight = 70; // Increased item height estimate
+  const headerHeight = 50; // Height for header section
+  const estimatedContentHeight = (searchResults ? searchResults.length : 0) * estimatedItemHeight + headerHeight;
+  
   const dropdownHeight = Math.min(
     maxDropdownHeight,
-    availableSpaceBelow - 100, // Leave some space for keyboard
-(searchResults ? searchResults.length : 0) * 60 + 20 // Approximate item height + padding
+    availableSpaceBelow - 120, // Leave space for keyboard
+    estimatedContentHeight
   );
 
   return (
@@ -220,7 +204,7 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
       )}
 
       {/* Dropdown Results */}
-      {showDropdown && ((searchResults && searchResults.length > 0) || isSearching) && (
+      {showDropdown && (
         <View
           style={{
             position: 'absolute',
@@ -230,14 +214,14 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
             backgroundColor: 'white',
             borderRadius: 8,
             borderWidth: 1,
-            borderColor: '#e5e7eb',
+            borderColor: '#d1d5db',
             maxHeight: dropdownHeight,
-            elevation: Platform.OS === 'android' ? 5 : 0,
+            elevation: Platform.OS === 'android' ? 10 : 0,
             shadowColor: Platform.OS === 'ios' ? '#000' : 'transparent',
-            shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 4 } : { width: 0, height: 0 },
-            shadowOpacity: Platform.OS === 'ios' ? 0.1 : 0,
-            shadowRadius: Platform.OS === 'ios' ? 8 : 0,
-            zIndex: 1000,
+            shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 8 } : { width: 0, height: 0 },
+            shadowOpacity: Platform.OS === 'ios' ? 0.15 : 0,
+            shadowRadius: Platform.OS === 'ios' ? 12 : 0,
+            zIndex: 9999,
             marginTop: 4,
           }}
         >
@@ -256,56 +240,187 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
               </Text>
             </View>
           ) : searchResults && searchResults.length > 0 ? (
-            <ScrollView
-              style={{ maxHeight: dropdownHeight }}
-              showsVerticalScrollIndicator={true}
-              keyboardShouldPersistTaps="handled"
-              nestedScrollEnabled={true}
-            >
-              {searchResults.map((customer, index) => renderDropdownItem(customer, index))}
-              {searchResults.length >= 10 && (
-                <View style={{
-                  paddingHorizontal: 16,
-                  paddingVertical: 8,
-                  backgroundColor: '#f9fafb',
-                  borderTopWidth: 1,
-                  borderTopColor: '#e5e7eb',
+            <View>
+              {/* Header with "Showing Saved Parties" and "Add new party" */}
+              <View style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                backgroundColor: '#f9fafb',
+                borderBottomWidth: 1,
+                borderBottomColor: '#e5e7eb',
+              }}>
+                <Text style={{
+                  fontSize: 16,
+                  fontWeight: '600',
+                  color: '#374151',
                 }}>
-                  <Text style={{
-                    fontSize: 12,
-                    color: '#6b7280',
-                    textAlign: 'center',
-                    fontStyle: 'italic',
-                  }}>
-                    Showing top 10 results. Type to narrow search.
-                  </Text>
-                </View>
-              )}
-            </ScrollView>
+                  Showing Saved Parties
+                </Text>
+                {onAddParty && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      onAddParty();
+                      onBlur();
+                    }}
+                  >
+                    <Text style={{
+                      color: '#3b82f6',
+                      fontSize: 14,
+                      fontWeight: '600',
+                    }}>
+                      Add new party
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              
+              {/* Customer List */}
+              <ScrollView
+                style={{ maxHeight: Math.max(200, dropdownHeight - headerHeight) }}
+                showsVerticalScrollIndicator={true}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled={true}
+                contentContainerStyle={{ paddingBottom: 8 }}
+              >
+                {searchResults.map((customer, index) => (
+                  <TouchableOpacity
+                    key={`${customer.customerName}-${customer.id || index}`}
+                    onPress={() => handleSelectCustomer(customer)}
+                    style={{
+                      paddingHorizontal: 16,
+                      paddingVertical: 14,
+                      borderBottomWidth: index < searchResults.length - 1 ? 1 : 0,
+                      borderBottomColor: '#f0f0f0',
+                      backgroundColor: 'white',
+                      minHeight: 68, // Ensure minimum height for proper display
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start', // Changed to flex-start for better alignment
+                    }}>
+                      <View style={{ flex: 1, marginRight: 12 }}>
+                        <Text style={{
+                          fontSize: 16,
+                          fontWeight: '600',
+                          color: '#111827',
+                          marginBottom: 4,
+                          lineHeight: 20,
+                        }}>
+                          {customer.customerName}
+                        </Text>
+                        {customer.businessName && (
+                          <Text style={{
+                            fontSize: 13,
+                            color: '#4b5563',
+                            marginBottom: 2,
+                            lineHeight: 16,
+                          }}>
+                            {customer.businessName}
+                          </Text>
+                        )}
+                        {customer.businessPhone && (
+                          <Text style={{
+                            fontSize: 12,
+                            color: '#6b7280',
+                            fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+                            lineHeight: 16,
+                          }}>
+                            {customer.businessPhone}
+                          </Text>
+                        )}
+                      </View>
+                      <View style={{ 
+                        alignItems: 'flex-end', 
+                        justifyContent: 'flex-start',
+                        minWidth: 60,
+                      }}>
+                        {(customer.receiptCount || 0) > 0 && (
+                          <View style={{
+                            backgroundColor: '#dcfce7',
+                            borderRadius: 12,
+                            paddingHorizontal: 6,
+                            paddingVertical: 2,
+                            marginBottom: 4,
+                          }}>
+                            <Text style={{
+                              fontSize: 11,
+                              color: '#15803d',
+                              fontWeight: '600',
+                            }}>
+                              {customer.receiptCount} receipt{customer.receiptCount > 1 ? 's' : ''}
+                            </Text>
+                          </View>
+                        )}
+                        <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
           ) : (
-            <View style={{
-              paddingVertical: 16,
-              paddingHorizontal: 16,
-              alignItems: 'center',
-            }}>
-              <Ionicons name="person-add-outline" size={24} color="#10b981" />
-              <Text style={{
-                color: '#10b981',
-                fontSize: 14,
-                textAlign: 'center',
-                marginTop: 8,
-                fontWeight: '500',
+            // No search results - show header with Add Party
+            <View>
+              {/* Header with "Add new party" only when no results */}
+              <View style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                backgroundColor: '#f9fafb',
+                borderBottomWidth: 1,
+                borderBottomColor: '#e5e7eb',
               }}>
-                ✨ New Customer
-              </Text>
-              <Text style={{
-                color: '#6b7280',
-                fontSize: 12,
-                textAlign: 'center',
-                marginTop: 4,
+                <Text style={{
+                  fontSize: 16,
+                  fontWeight: '600',
+                  color: '#374151',
+                }}>
+                  {value.trim() ? 'No customers found' : 'No saved customers'}
+                </Text>
+                {onAddParty && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      onAddParty();
+                      onBlur();
+                    }}
+                  >
+                    <Text style={{
+                      color: '#3b82f6',
+                      fontSize: 14,
+                      fontWeight: '600',
+                    }}>
+                      Add new party
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              
+              {/* Empty state content */}
+              <View style={{
+                paddingVertical: 32,
+                paddingHorizontal: 16,
+                alignItems: 'center',
+                backgroundColor: 'white',
               }}>
-                "{value}" will be added as a new customer
-              </Text>
+                <Ionicons name="people-outline" size={48} color="#d1d5db" />
+                <Text style={{
+                  color: '#9ca3af',
+                  fontSize: 14,
+                  textAlign: 'center',
+                  marginTop: 12,
+                  fontWeight: '500',
+                }}>
+                  {value.trim() ? 'No matching customers found' : 'Start typing to search or add a new party'}
+                </Text>
+              </View>
             </View>
           )}
         </View>

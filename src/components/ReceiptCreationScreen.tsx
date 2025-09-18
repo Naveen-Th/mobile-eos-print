@@ -11,8 +11,10 @@ import {
 import { Alert, ReceiptAlerts } from './common';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Dropdown } from 'react-native-element-dropdown';
 import { PrintOptionsScreen } from './PrintOptionsScreen';
 import SearchableDropdown from './SearchableDropdown';
+import PartyManagementScreen from '../screens/PartyManagementScreen';
 import { ItemDetails } from '../types';
 import ItemService from '../services/ItemService';
 import CustomerService, { UniqueCustomer } from '../services/CustomerService';
@@ -50,7 +52,6 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     updateFormItem,
     selectItem,
     updateCustomerInfo,
-    setAutoFilledFields,
     setItemsLoading,
     setItemsError,
     validateForm,
@@ -61,15 +62,18 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
   } = store;
   
   const [showPrintOptions, setShowPrintOptions] = useState(false);
+  const [showPartyManagement, setShowPartyManagement] = useState(false);
   
   // Customer search state
   const [customerSearchResults, setCustomerSearchResults] = useState<UniqueCustomer[]>([]);
   const [isSearchingCustomers, setIsSearchingCustomers] = useState(false);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+
+  // Calculate totals whenever form items change
+  useEffect(() => {
+    store.calculateTotals();
+  }, [formItems, store]);
   
-  // Dropdown state
-  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Items subscription is now handled by the integration hook
 
@@ -100,13 +104,11 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
   const handleCustomerNameChange = (text: string) => {
     updateCustomerInfo({ customerName: text });
     clearError('customer'); // Clear error when typing
-    
-    // Clear auto-filled flags when customer name is manually changed
-    // This indicates the user is typing, not selecting from dropdown
-    setAutoFilledFields({ businessName: false, businessPhone: false });
   };
 
   const handleCustomerSearch = async (query: string) => {
+    console.log('Searching for customers with query:', query);
+    
     if (!query.trim()) {
       setIsSearchingCustomers(true);
       try {
@@ -125,14 +127,22 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
 
     setIsSearchingCustomers(true);
     try {
-      const results = await CustomerService.searchCustomers(query);
+      // Use immediate search for short queries (1-3 characters) for better responsiveness
+      let results;
+      if (query.trim().length <= 3) {
+        results = await CustomerService.searchCustomersImmediate(query);
+      } else {
+        results = await CustomerService.searchCustomers(query);
+      }
+      
       const safeResults = Array.isArray(results) ? results : [];
+      console.log(`Search returned ${safeResults.length} results for query: '${query}'`);
       setCustomerSearchResults(safeResults);
       
-      // Check if this is a new customer
+      // Check if this is a new customer (case-insensitive comparison)
       const trimmedQuery = query.trim().toLowerCase();
       const existingCustomer = safeResults.find(
-        (customer: UniqueCustomer) => customer.customerName.toLowerCase() === trimmedQuery
+        (customer: UniqueCustomer) => customer.customerName.toLowerCase().trim() === trimmedQuery
       );
       updateCustomerInfo({ isNewCustomer: !existingCustomer });
     } catch (error) {
@@ -145,24 +155,14 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
   };
 
   const handleCustomerSelect = (customer: UniqueCustomer) => {
-    // Auto-fill all customer information
+    // Set customer information
     updateCustomerInfo({
       customerName: customer.customerName,
-      businessName: customer.businessName || '',
-      businessPhone: customer.businessPhone || '',
       isNewCustomer: false
-    });
-    
-    // Track which fields were actually auto-filled
-    setAutoFilledFields({
-      businessName: !!(customer.businessName && customer.businessName.trim()),
-      businessPhone: !!(customer.businessPhone && customer.businessPhone.trim())
     });
     
     // Clear any errors
     clearError('customer');
-    clearError('businessName');
-    clearError('businessPhone');
     
     // Hide dropdown
     setShowCustomerDropdown(false);
@@ -185,6 +185,11 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     setTimeout(() => {
       setShowCustomerDropdown(false);
     }, 200);
+  };
+
+  const handleAddParty = () => {
+    setShowPartyManagement(true);
+    setShowCustomerDropdown(false);
   };
 
   // Validation is now handled by the store
@@ -285,14 +290,12 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
 
   const renderItemForm = (formItem: any, index: number) => (
     <View key={formItem.id} className="bg-white rounded-lg p-4 mb-4 shadow-sm border border-gray-200 overflow-visible">
-      <View className="flex-row items-center justify-between mb-4">
+      <View className="flex-row items-center justify-between mb-3">
         <Text className="text-lg font-semibold text-gray-900">Item {index + 1}</Text>
         {formItems.length > 1 && (
           <TouchableOpacity
             onPress={() => {
               removeItemForm(formItem.id);
-              // Close any active dropdown when removing form
-              setActiveDropdown(null);
             }}
             className="p-1"
           >
@@ -301,166 +304,165 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
         )}
       </View>
       
-      <View className="space-y-6">
-        {/* Item Name Dropdown */}
-        <View className="relative z-10">
+      {/* Single row layout for Item Name, Per Kg, Kg, Gms */}
+      <View className="flex-row items-start">
+        {/* Item Name Dropdown - Using react-native-element-dropdown */}
+        <View className="flex-1 mr-2">
           <Text className="text-sm font-medium text-gray-700 mb-2">
             Item Name <Text className="text-red-500">*</Text>
           </Text>
-          <View className="border border-gray-300 rounded-lg bg-white">
-            <TouchableOpacity 
-              className="flex-row items-center justify-between p-4"
-              onPress={() => {
-                setActiveDropdown(activeDropdown === formItem.id ? null : formItem.id);
-                setSearchQuery('');
-              }}
-            >
-              <Text className={`text-base flex-1 ${
-                formItem.selectedItemId 
-                  ? 'text-gray-900' 
-                  : 'text-gray-400'
-              }`}>
-                {formItem.selectedItemId 
-                  ? availableItems.find(item => item.id === formItem.selectedItemId)?.item_name 
-                  : 'Select an item'
-                }
-              </Text>
-              <Ionicons 
-                name={activeDropdown === formItem.id ? "chevron-up" : "chevron-down"} 
-                size={20} 
-                color="#6b7280" 
+          <Dropdown
+            style={{
+              borderWidth: 1,
+              borderColor: '#d1d5db',
+              borderRadius: 8,
+              paddingHorizontal: 12,
+              paddingVertical: 12,
+              backgroundColor: 'white',
+              minHeight: 44
+            }}
+            placeholderStyle={{
+              fontSize: 16,
+              color: '#9ca3af'
+            }}
+            selectedTextStyle={{
+              fontSize: 16,
+              color: '#1f2937',
+              fontWeight: '500'
+            }}
+            inputSearchStyle={{
+              height: 40,
+              fontSize: 16,
+              borderRadius: 8,
+              paddingHorizontal: 12,
+              borderWidth: 1,
+              borderColor: '#e5e7eb'
+            }}
+            iconStyle={{
+              width: 20,
+              height: 20
+            }}
+            data={availableItems.map(item => ({
+              label: item.item_name,
+              value: item.id,
+              price: item.price,
+              stocks: item.stocks || 0,
+              disabled: (item.stocks || 0) <= 0
+            }))}
+            search
+            maxHeight={300}
+            labelField="label"
+            valueField="value"
+            placeholder="Select an item"
+            searchPlaceholder="Search items..."
+            value={formItem.selectedItemId}
+            onChange={(item) => {
+              console.log('Item selected:', item.label, 'for form:', formItem.id);
+              handleItemSelect(formItem.id, item.value);
+            }}
+            renderRightIcon={() => (
+              <Ionicons
+                name="chevron-down"
+                size={20}
+                color="#9ca3af"
               />
-            </TouchableOpacity>
-          </View>
-          
-          {/* Dropdown Menu */}
-          {activeDropdown === formItem.id && (
-            <View className="absolute top-full left-0 right-0 bg-white border border-gray-300 rounded-lg shadow-2xl z-50 mt-1">
-              {/* Search Input */}
-              <View className="p-3 border-b border-gray-200">
-                <View className="flex-row items-center bg-gray-50 rounded-lg px-3 py-2">
-                  <Ionicons name="search" size={16} color="#9ca3af" />
-                  <TextInput
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                    placeholder="Search items..."
-                    className="flex-1 ml-2 text-base text-gray-700"
-                    placeholderTextColor="#9ca3af"
-                    autoFocus
-                    autoCorrect={false}
-                    autoCapitalize="none"
-                  />
+            )}
+            renderItem={(item) => (
+              <View style={{
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                backgroundColor: item.disabled ? '#fef2f2' : 'white',
+                opacity: item.disabled ? 0.6 : 1
+              }}>
+                <Text style={{
+                  fontSize: 16,
+                  fontWeight: '600',
+                  color: item.disabled ? '#9ca3af' : '#1f2937',
+                  marginBottom: 6
+                }}>
+                  {item.label}
+                </Text>
+                <View style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <Text style={{
+                    fontSize: 14,
+                    color: '#10b981',
+                    fontWeight: '600'
+                  }}>
+                    ${item.price?.toFixed(2)}
+                  </Text>
+                  <View style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    borderRadius: 12,
+                    backgroundColor: item.stocks <= 10 ? '#fee2e2' : item.stocks <= 50 ? '#fef3c7' : '#ecfdf5'
+                  }}>
+                    <Text style={{
+                      fontSize: 12,
+                      color: item.stocks <= 10 ? '#dc2626' : item.stocks <= 50 ? '#d97706' : '#059669',
+                      fontWeight: '600'
+                    }}>
+                      Stock: {item.stocks}
+                    </Text>
+                  </View>
                 </View>
               </View>
-              
-              {/* Items List - Fixed Height with Scrolling */}
-              <View style={{ maxHeight: 200 }}>
-                <ScrollView 
-                  nestedScrollEnabled={true}
-                  showsVerticalScrollIndicator={true}
-                  scrollEnabled={true}
-                  bounces={true}
-                >
-                  {availableItems
-                    .filter(item => {
-                      const searchTerm = searchQuery.toLowerCase().trim();
-                      return item.item_name.toLowerCase().includes(searchTerm);
-                    })
-                    .map((item) => (
-                      <TouchableOpacity
-                        key={item.id}
-                        style={{ 
-                          paddingHorizontal: 16, 
-                          paddingVertical: 12, 
-                          borderBottomWidth: 1, 
-                          borderBottomColor: '#f3f4f6',
-                          opacity: (item.stocks || 0) <= 0 ? 0.5 : 1,
-                          backgroundColor: (item.stocks || 0) <= 0 ? '#fef2f2' : 'transparent'
-                        }}
-                        onPress={() => {
-                          console.log('Item selected:', item.item_name, 'for form:', formItem.id);
-                          handleItemSelect(formItem.id, item.id);
-                          setActiveDropdown(null);
-                          setSearchQuery('');
-                        }}
-                        activeOpacity={0.7}
-                        disabled={(item.stocks || 0) <= 0}
-                      >
-                        <Text style={{ fontSize: 16, fontWeight: '600', color: '#2563eb', marginBottom: 4 }}>
-                          {item.item_name.toUpperCase()}
-                        </Text>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Text style={{ fontSize: 14, color: '#6b7280' }}>
-                            ${item.price.toFixed(2)}
-                          </Text>
-                          <Text style={{ 
-                            fontSize: 12, 
-                            color: item.stocks <= 10 ? '#ef4444' : item.stocks <= 50 ? '#f59e0b' : '#10b981',
-                            fontWeight: '600',
-                            backgroundColor: item.stocks <= 10 ? '#fef2f2' : item.stocks <= 50 ? '#fef3c7' : '#f0fdf4',
-                            paddingHorizontal: 6,
-                            paddingVertical: 2,
-                            borderRadius: 4
-                          }}>
-                            Stock: {item.stocks || 0}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    ))
-                  }
-                  
-                  {/* No items found */}
-                  {availableItems.filter(item => 
-                    item.item_name.toLowerCase().includes(searchQuery.toLowerCase().trim())
-                  ).length === 0 && (
-                    <View style={{ padding: 20, alignItems: 'center' }}>
-                      <Text style={{ color: '#6b7280', fontSize: 16 }}>No items found</Text>
-                      <Text style={{ color: '#9ca3af', fontSize: 14, marginTop: 4 }}>Try a different search term</Text>
-                    </View>
-                  )}
-                </ScrollView>
-              </View>
-            </View>
-          )}
+            )}
+          />
         </View>
 
-        <View className="flex-row space-x-4">
-          {/* Price Field */}
-          <View className="flex-1">
-            <Text className="text-sm font-medium text-gray-700 mb-2">
-              Price <Text className="text-red-500">*</Text>
-            </Text>
-            <View className="relative">
-              <Text className="absolute left-3 top-3 text-gray-500 text-base z-10">$</Text>
-              <TextInput
-                value={formItem.price}
-                onChangeText={(value) => handleUpdateFormItem(formItem.id, 'price', value)}
-                placeholder="0.00"
-                keyboardType="numeric"
-                className="border border-gray-300 rounded-lg pl-8 pr-3 py-3 text-base"
-              />
-            </View>
-          </View>
-
-          {/* Quantity Field */}
-          <View className="flex-1">
-            <Text className="text-sm font-medium text-gray-700 mb-2">
-              Quantity <Text className="text-red-500">*</Text>
-            </Text>
+        {/* Per Kg Price Field - Auto-populated from Firebase */}
+        <View style={{ width: 80 }} className="mr-2">
+          <Text className="text-sm font-medium text-gray-700 mb-2">
+            Per Kg
+          </Text>
+          <View className="relative">
+            <Text className="absolute left-3 top-3 text-gray-500 text-base z-10">$</Text>
             <TextInput
-              value={formItem.quantity}
-              onChangeText={(value) => handleUpdateFormItem(formItem.id, 'quantity', value)}
-              placeholder="1"
-              keyboardType="numeric"
-              className="border border-gray-300 rounded-lg px-3 py-3 text-base"
+              value={formItem.pricePerKg || '0.00'}
+              placeholder="0.00"
+              editable={false}
+              className="border border-gray-300 rounded-lg pl-8 pr-3 py-3 text-base bg-gray-50"
             />
-            {/* Show stock error for this form item */}
-            {formItem.stockError && (
-              <Text className="text-red-500 text-sm mt-1">{formItem.stockError}</Text>
-            )}
           </View>
+        </View>
+
+        {/* Kg Field */}
+        <View style={{ width: 60 }} className="mr-2">
+          <Text className="text-sm font-medium text-gray-700 mb-2">
+            Kg <Text className="text-red-500">*</Text>
+          </Text>
+          <TextInput
+            value={formItem.kg || '0'}
+            onChangeText={(value) => handleUpdateFormItem(formItem.id, 'kg', value)}
+            placeholder="0"
+            keyboardType="numeric"
+            className="border border-gray-300 rounded-lg px-3 py-3 text-base text-center"
+          />
+        </View>
+
+        {/* Gms Field */}
+        <View style={{ width: 60 }}>
+          <Text className="text-sm font-medium text-gray-700 mb-2">
+            Gms
+          </Text>
+          <TextInput
+            value={formItem.gms || '0'}
+            onChangeText={(value) => handleUpdateFormItem(formItem.id, 'gms', value)}
+            placeholder="0"
+            keyboardType="numeric"
+            className="border border-gray-300 rounded-lg px-3 py-3 text-base text-center"
+          />
         </View>
       </View>
+
+      {/* Show stock error for this form item - below all fields */}
+      {formItem.stockError && (
+        <Text className="text-red-500 text-sm mt-2">{formItem.stockError}</Text>
+      )}
     </View>
   );
 
@@ -519,18 +521,20 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
             className="flex-1 p-4"
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled={true}
+            contentContainerStyle={{ paddingBottom: 100 }}
+            showsVerticalScrollIndicator={false}
             style={{ zIndex: 1 }}
           >
             {/* Customer Information Section */}
-            <View className="mb-6" style={{ zIndex: 100 }}>
-              <Text className="text-lg font-semibold text-gray-900 mb-2">Customer & Business Information</Text>
+            <View className="mb-6" style={{ zIndex: 10000 }}>
+              <Text className="text-lg font-semibold text-gray-900 mb-2">Customer Information</Text>
               <Text className="text-gray-600 text-sm mb-4">
                 Customer information is required for the Receipt. Start typing to search existing customers or add a new one.
               </Text>
               
               <View className="bg-white rounded-lg p-4 shadow-sm border border-gray-200" style={{ overflow: 'visible' }}>
                 {/* Customer Name with Search */}
-                <View className="mb-4" style={{ zIndex: 1000, position: 'relative' }}>
+                <View className="mb-4" style={{ zIndex: 10001, position: 'relative' }}>
                   <View className="flex-row items-center justify-between mb-2">
                     <Text className="text-sm font-medium text-gray-700">
                       Customer Name <Text className="text-red-500">*</Text>
@@ -553,68 +557,8 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
                     onFocus={handleCustomerFocus}
                     onBlur={handleCustomerBlur}
                     onSearch={handleCustomerSearch}
+                    onAddParty={handleAddParty}
                   />
-                </View>
-
-                {/* Business Name */}
-                <View className="mb-4">
-                  <View className="flex-row items-center mb-2">
-                    <Text className="text-sm font-medium text-gray-700">
-                      Business Name
-                    </Text>
-                    {customer.businessName && customer.autoFilledFields.businessName && (
-                      <View className="ml-2 px-2 py-1 bg-green-100 rounded-full">
-                        <Text className="text-xs text-green-600">Auto-filled</Text>
-                      </View>
-                    )}
-                  </View>
-                  <TextInput
-                    value={customer.businessName || ''}
-                    onChangeText={(text) => {
-                      updateCustomerInfo({ businessName: text });
-                      clearError('businessName');
-                      // Clear auto-filled flag when user manually types
-                      setAutoFilledFields({ businessName: false });
-                    }}
-                    placeholder="Enter business name (optional)"
-                    className={`border rounded-lg px-3 py-3 text-base ${
-                      errors.businessName ? 'border-red-300' : 'border-gray-300'
-                    }`}
-                  />
-                  {errors.businessName && (
-                    <Text className="text-red-500 text-sm mt-1">{errors.businessName}</Text>
-                  )}
-                </View>
-
-                {/* Business Phone */}
-                <View>
-                  <View className="flex-row items-center mb-2">
-                    <Text className="text-sm font-medium text-gray-700">
-                      Business Phone
-                    </Text>
-                    {customer.businessPhone && customer.autoFilledFields.businessPhone && (
-                      <View className="ml-2 px-2 py-1 bg-green-100 rounded-full">
-                        <Text className="text-xs text-green-600">Auto-filled</Text>
-                      </View>
-                    )}
-                  </View>
-                  <TextInput
-                    value={customer.businessPhone || ''}
-                    onChangeText={(text) => {
-                      updateCustomerInfo({ businessPhone: text });
-                      clearError('businessPhone');
-                      // Clear auto-filled flag when user manually types
-                      setAutoFilledFields({ businessPhone: false });
-                    }}
-                    placeholder="Enter business phone (optional)"
-                    keyboardType="phone-pad"
-                    className={`border rounded-lg px-3 py-3 text-base ${
-                      errors.businessPhone ? 'border-red-300' : 'border-gray-300'
-                    }`}
-                  />
-                  {errors.businessPhone && (
-                    <Text className="text-red-500 text-sm mt-1">{errors.businessPhone}</Text>
-                  )}
                 </View>
               </View>
             </View>
@@ -646,6 +590,40 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
               ) : (
                 formItems.map((formItem, index) => renderItemForm(formItem, index))
               )}
+            </View>
+
+            {/* Total Section */}
+            <View className="mb-6">
+              <View className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
+                <Text className="text-lg font-semibold text-gray-900 mb-4">Total</Text>
+                
+                {/* Subtotal */}
+                <View className="flex-row justify-between items-center mb-2">
+                  <Text className="text-base text-gray-700">Subtotal:</Text>
+                  <Text className="text-base font-medium text-gray-900">
+                    ${receiptTotals.subtotal.toFixed(2)}
+                  </Text>
+                </View>
+                
+                {/* Tax */}
+                <View className="flex-row justify-between items-center mb-2">
+                  <Text className="text-base text-gray-700">Tax (10%):</Text>
+                  <Text className="text-base font-medium text-gray-900">
+                    ${receiptTotals.tax.toFixed(2)}
+                  </Text>
+                </View>
+                
+                {/* Divider */}
+                <View className="border-t border-gray-200 my-3" />
+                
+                {/* Total */}
+                <View className="flex-row justify-between items-center">
+                  <Text className="text-lg font-bold text-gray-900">Total:</Text>
+                  <Text className="text-lg font-bold text-blue-600">
+                    ${receiptTotals.total.toFixed(2)}
+                  </Text>
+                </View>
+              </View>
             </View>
           </ScrollView>
 
@@ -756,6 +734,16 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
           </TouchableOpacity>
         </View>
       </View>
+      
+      {/* Party Management Modal */}
+      <Modal
+        visible={showPartyManagement}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowPartyManagement(false)}
+      >
+        <PartyManagementScreen onBack={() => setShowPartyManagement(false)} />
+      </Modal>
     </View>
   );
 };

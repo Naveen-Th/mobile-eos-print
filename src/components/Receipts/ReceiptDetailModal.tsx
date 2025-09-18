@@ -116,6 +116,12 @@ const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClos
                 <Text style={modalStyles.infoLabel}>Customer:</Text>
                 <Text style={modalStyles.infoValue}>{receipt.customerName || 'Walk-in Customer'}</Text>
               </View>
+              {receipt.businessPhone && (
+                <View style={modalStyles.infoRow}>
+                  <Text style={modalStyles.infoLabel}>Phone:</Text>
+                  <Text style={modalStyles.infoValue}>📞 {receipt.businessPhone}</Text>
+                </View>
+              )}
               <View style={modalStyles.infoRow}>
                 <Text style={modalStyles.infoLabel}>Method:</Text>
                 <Text style={modalStyles.infoValue}>{receipt.printMethod === 'pdf' ? '📄 PDF Export' : '🖨️ Thermal Print'}</Text>
