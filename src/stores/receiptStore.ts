@@ -5,6 +5,7 @@ import { ItemDetails, ReceiptItem, Receipt } from '../types';
 import { generateId, generateReceiptNumber } from '../utils';
 import StockService from '../services/StockService';
 import ReceiptFirebaseService from '../services/ReceiptFirebaseService';
+import { getTaxRate } from '../services/TaxSettings';
 
 // Form item interface for the receipt creation form
 interface FormItem {
@@ -33,6 +34,7 @@ interface ReceiptTotals {
   subtotal: number;
   tax: number;
   total: number;
+  taxRate?: number; // Add tax rate to totals for display
 }
 
 // State interface for the receipt store
@@ -51,6 +53,9 @@ interface ReceiptState {
   // Processing states
   isProcessing: boolean;
   isValidating: boolean;
+  
+  // Tax rate
+  taxRate: number;
   
   // Errors
   errors: {
@@ -88,6 +93,9 @@ interface ReceiptActions {
   createReceipt: () => Promise<{ success: boolean; receipt?: Receipt; error?: string }>;
   calculateTotals: () => ReceiptTotals;
   
+  // Tax rate actions
+  loadTaxRate: () => Promise<void>;
+  
   // Utility actions
   clearForm: () => void;
   resetStore: () => void;
@@ -117,6 +125,7 @@ const initialState: ReceiptState = {
   itemsError: null,
   isProcessing: false,
   isValidating: false,
+  taxRate: 8, // Default tax rate
   errors: {
     customer: '',
     form: ''
@@ -125,7 +134,8 @@ const initialState: ReceiptState = {
   receiptTotals: {
     subtotal: 0,
     tax: 0,
-    total: 0
+    total: 0,
+    taxRate: 8
   }
 };
 
@@ -150,6 +160,9 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             calculatedPrice: '0.00'
           });
         });
+        
+        // Auto-calculate totals after adding item
+        setTimeout(() => get().calculateTotals(), 0);
       },
 
       removeFormItem: (id: string) => {
@@ -158,6 +171,9 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             state.formItems = state.formItems.filter(item => item.id !== id);
           }
         });
+        
+        // Auto-calculate totals after removing item
+        setTimeout(() => get().calculateTotals(), 0);
       },
 
       updateFormItem: (id: string, field: keyof FormItem, value: string) => {
@@ -188,18 +204,26 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             }
             
             // Clear stock error when updating
-            if (field === 'quantity' || field === 'selectedItemId') {
+            if (field === 'quantity' || field === 'selectedItemId' || field === 'kg' || field === 'gms') {
               state.formItems[itemIndex].stockError = undefined;
             }
+            
           }
         });
+        
+        // Auto-calculate totals whenever form items change (after state update)
+        setTimeout(() => get().calculateTotals(), 0);
 
-        // Trigger quantity validation for quantity changes
-        if (field === 'quantity' && value) {
+        // Trigger stock validation for weight and quantity changes
+        if ((field === 'quantity' || field === 'kg' || field === 'gms') && value) {
           const state = get();
           const formItem = state.formItems.find(item => item.id === id);
           if (formItem && formItem.selectedItemId) {
-            state.validateQuantity(id, parseInt(value), formItem.selectedItemId);
+            // For weight-based validation, use the calculated quantity (total weight)
+            const quantityToValidate = field === 'quantity' ? parseInt(value) : parseFloat(formItem.quantity);
+            if (quantityToValidate > 0) {
+              state.validateQuantity(id, quantityToValidate, formItem.selectedItemId);
+            }
           }
         }
       },
@@ -238,6 +262,9 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             state.formItems[itemIndex].stockError = undefined;
           }
         });
+        
+        // Auto-calculate totals after selecting item
+        setTimeout(() => get().calculateTotals(), 0);
 
         // Validate current quantity against stock
         const formItem = state.formItems.find(item => item.id === formId);
@@ -388,10 +415,10 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
           return sum + itemPrice;
         }, 0);
         
-        const tax = subtotal * 0.1; // 10% tax rate
+        const tax = subtotal * (state.taxRate / 100); // Use dynamic tax rate
         const total = subtotal + tax;
 
-        const totals = { subtotal, tax, total };
+        const totals = { subtotal, tax, total, taxRate: state.taxRate };
 
         set((state) => {
           state.receiptTotals = totals;
@@ -451,12 +478,24 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             const kg = parseFloat(formItem.kg || '0');
             const gms = parseFloat(formItem.gms || '0');
             const totalWeight = kg + (gms / 1000);
+
+            // Determine if this is a weight-based entry
+            const isWeightBased = totalWeight > 0;
+
+            // For weight-based items: store unit price (per Kg) and quantity as total weight.
+            // For normal items: store unit price and integer quantity as provided.
+            const unitPrice = isWeightBased
+              ? parseFloat(formItem.pricePerKg || formItem.price || '0')
+              : parseFloat(formItem.price || '0');
+            const quantity = isWeightBased
+              ? totalWeight
+              : (parseInt(formItem.quantity || '1') || 1);
             
             return {
               id: formItem.id,
               name: selectedItem?.item_name || '',
-              price: parseFloat(formItem.calculatedPrice || formItem.price || '0'),
-              quantity: totalWeight > 0 ? totalWeight : 1, // Use total weight as quantity
+              price: unitPrice,
+              quantity,
             };
           });
 
@@ -559,6 +598,21 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
         }
       },
 
+      // Tax rate actions
+      loadTaxRate: async () => {
+        try {
+          const rate = await getTaxRate();
+          set((state) => {
+            state.taxRate = rate;
+          });
+          // Recalculate totals with new tax rate
+          get().calculateTotals();
+        } catch (error) {
+          console.error('Error loading tax rate:', error);
+          // Keep default tax rate on error
+        }
+      },
+      
       // Utility actions
       clearForm: () => {
         set((state) => {
@@ -584,7 +638,8 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
           state.receiptTotals = {
             subtotal: 0,
             tax: 0,
-            total: 0
+            total: 0,
+            taxRate: state.taxRate
           };
         });
       },

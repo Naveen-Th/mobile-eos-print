@@ -427,6 +427,181 @@ class PersonDetailsService {
   }
 
   /**
+   * Bulk import multiple contacts with validation and duplicate checking
+   */
+  async bulkImportContacts(contacts: CreatePersonDetailData[]): Promise<{
+    success: boolean;
+    results: {
+      imported: number;
+      skipped: number;
+      failed: number;
+    };
+    errors: string[];
+    details: Array<{
+      contact: CreatePersonDetailData;
+      status: 'imported' | 'skipped' | 'failed';
+      reason?: string;
+    }>;
+  }> {
+    try {
+      if (!contacts || contacts.length === 0) {
+        return {
+          success: false,
+          results: { imported: 0, skipped: 0, failed: 0 },
+          errors: ['No contacts provided for import'],
+          details: []
+        };
+      }
+
+      // Get existing persons for duplicate checking
+      const existingPersons = await this.getPersonDetails();
+      
+      let importedCount = 0;
+      let skippedCount = 0;
+      let failedCount = 0;
+      const errors: string[] = [];
+      const details: Array<{
+        contact: CreatePersonDetailData;
+        status: 'imported' | 'skipped' | 'failed';
+        reason?: string;
+      }> = [];
+
+      for (const contact of contacts) {
+        try {
+          // Validate contact data
+          const validation = this.validatePersonDetail(contact);
+          if (!validation.isValid) {
+            failedCount++;
+            const reason = `Validation failed: ${validation.errors.join(', ')}`;
+            errors.push(`${contact.personName}: ${reason}`);
+            details.push({
+              contact,
+              status: 'failed',
+              reason
+            });
+            continue;
+          }
+
+          // Validate phone number
+          const phoneValidation = this.validateIndianMobileNumber(contact.phoneNumber);
+          if (!phoneValidation.isValid) {
+            failedCount++;
+            const reason = phoneValidation.error || 'Invalid phone number';
+            errors.push(`${contact.personName}: ${reason}`);
+            details.push({
+              contact,
+              status: 'failed',
+              reason
+            });
+            continue;
+          }
+
+          // Check for duplicate phone numbers
+          const cleanNewPhone = contact.phoneNumber.replace(/\D/g, '');
+          const duplicatePhone = existingPersons.find(person => {
+            const cleanExistingPhone = person.phoneNumber.replace(/\D/g, '');
+            return cleanExistingPhone === cleanNewPhone || 
+                   cleanExistingPhone.endsWith(cleanNewPhone) || 
+                   cleanNewPhone.endsWith(cleanExistingPhone);
+          });
+
+          if (duplicatePhone) {
+            skippedCount++;
+            const reason = `Phone number already exists for ${duplicatePhone.personName}`;
+            details.push({
+              contact,
+              status: 'skipped',
+              reason
+            });
+            continue;
+          }
+
+          // Check for duplicate person name and business name combination
+          const duplicatePerson = existingPersons.find(person => 
+            person.personName.toLowerCase().trim() === contact.personName.toLowerCase().trim() &&
+            person.businessName.toLowerCase().trim() === contact.businessName.toLowerCase().trim()
+          );
+
+          if (duplicatePerson) {
+            skippedCount++;
+            const reason = `Person with same name and business already exists`;
+            details.push({
+              contact,
+              status: 'skipped',
+              reason
+            });
+            continue;
+          }
+
+          // Create the contact
+          const result = await this.createPersonDetail({
+            ...contact,
+            phoneNumber: phoneValidation.formatted || contact.phoneNumber
+          });
+
+          if (result.success) {
+            importedCount++;
+            details.push({
+              contact,
+              status: 'imported'
+            });
+            
+            // Add to existing persons list for subsequent duplicate checking
+            existingPersons.push({
+              id: result.id || 'temp',
+              personName: contact.personName.trim(),
+              businessName: contact.businessName.trim(),
+              phoneNumber: phoneValidation.formatted || contact.phoneNumber,
+              balanceDue: 0,
+              createdAt: new Date() as any,
+              updatedAt: new Date() as any,
+            });
+          } else {
+            failedCount++;
+            const reason = result.error || 'Unknown error during creation';
+            errors.push(`${contact.personName}: ${reason}`);
+            details.push({
+              contact,
+              status: 'failed',
+              reason
+            });
+          }
+        } catch (contactError: any) {
+          failedCount++;
+          const reason = contactError.message || 'Unexpected error';
+          errors.push(`${contact.personName}: ${reason}`);
+          details.push({
+            contact,
+            status: 'failed',
+            reason
+          });
+        }
+      }
+
+      console.log(`Bulk import completed: ${importedCount} imported, ${skippedCount} skipped, ${failedCount} failed`);
+      
+      return {
+        success: importedCount > 0 || (failedCount === 0 && skippedCount > 0),
+        results: {
+          imported: importedCount,
+          skipped: skippedCount,
+          failed: failedCount
+        },
+        errors,
+        details
+      };
+    } catch (error: any) {
+      console.error('Error in bulk import:', error);
+      return {
+        success: false,
+        results: { imported: 0, skipped: 0, failed: 0 },
+        errors: [error.message || 'Bulk import failed'],
+        details: []
+      };
+    }
+  }
+
+  /**
    * Format phone number for display
    */
   formatPhoneNumber(phoneNumber: string): string {

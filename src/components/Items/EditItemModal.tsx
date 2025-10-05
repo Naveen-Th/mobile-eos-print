@@ -201,7 +201,7 @@ const EditItemModal: React.FC<EditItemModalProps> = ({
                   Price <Text style={styles.required}>*</Text>
                 </Text>
                 <View style={styles.priceInputContainer}>
-                  <Text style={styles.currencySymbol}>$</Text>
+                  <Text style={styles.currencySymbol}>₹</Text>
                   <TextInput
                     style={[
                       styles.priceInput,

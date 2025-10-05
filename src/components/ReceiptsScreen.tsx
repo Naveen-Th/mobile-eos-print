@@ -33,19 +33,31 @@ const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClos
     }
   };
 
-  const renderItem = ({ item, index }: { item: any; index: number }) => (
-    <div className="flex flex-row justify-between items-center py-4 px-6 border-b border-gray-100 hover:bg-gray-50 transition-colors">
-      <div className="flex-1 mr-6">
-        <p className="text-base font-semibold text-gray-900 mb-1">{item.name}</p>
-        <p className="text-sm text-gray-500">{item.quantity} × {formatCurrency(item.price)}</p>
+  // Decide how to interpret saved item prices (unit price vs line total)
+  const sumPriceTimesQty = receipt.items.reduce((s, it: any) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
+  const sumPriceOnly = receipt.items.reduce((s, it: any) => s + (Number(it.price) || 0), 0);
+  const preferLineTotals = Math.abs(sumPriceTimesQty - (receipt.subtotal || 0)) > Math.abs(sumPriceOnly - (receipt.subtotal || 0));
+
+  const renderItem = ({ item, index }: { item: any; index: number }) => {
+    const qty = Number(item.quantity) || 0;
+    const price = Number(item.price) || 0;
+    const unitPrice = preferLineTotals && qty > 0 ? price / qty : price;
+    const lineTotal = preferLineTotals ? price : price * qty;
+
+    return (
+      <div className="flex flex-row justify-between items-center py-4 px-6 border-b border-gray-100 hover:bg-gray-50 transition-colors">
+        <div className="flex-1 mr-6">
+          <p className="text-base font-semibold text-gray-900 mb-1">{item.name}</p>
+          <p className="text-sm text-gray-500">{qty} × {formatCurrency(unitPrice)}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-base font-bold text-gray-900">
+            {formatCurrency(lineTotal)}
+          </p>
+        </div>
       </div>
-      <div className="text-right">
-        <p className="text-base font-bold text-gray-900">
-          {formatCurrency(item.price * item.quantity)}
-        </p>
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="absolute inset-0 bg-black/50 flex items-center justify-center p-4 z-50">

@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
   StatusBar,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import { useCart } from '../context/CartContext';
@@ -29,6 +29,7 @@ import {
   isValidMoneyAmount,
   roundMoney,
 } from '../utils';
+import { getTaxRate } from '../services/TaxSettings';
 
 interface PrintOptionsScreenProps {
   onClose: () => void;
@@ -48,6 +49,7 @@ export const PrintOptionsScreen: React.FC<PrintOptionsScreenProps> = ({
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
+  const [taxRate, setTaxRate] = useState<number>(8);
 
   // Use provided cart items or fall back to cart state
   const items = cartItems || cartState.items;
@@ -55,7 +57,7 @@ export const PrintOptionsScreen: React.FC<PrintOptionsScreenProps> = ({
   
   // Calculate totals for provided items or use cart state with precise arithmetic
   const totals = cartItems 
-    ? calculateTotals(cartItems, 8) // 8% tax rate as percentage
+    ? calculateTotals(cartItems, taxRate) // Use dynamic tax rate
     : {
         subtotal: cartState.subtotal,
         tax: cartState.tax,
@@ -63,7 +65,24 @@ export const PrintOptionsScreen: React.FC<PrintOptionsScreenProps> = ({
         discount: cartState.discount
       };
   
-  const { subtotal, tax, total, discount } = totals;
+const { subtotal, tax, total, discount } = totals;
+
+  // Insets for tighter header spacing
+  const insets = useSafeAreaInsets();
+
+  // Load tax rate on component mount
+  React.useEffect(() => {
+    const loadCurrentTaxRate = async () => {
+      try {
+        const rate = await getTaxRate();
+        setTaxRate(rate);
+      } catch (error) {
+        console.error('Error loading tax rate:', error);
+        // Keep default rate of 8%
+      }
+    };
+    loadCurrentTaxRate();
+  }, []);
 
   // Mock company settings with percentage tax rate
   const companySettings = {
@@ -71,7 +90,7 @@ export const PrintOptionsScreen: React.FC<PrintOptionsScreenProps> = ({
     address: '123 Business St, City, State 12345',
     phone: '(555) 123-4567',
     email: 'info@mystore.com',
-    taxRate: 8, // Tax rate as percentage (8% instead of 0.08)
+    taxRate: taxRate, // Use dynamic tax rate
   };
 
   const handleBackPress = () => {
@@ -676,58 +695,56 @@ export const PrintOptionsScreen: React.FC<PrintOptionsScreenProps> = ({
       backgroundColor: 'white',
       zIndex: 9999,
     }}>
-      <StatusBar backgroundColor="white" barStyle="dark-content" />
+<StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
       
-      {/* Header */}
-      <SafeAreaView style={{
-        backgroundColor: 'white',
-      }}>
+{/* Header */}
+      <View style={{ backgroundColor: 'white', paddingTop: Math.max((insets?.top || 0) - 16, 0) }}>
         <View style={{
           backgroundColor: 'white',
-          paddingHorizontal: 24,
-          paddingTop: 8,
-          paddingBottom: 16,
+          paddingHorizontal: 20,
+          paddingTop: 4,
+          paddingBottom: 10,
         }}>
-        <View style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          position: 'relative',
-        }}>
-          <TouchableOpacity
-            onPress={handleBackPress}
-            style={{
-              position: 'absolute',
-              left: 0,
-              padding: 8,
-              backgroundColor: 'rgba(0, 0, 0, 0.1)',
-              borderRadius: 8,
-            }}
-          >
-            <Ionicons name="arrow-back" size={24} color="#374151" />
-          </TouchableOpacity>
-          <Text style={{
-            color: '#374151',
-            fontSize: 20,
-            fontWeight: 'bold',
-            textAlign: 'center',
-          }}>Print Options</Text>
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            position: 'relative',
+          }}>
+            <TouchableOpacity
+              onPress={handleBackPress}
+              style={{
+                position: 'absolute',
+                left: 0,
+                padding: 8,
+                backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                borderRadius: 8,
+              }}
+            >
+              <Ionicons name="arrow-back" size={22} color="#374151" />
+            </TouchableOpacity>
+            <Text style={{
+              color: '#374151',
+              fontSize: 18,
+              fontWeight: 'bold',
+              textAlign: 'center',
+            }}>Print Options</Text>
+          </View>
         </View>
-        </View>
-      </SafeAreaView>
+      </View>
 
       <ScrollView style={{
         flex: 1,
         backgroundColor: '#f9fafb',
       }}>
         {/* Welcome Section */}
-        <View className="px-6 py-8">
+<View className="px-5 py-6">
           <View className="items-center mb-8">
-            <View className="bg-blue-100 rounded-full p-6 mb-4">
-              <Ionicons name="print" size={48} color="#3B82F6" />
+<View className="bg-blue-100 rounded-full p-4 mb-3">
+<Ionicons name="print" size={40} color="#3B82F6" />
             </View>
-            <Text className="text-2xl font-bold text-gray-900 mb-2">Ready to Print</Text>
-            <Text className="text-gray-600 text-center text-base">
+<Text className="text-xl font-bold text-gray-900 mb-2">Ready to Print</Text>
+<Text className="text-gray-600 text-center text-sm">
               Choose how you'd like to print your receipt
             </Text>
           </View>
@@ -737,34 +754,34 @@ export const PrintOptionsScreen: React.FC<PrintOptionsScreenProps> = ({
             {/* Receipt Preview Option */}
             <TouchableOpacity
               onPress={handleReceiptPreview}
-              className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-6 shadow-sm"
+className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 shadow-sm"
               activeOpacity={0.7}
             >
               <View className="flex flex-row items-center">
-                <View className="bg-blue-500 rounded-full p-4 mr-4">
-                  <Ionicons name="eye" size={28} color="white" />
+<View className="bg-blue-500 rounded-full p-3 mr-3">
+<Ionicons name="eye" size={22} color="white" />
                 </View>
                 <View className="flex-1">
-                  <Text className="text-xl font-bold text-gray-900 mb-1">Receipt Preview</Text>
-                  <Text className="text-base text-gray-600">Preview before printing or exporting</Text>
+<Text className="text-lg font-bold text-gray-900 mb-0.5">Receipt Preview</Text>
+<Text className="text-sm text-gray-600">Preview before printing or exporting</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={24} color="#6B7280" />
+<Ionicons name="chevron-forward" size={20} color="#6B7280" />
               </View>
             </TouchableOpacity>
 
             {/* Export PDF Option */}
             <TouchableOpacity
               onPress={() => handleDirectPrint('pdf')}
-              className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-6 shadow-sm"
+className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4 shadow-sm"
               activeOpacity={0.7}
             >
               <View className="flex flex-row items-center">
-                <View className="bg-green-500 rounded-full p-4 mr-4">
-                  <Ionicons name="document" size={28} color="white" />
+<View className="bg-green-500 rounded-full p-3 mr-3">
+<Ionicons name="document" size={22} color="white" />
                 </View>
                 <View className="flex-1">
-                  <Text className="text-xl font-bold text-gray-900 mb-1">Export PDF</Text>
-                  <Text className="text-base text-gray-600">Save receipt as PDF file</Text>
+<Text className="text-lg font-bold text-gray-900 mb-0.5">Export PDF</Text>
+<Text className="text-sm text-gray-600">Save receipt as PDF file</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={24} color="#6B7280" />
               </View>
@@ -773,16 +790,16 @@ export const PrintOptionsScreen: React.FC<PrintOptionsScreenProps> = ({
             {/* Direct File System Access Option */}
             <TouchableOpacity
               onPress={handleDirectFileSystemPrint}
-              className="bg-gradient-to-r from-orange-50 to-red-50 border border-orange-200 rounded-2xl p-6 shadow-sm"
+className="bg-gradient-to-r from-orange-50 to-red-50 border border-orange-200 rounded-xl p-4 shadow-sm"
               activeOpacity={0.7}
             >
               <View className="flex flex-row items-center">
-                <View className="bg-orange-500 rounded-full p-4 mr-4">
-                  <Ionicons name="folder-open" size={28} color="white" />
+<View className="bg-orange-500 rounded-full p-3 mr-3">
+<Ionicons name="folder-open" size={22} color="white" />
                 </View>
                 <View className="flex-1">
-                  <Text className="text-xl font-bold text-gray-900 mb-1">Save to File Manager</Text>
-                  <Text className="text-base text-gray-600">Direct access via device file manager</Text>
+<Text className="text-lg font-bold text-gray-900 mb-0.5">Save to File Manager</Text>
+<Text className="text-sm text-gray-600">Direct access via device file manager</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={24} color="#6B7280" />
               </View>
@@ -791,16 +808,16 @@ export const PrintOptionsScreen: React.FC<PrintOptionsScreenProps> = ({
             {/* Thermal Printer Option */}
             <TouchableOpacity
               onPress={() => handleDirectPrint('thermal')}
-              className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-6 shadow-sm"
+className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl p-4 shadow-sm"
               activeOpacity={0.7}
             >
               <View className="flex flex-row items-center">
-                <View className="bg-purple-500 rounded-full p-4 mr-4">
-                  <Ionicons name="print" size={28} color="white" />
+<View className="bg-purple-500 rounded-full p-3 mr-3">
+<Ionicons name="print" size={22} color="white" />
                 </View>
                 <View className="flex-1">
-                  <Text className="text-xl font-bold text-gray-900 mb-1">Thermal Printer</Text>
-                  <Text className="text-base text-gray-600">Print directly to thermal printer</Text>
+<Text className="text-lg font-bold text-gray-900 mb-0.5">Thermal Printer</Text>
+<Text className="text-sm text-gray-600">Print directly to thermal printer</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={24} color="#6B7280" />
               </View>
@@ -808,33 +825,33 @@ export const PrintOptionsScreen: React.FC<PrintOptionsScreenProps> = ({
           </View>
 
           {/* Summary Card */}
-          <View className="bg-white rounded-2xl p-6 mt-8 shadow-sm border border-gray-100">
+<View className="bg-white rounded-xl p-4 mt-6 shadow-sm border border-gray-100">
             <View className="flex flex-row items-center mb-4">
-              <Ionicons name="receipt" size={24} color="#3B82F6" />
-              <Text className="text-lg font-bold text-gray-900 ml-2">Receipt Summary</Text>
+<Ionicons name="receipt" size={20} color="#3B82F6" />
+<Text className="text-base font-bold text-gray-900 ml-2">Receipt Summary</Text>
             </View>
             
             <View className="space-y-3">
               <View className="flex flex-row justify-between items-center py-2">
-                <Text className="text-base text-gray-600">Items:</Text>
-                <Text className="text-base font-semibold text-gray-900">{items.length}</Text>
+<Text className="text-sm text-gray-600">Items:</Text>
+<Text className="text-sm font-semibold text-gray-900">{items.length}</Text>
               </View>
               <View className="flex flex-row justify-between items-center py-2">
-                <Text className="text-base text-gray-600">Customer:</Text>
-                <Text className="text-base font-semibold text-gray-900">{customer || 'Not specified'}</Text>
+<Text className="text-sm text-gray-600">Customer:</Text>
+<Text className="text-sm font-semibold text-gray-900">{customer || 'Not specified'}</Text>
               </View>
               <View className="flex flex-row justify-between items-center py-2">
-                <Text className="text-base text-gray-600">Subtotal:</Text>
-                <Text className="text-base font-semibold text-gray-900">{formatCurrency(subtotal)}</Text>
+<Text className="text-sm text-gray-600">Subtotal:</Text>
+<Text className="text-sm font-semibold text-gray-900">{formatCurrency(subtotal)}</Text>
               </View>
               <View className="flex flex-row justify-between items-center py-2">
-                <Text className="text-base text-gray-600">Tax:</Text>
-                <Text className="text-base font-semibold text-gray-900">{formatCurrency(tax)}</Text>
+<Text className="text-sm text-gray-600">Tax:</Text>
+<Text className="text-sm font-semibold text-gray-900">{formatCurrency(tax)}</Text>
               </View>
               <View className="border-t border-gray-200 pt-3">
                 <View className="flex flex-row justify-between items-center">
-                  <Text className="text-xl font-bold text-gray-900">Total:</Text>
-                  <Text className="text-xl font-bold text-blue-600">{formatCurrency(total)}</Text>
+<Text className="text-lg font-bold text-gray-900">Total:</Text>
+<Text className="text-lg font-bold text-blue-600">{formatCurrency(total)}</Text>
                 </View>
               </View>
             </View>

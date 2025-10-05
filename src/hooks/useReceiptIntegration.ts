@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useMemo } from 'react';
 import { useReceiptStore } from '../stores/receiptStore';
 import ItemService from '../services/ItemService';
 
@@ -11,20 +11,23 @@ export const useReceiptIntegration = (visible: boolean) => {
     setAvailableItems,
     setItemsLoading,
     setItemsError,
-    calculateTotals
+    calculateTotals,
+    loadTaxRate
   } = useReceiptStore();
 
-  // Auto-calculate totals when form items change
+  // Get store data
   const store = useReceiptStore();
   
-  useEffect(() => {
-    calculateTotals();
-  }, [store.formItems, calculateTotals]);
+  // Note: Totals calculation is handled automatically by the store when data changes
+  // No need to trigger it manually here to avoid infinite loops
 
-  // Subscribe to items when component becomes visible
+  // Subscribe to items and load tax rate when component becomes visible
   useEffect(() => {
     if (visible) {
       setItemsLoading(true);
+      
+      // Load current tax rate
+      loadTaxRate();
       
       const unsubscribe = ItemService.subscribeToItems(
         (items) => {
@@ -41,7 +44,7 @@ export const useReceiptIntegration = (visible: boolean) => {
         unsubscribe();
       };
     }
-  }, [visible, setAvailableItems, setItemsLoading, setItemsError]);
+  }, [visible, setAvailableItems, setItemsLoading, setItemsError, loadTaxRate]);
 
   // Provide compatibility layer for existing cart-like functionality
   const cartCompatibility = {

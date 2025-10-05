@@ -11,12 +11,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import ReceiptCreationScreen from '../../components/ReceiptCreationScreen';
 import PrinterSetupScreen from '../../screens/PrinterSetupScreen';
+import { useNavigation } from '@react-navigation/native';
 
 // Try to import LinearGradient, fallback to View if not available
 let LinearGradient: any;
 try {
   LinearGradient = require('expo-linear-gradient').LinearGradient;
+  console.log('LinearGradient imported successfully');
 } catch (e) {
+  console.warn('LinearGradient not available, falling back to View:', e);
   LinearGradient = View;
 }
 
@@ -41,6 +44,7 @@ interface StatsCard {
 }
 
 const HomeScreen: React.FC = () => {
+  const navigation = useNavigation<any>();
   const [todayStats] = useState({
     sales: 1250.75,
     transactions: 23,
@@ -66,32 +70,37 @@ const HomeScreen: React.FC = () => {
   };
 
   const handleCreateReceipt = () => {
-    console.log('Opening receipt creation screen...');
+    console.log('=== handleCreateReceipt called ===');
     setShowReceiptCreation(true);
   };
 
   const handleQuickPrint = () => {
-    console.log('Quick print receipt...');
+    console.log('=== handleQuickPrint called ===');
     Alert.alert('Quick Print', 'Printing last receipt');
   };
 
   const handleManageItems = () => {
-    console.log('Navigate to items management...');
-    Alert.alert('Items', 'Navigate to items management');
+    console.log('=== handleManageItems called ===');
+    try {
+      navigation.navigate('items');
+    } catch (e) {
+      console.warn('Navigation to items failed, falling back to alert', e);
+      Alert.alert('Items', 'Navigate to items management');
+    }
   };
 
   const handleViewReports = () => {
-    console.log('View reports...');
+    console.log('=== handleViewReports called ===');
     Alert.alert('Reports', 'View sales reports and analytics');
   };
 
   const handlePrinterSettings = () => {
-    console.log('Opening printer setup...');
+    console.log('=== handlePrinterSettings called ===');
     setShowPrinterSetup(true);
   };
 
   const handleBackup = () => {
-    console.log('Backup data...');
+    console.log('=== handleBackup called ===');
     Alert.alert('Backup', 'Backup sales data and settings');
   };
 
@@ -206,7 +215,10 @@ const HomeScreen: React.FC = () => {
       key={action.id}
       className="mb-4 rounded-2xl overflow-hidden shadow-lg"
       style={{ width: (width - 60) / 2 }}
-      onPress={action.onPress}
+      onPress={() => {
+        console.log(`TouchableOpacity pressed for action: ${action.title}`);
+        action.onPress();
+      }}
       activeOpacity={0.8}
     >
       <LinearGradient
@@ -227,8 +239,8 @@ const HomeScreen: React.FC = () => {
   );
 
   return (
-    <View style={{ flex: 1 }}>
-      <SafeAreaView className="flex-1 bg-gray-50">
+    <SafeAreaView style={{ flex: 1 }} className="bg-gray-50">
+      <View style={{ flex: 1 }}>
         <ScrollView 
           className="flex-1"
           contentContainerStyle={{ paddingBottom: 100 }}
@@ -240,7 +252,7 @@ const HomeScreen: React.FC = () => {
               <Text className="text-gray-500 text-base mb-1">{getTimeBasedGreeting()}</Text>
               <Text className="text-gray-900 text-2xl font-bold">My Thermal Receipt Store</Text>
             </View>
-            <TouchableOpacity className="p-1">
+            <TouchableOpacity className="p-1" activeOpacity={0.7}>
               <Ionicons name="person-circle" size={40} color="#6b7280" />
             </TouchableOpacity>
           </View>
@@ -269,7 +281,7 @@ const HomeScreen: React.FC = () => {
         <View className="mb-8">
           <View className="flex-row justify-between items-center px-5 mb-4">
             <Text className="text-gray-900 text-lg font-semibold">Recent Activity</Text>
-            <TouchableOpacity>
+            <TouchableOpacity activeOpacity={0.7}>
               <Text className="text-blue-500 text-sm font-medium">See All</Text>
             </TouchableOpacity>
           </View>
@@ -351,7 +363,6 @@ const HomeScreen: React.FC = () => {
         visible={showReceiptCreation}
         onClose={() => setShowReceiptCreation(false)}
       />
-    </SafeAreaView>
       
       {/* Printer Setup Screen */}
       {showPrinterSetup && (
@@ -363,7 +374,8 @@ const HomeScreen: React.FC = () => {
           }}
         />
       )}
-    </View>
+      </View>
+    </SafeAreaView>
   );
 };
 

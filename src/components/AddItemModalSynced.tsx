@@ -248,7 +248,7 @@ const AddItemModalSynced: React.FC<AddItemModalSyncedProps> = ({
                   color: '#6b7280',
                   zIndex: 1
                 }}>
-                  $
+                  ₹
                 </Text>
                 <TextInput
                   value={formData.price}

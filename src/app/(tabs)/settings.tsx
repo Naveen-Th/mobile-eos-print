@@ -14,7 +14,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import PartyManagementScreen from '../../screens/PartyManagementScreen';
 import PrinterSetupScreen from '../../screens/PrinterSetupScreen';
+import ReceiptTemplatesScreen from '../../screens/ReceiptTemplatesScreen';
 import MobileAuthService, { MobileUser } from '../../services/MobileAuthService';
+import TaxSettingsModal from '../../components/TaxSettingsModal';
+import { getTaxRate } from '../../services/TaxSettings';
 
 interface SettingItem {
   id: string;
@@ -34,9 +37,12 @@ interface SettingsScreenProps {
 const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
   const [showPartyManagement, setShowPartyManagement] = useState(false);
   const [showPrinterSetup, setShowPrinterSetup] = useState(false);
+  const [showTaxSettings, setShowTaxSettings] = useState(false);
+  const [showReceiptTemplates, setShowReceiptTemplates] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userInitial, setUserInitial] = useState<string>('U');
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [currentTaxRate, setCurrentTaxRate] = useState<number>(8);
   
   useEffect(() => {
     // Use passed user prop first, then fallback to auth service
@@ -46,7 +52,23 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
       // Set initial to first character of email or display name
       setUserInitial((currentUser.displayName?.charAt(0) || currentUser.email.charAt(0) || 'U').toUpperCase());
     }
+
+    // Load current tax rate
+    loadTaxRate();
   }, [user]);
+
+  const loadTaxRate = async () => {
+    try {
+      const rate = await getTaxRate();
+      setCurrentTaxRate(rate);
+    } catch (error) {
+      console.error('Error loading tax rate:', error);
+    }
+  };
+
+  const handleTaxRateUpdated = (newRate: number) => {
+    setCurrentTaxRate(newRate);
+  };
   
   const settingsData: SettingItem[] = [
     {
@@ -60,10 +82,10 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
     {
       id: '2',
       title: 'Tax Settings',
-      subtitle: 'Current rate: 8%',
+      subtitle: `Current rate: ${currentTaxRate}%`,
       type: 'navigation',
       icon: 'calculator-outline',
-      onPress: () => console.log('Tax settings pressed'),
+      onPress: () => setShowTaxSettings(true),
     },
     {
       id: '3',
@@ -87,7 +109,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
       subtitle: 'Customize receipt format',
       type: 'navigation',
       icon: 'receipt-outline',
-      onPress: () => console.log('Receipt template pressed'),
+      onPress: () => setShowReceiptTemplates(true),
     },
     {
       id: '6',
@@ -285,6 +307,23 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
           }}
         />
       )}
+      
+      {/* Tax Settings Modal */}
+      <TaxSettingsModal
+        visible={showTaxSettings}
+        onClose={() => setShowTaxSettings(false)}
+        onTaxRateUpdated={handleTaxRateUpdated}
+      />
+      
+      {/* Receipt Templates Modal */}
+      <Modal
+        visible={showReceiptTemplates}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowReceiptTemplates(false)}
+      >
+        <ReceiptTemplatesScreen onBack={() => setShowReceiptTemplates(false)} />
+      </Modal>
     </SafeAreaView>
   );
 };

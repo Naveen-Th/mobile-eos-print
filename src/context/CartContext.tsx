@@ -1,6 +1,7 @@
-import React, {createContext, useContext, useReducer, ReactNode} from 'react';
+import React, {createContext, useContext, useReducer, ReactNode, useEffect} from 'react';
 import {ReceiptItem, CartState, CompanySettings} from '../types';
 import {calculateTotals, generateId, addMoneyAmounts} from '../utils/index';
+import { getTaxRate } from '../services/TaxSettings';
 
 interface CartContextType {
   state: CartState;
@@ -30,7 +31,7 @@ type CartAction =
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
-const cartReducer = (state: CartState, action: CartAction): CartState => {
+const cartReducer = (state: CartState, action: CartAction, taxRate: number = 8): CartState => {
   switch (action.type) {
     case 'ADD_RECEIPT': {
       const newItem: ReceiptItem = {
@@ -58,7 +59,7 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
       
       const totals = calculateTotals(
         newItems, 
-        8, // Default tax rate, will be updated by effect
+        taxRate,
         state.globalDiscount || 0,
         state.globalDiscountType || 'percentage'
       );
@@ -77,7 +78,7 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
       );
       const totals = calculateTotals(
         newItems, 
-        8, // Default tax rate, will be updated by effect
+        taxRate,
         state.globalDiscount || 0,
         state.globalDiscountType || 'percentage'
       );
@@ -92,7 +93,7 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
       const newItems = state.items.filter(item => item.id !== action.payload.id);
       const totals = calculateTotals(
         newItems, 
-        8, // Default tax rate, will be updated by effect
+        taxRate,
         state.globalDiscount || 0,
         state.globalDiscountType || 'percentage'
       );
@@ -111,7 +112,7 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
         const newItems = state.items.filter(item => item.id !== id);
         const totals = calculateTotals(
           newItems,
-          8, // Default tax rate, will be updated by effect
+          taxRate,
           state.globalDiscount || 0,
           state.globalDiscountType || 'percentage'
         );
@@ -127,7 +128,7 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
       );
       const totals = calculateTotals(
         newItems,
-        8, // Default tax rate, will be updated by effect
+        taxRate,
         state.globalDiscount || 0,
         state.globalDiscountType || 'percentage'
       );
@@ -149,7 +150,7 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
       const {discount, discountType} = action.payload;
       const totals = calculateTotals(
         state.items,
-        8, // Default tax rate, will be updated by effect
+        taxRate,
         discount,
         discountType
       );
@@ -217,10 +218,32 @@ export const CartProvider: React.FC<CartProviderProps> = ({
   children,
   companySettings,
 }) => {
-  const [state, dispatch] = useReducer(cartReducer, initialState);
+  const [dynamicTaxRate, setDynamicTaxRate] = React.useState(8);
+  
+  // Load tax rate from AsyncStorage on component mount
+  React.useEffect(() => {
+    const loadTaxRate = async () => {
+      try {
+        const rate = await getTaxRate();
+        setDynamicTaxRate(rate);
+      } catch (error) {
+        console.error('Error loading tax rate in CartProvider:', error);
+        setDynamicTaxRate(8); // fallback to default
+      }
+    };
+    loadTaxRate();
+  }, []);
   
   // Memoize tax rate to prevent unnecessary re-renders
-  const taxRate = React.useMemo(() => companySettings?.taxRate || 8, [companySettings?.taxRate]);
+  const taxRate = React.useMemo(() => 
+    companySettings?.taxRate || dynamicTaxRate, 
+    [companySettings?.taxRate, dynamicTaxRate]
+  );
+  
+  const [state, dispatch] = useReducer(
+    (state: CartState, action: CartAction) => cartReducer(state, action, taxRate),
+    initialState
+  );
   
   // Recalculate totals when tax rate changes
   React.useEffect(() => {

@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useSyncStore, OptimisticUpdate } from '../store/syncStore';
+import { getCache, setCache } from '../utils/offlineStorage';
 
 // Query Keys Factory
 export const queryKeys = {
@@ -76,6 +77,17 @@ export function useRealtimeCollection<T = any>(
     
     addActiveListener(listenerId);
     console.log(`✅ Added active listener: ${listenerId}`);
+
+    // Prefill cache from offline storage on mount (non-blocking)
+    (async () => {
+      try {
+        const cached = await getCache<T[]>(`collection:${collectionName}`);
+        if (cached && cached.length > 0) {
+          queryClient.setQueryData(queryKey, cached);
+          console.log(`💾 Loaded ${cached.length} cached ${collectionName} items from offline storage`);
+        }
+      } catch {}
+    })();
     
     try {
       const colRef = collection(db, collectionName);
@@ -84,7 +96,7 @@ export function useRealtimeCollection<T = any>(
       
       unsubscribeRef.current = onSnapshot(
         colRef,
-        (snapshot) => {
+        async (snapshot) => {
           if (!isActive) return; // Prevent updates after cleanup
           
           const syncTime = Date.now() - startTime;
@@ -112,6 +124,10 @@ export function useRealtimeCollection<T = any>(
               queryClient.setQueryData(queryKey, documents);
               console.log(`💾 Updated React Query cache for key:`, queryKey);
               console.log(`📊 Cache now contains ${documents.length} items for ${collectionName}`);
+              
+              // Persist to offline storage
+              setCache<T[]>(`collection:${collectionName}`, documents)
+                .catch(() => {});
               
               // Debug: Log items for debugging
               if (collectionName === 'item_details' && documents.length > 0) {
@@ -229,15 +245,23 @@ export function useRealtimeCollection<T = any>(
           } as T;
         });
         console.log(`✅ Fallback fetch for ${collectionName} returned ${documents.length} documents`);
+        // Persist successful fetch
+        setCache<T[]>(`collection:${collectionName}`, documents).catch(() => {});
         return documents;
       } catch (error) {
         console.error(`❌ Fallback fetch failed for ${collectionName}:`, error);
+        // Attempt to serve from offline cache
+        const cached = await getCache<T[]>(`collection:${collectionName}`);
+        if (cached) {
+          console.log(`📦 Serving ${cached.length} cached ${collectionName} items due to fetch error`);
+          return cached;
+        }
         return [] as T[];
       }
     },
     enabled,
-    staleTime: 5000, // 5 seconds - allow some staleness but not infinite
-    gcTime: 10 * 60 * 1000, // 10 minutes
+    staleTime: 5 * 60 * 1000, // allow longer staleness since we have offline cache
+    gcTime: 60 * 60 * 1000, // 1 hour
     select: options.select,
     // Allow refetch on mount as fallback when real-time isn't working
     refetchOnMount: 'always',

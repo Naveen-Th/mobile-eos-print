@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import PersonDetailsService, { PersonDetail, CreatePersonDetailData } from '../services/PersonDetailsService';
+import ContactImportModal from './ContactImportModal';
 
 interface AddEditPartyModalProps {
   visible: boolean;
@@ -35,6 +36,7 @@ const AddEditPartyModal: React.FC<AddEditPartyModalProps> = ({
   });
   const [errors, setErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [showContactImport, setShowContactImport] = useState(false);
 
   const isEditing = !!editingPerson;
 
@@ -278,6 +280,22 @@ const AddEditPartyModal: React.FC<AddEditPartyModalProps> = ({
               </Text>
             </View>
 
+            {/* Import from Contacts Button */}
+            {!isEditing && (
+              <View style={styles.importContainer}>
+                <TouchableOpacity
+                  style={styles.importButton}
+                  onPress={() => setShowContactImport(true)}
+                >
+                  <Ionicons name="people-outline" size={20} color="#3b82f6" />
+                  <Text style={styles.importButtonText}>Import from Contacts</Text>
+                </TouchableOpacity>
+                <Text style={styles.importHintText}>
+                  Quickly add party details from your phone's contacts
+                </Text>
+              </View>
+            )}
+
             {/* Help Text */}
             <View style={styles.helpContainer}>
               <Ionicons name="information-circle-outline" size={16} color="#6b7280" />
@@ -287,6 +305,31 @@ const AddEditPartyModal: React.FC<AddEditPartyModalProps> = ({
             </View>
           </View>
         </ScrollView>
+        
+        {/* Contact Import Modal */}
+        <ContactImportModal
+          visible={showContactImport}
+          onClose={() => setShowContactImport(false)}
+          onImportComplete={(results) => {
+            // Show success message and refresh
+            let message = 'Contacts imported successfully!';
+            if (results.imported > 0) {
+              message = `${results.imported} contact${results.imported === 1 ? '' : 's'} imported successfully!`;
+              if (results.skipped > 0) {
+                message += ` ${results.skipped} duplicate${results.skipped === 1 ? '' : 's'} skipped.`;
+              }
+            }
+            
+            Alert.alert('Import Complete', message, [
+              {
+                text: 'OK',
+                onPress: () => {
+                  onSuccess?.(); // Refresh the party list
+                }
+              }
+            ]);
+          }}
+        />
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -431,6 +474,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6b7280',
     marginTop: 4,
+    fontStyle: 'italic',
+  },
+  importContainer: {
+    marginBottom: 24,
+    alignItems: 'center',
+  },
+  importButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f9ff',
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    marginBottom: 8,
+    width: '100%',
+    justifyContent: 'center',
+  },
+  importButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#3b82f6',
+    marginLeft: 8,
+  },
+  importHintText: {
+    fontSize: 12,
+    color: '#6b7280',
+    textAlign: 'center',
     fontStyle: 'italic',
   },
 });

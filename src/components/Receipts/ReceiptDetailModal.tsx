@@ -59,19 +59,31 @@ const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClos
     }
   };
 
-  const renderItem = ({ item, index }: { item: any; index: number }) => (
-    <View style={modalStyles.itemRow}>
-      <View style={modalStyles.itemInfo}>
-        <Text style={modalStyles.itemName}>{item.name || 'Unnamed Item'}</Text>
-        <Text style={modalStyles.itemDetail}>{item.quantity || 0} × {formatCurrency(item.price || 0)}</Text>
+  // Decide how to interpret saved item prices (unit price vs line total)
+  const sumPriceTimesQty = (receipt.items || []).reduce((s, it: any) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
+  const sumPriceOnly = (receipt.items || []).reduce((s, it: any) => s + (Number(it.price) || 0), 0);
+  const preferLineTotals = Math.abs(sumPriceTimesQty - (receipt.subtotal || 0)) > Math.abs(sumPriceOnly - (receipt.subtotal || 0));
+
+  const renderItem = ({ item, index }: { item: any; index: number }) => {
+    const qty = Number(item.quantity) || 0;
+    const price = Number(item.price) || 0;
+    const unitPrice = preferLineTotals && qty > 0 ? price / qty : price;
+    const lineTotal = preferLineTotals ? price : price * qty;
+
+    return (
+      <View style={modalStyles.itemRow}>
+        <View style={modalStyles.itemInfo}>
+          <Text style={modalStyles.itemName}>{item.name || 'Unnamed Item'}</Text>
+          <Text style={modalStyles.itemDetail}>{qty} × {formatCurrency(unitPrice)}</Text>
+        </View>
+        <View style={modalStyles.itemAmount}>
+          <Text style={modalStyles.itemTotal}>
+            {formatCurrency(lineTotal)}
+          </Text>
+        </View>
       </View>
-      <View style={modalStyles.itemAmount}>
-        <Text style={modalStyles.itemTotal}>
-          {formatCurrency((item.price || 0) * (item.quantity || 0))}
-        </Text>
-      </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <Modal

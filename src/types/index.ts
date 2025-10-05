@@ -214,6 +214,120 @@ export interface Notification {
   timestamp: Date;
 }
 
+// Receipt Template types
+export interface ReceiptTemplateField {
+  id: string;
+  name: string;
+  type: 'text' | 'number' | 'date' | 'currency' | 'boolean' | 'image' | 'separator' | 'qrcode';
+  label: string;
+  value?: any;
+  required: boolean;
+  position: {
+    x: number;
+    y: number;
+  };
+  style: {
+    fontSize: number;
+    fontWeight: 'normal' | 'bold';
+    textAlign: 'left' | 'center' | 'right';
+    width?: number;
+    height?: number;
+    marginTop?: number;
+    marginBottom?: number;
+  };
+  visible: boolean;
+}
+
+export interface ReceiptTemplateLayout {
+  paperWidth: 58 | 80; // mm
+  maxWidth: number; // characters
+  margins: {
+    top: number;
+    bottom: number;
+    left: number;
+    right: number;
+  };
+  sections: {
+    header: {
+      enabled: boolean;
+      fields: string[]; // field IDs
+      style: {
+        separator: boolean;
+        spacing: number;
+      };
+    };
+    companyInfo: {
+      enabled: boolean;
+      fields: string[];
+      style: {
+        separator: boolean;
+        spacing: number;
+      };
+    };
+    receiptInfo: {
+      enabled: boolean;
+      fields: string[];
+      style: {
+        separator: boolean;
+        spacing: number;
+      };
+    };
+    items: {
+      enabled: boolean;
+      showHeaders: boolean;
+      columns: {
+        name: { width: number; align: 'left' | 'center' | 'right' };
+        quantity: { width: number; align: 'left' | 'center' | 'right' };
+        price: { width: number; align: 'left' | 'center' | 'right' };
+        total: { width: number; align: 'left' | 'center' | 'right' };
+      };
+      style: {
+        separator: boolean;
+        spacing: number;
+      };
+    };
+    totals: {
+      enabled: boolean;
+      fields: string[];
+      style: {
+        separator: boolean;
+        spacing: number;
+        highlightTotal: boolean;
+      };
+    };
+    footer: {
+      enabled: boolean;
+      fields: string[];
+      style: {
+        separator: boolean;
+        spacing: number;
+      };
+    };
+  };
+}
+
+export interface ReceiptTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  type: 'thermal' | 'pdf' | 'both';
+  isDefault: boolean;
+  isCustom: boolean;
+  layout: ReceiptTemplateLayout;
+  fields: ReceiptTemplateField[];
+  createdAt: Date;
+  updatedAt: Date;
+  thumbnail?: string; // base64 or URL
+}
+
+export interface ReceiptTemplatePreset {
+  id: string;
+  name: string;
+  description: string;
+  category: 'classic' | 'modern' | 'minimal' | 'detailed';
+  template: Omit<ReceiptTemplate, 'id' | 'createdAt' | 'updatedAt'>;
+}
+
 // Settings types
 export interface AppSettings {
   theme: Theme;
@@ -234,5 +348,6 @@ export interface AppSettings {
     includeFooter: boolean;
     footerText: string;
     autoIncrementReceiptNumber: boolean;
+    defaultTemplateId?: string;
   };
 }

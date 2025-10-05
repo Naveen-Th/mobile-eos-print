@@ -7,15 +7,17 @@ import {
   Modal,
   TextInput,
   ActivityIndicator,
+  StatusBar,
 } from 'react-native';
 import { Alert, ReceiptAlerts } from './common';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Dropdown } from 'react-native-element-dropdown';
 import { PrintOptionsScreen } from './PrintOptionsScreen';
 import SearchableDropdown from './SearchableDropdown';
 import PartyManagementScreen from '../screens/PartyManagementScreen';
 import { ItemDetails } from '../types';
+import TaxSettingsModal from './TaxSettingsModal';
 import ItemService from '../services/ItemService';
 import CustomerService, { UniqueCustomer } from '../services/CustomerService';
 import { useReceiptStore } from '../stores/receiptStore';
@@ -37,6 +39,9 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
   // Use integration hook for better organization
   const { store, cartCompatibility } = useReceiptIntegration(visible);
   
+  // Safe area insets to fine-tune top spacing on devices with notches/status bar
+  const insets = useSafeAreaInsets();
+
   // Destructure store values for easier access
   const {
     formItems,
@@ -47,6 +52,7 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     isProcessing,
     errors,
     receiptTotals,
+    taxRate,
     addFormItem,
     removeFormItem,
     updateFormItem,
@@ -58,21 +64,21 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     createReceipt,
     clearForm,
     setError,
-    clearError
+    clearError,
+    loadTaxRate
   } = store;
   
   const [showPrintOptions, setShowPrintOptions] = useState(false);
   const [showPartyManagement, setShowPartyManagement] = useState(false);
+  const [showTaxSettings, setShowTaxSettings] = useState(false);
   
   // Customer search state
   const [customerSearchResults, setCustomerSearchResults] = useState<UniqueCustomer[]>([]);
   const [isSearchingCustomers, setIsSearchingCustomers] = useState(false);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
 
-  // Calculate totals whenever form items change
-  useEffect(() => {
-    store.calculateTotals();
-  }, [formItems, store]);
+  // Note: Totals are automatically calculated by the useReceiptIntegration hook
+  // No need to duplicate the calculation here
   
 
   // Items subscription is now handled by the integration hook
@@ -83,6 +89,13 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
 
   // Form item update is now handled by the store with better validation
   const handleUpdateFormItem = (id: string, field: string, value: string) => {
+    // Remove leading zeros for numeric fields like kg, gms, and pricePerKg
+    if (field === 'kg' || field === 'gms' || field === 'pricePerKg') {
+      // Remove leading zeros but keep single zero and decimal values
+      if (value && value !== '0' && !value.includes('.')) {
+        value = value.replace(/^0+/, '') || '0';
+      }
+    }
     updateFormItem(id, field as any, value);
   };
 
@@ -289,7 +302,7 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
   }
 
   const renderItemForm = (formItem: any, index: number) => (
-    <View key={formItem.id} className="bg-white rounded-lg p-4 mb-4 shadow-sm border border-gray-200 overflow-visible">
+    <View key={formItem.id} className="mb-3">
       <View className="flex-row items-center justify-between mb-3">
         <Text className="text-lg font-semibold text-gray-900">Item {index + 1}</Text>
         {formItems.length > 1 && (
@@ -333,10 +346,11 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
             inputSearchStyle={{
               height: 40,
               fontSize: 16,
-              borderRadius: 8,
+              borderRadius: 0,
               paddingHorizontal: 12,
-              borderWidth: 1,
-              borderColor: '#e5e7eb'
+              borderWidth: 0,
+              backgroundColor: '#f9fafb',
+              color: '#374151'
             }}
             iconStyle={{
               width: 20,
@@ -351,10 +365,19 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
             }))}
             search
             maxHeight={300}
+            searchPlaceholder="Search items"
+            containerStyle={{
+              borderRadius: 12,
+              backgroundColor: 'white',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.1,
+              shadowRadius: 8,
+              elevation: 3
+            }}
             labelField="label"
             valueField="value"
             placeholder="Select an item"
-            searchPlaceholder="Search items..."
             value={formItem.selectedItemId}
             onChange={(item) => {
               console.log('Item selected:', item.label, 'for form:', formItem.id);
@@ -392,7 +415,7 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
                     color: '#10b981',
                     fontWeight: '600'
                   }}>
-                    ${item.price?.toFixed(2)}
+                    {formatCurrency(item.price || 0)}
                   </Text>
                   <View style={{
                     paddingHorizontal: 8,
@@ -414,20 +437,18 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
           />
         </View>
 
-        {/* Per Kg Price Field - Auto-populated from Firebase */}
+        {/* Per Kg Price Field - Editable */}
         <View style={{ width: 80 }} className="mr-2">
           <Text className="text-sm font-medium text-gray-700 mb-2">
             Per Kg
           </Text>
-          <View className="relative">
-            <Text className="absolute left-3 top-3 text-gray-500 text-base z-10">$</Text>
-            <TextInput
-              value={formItem.pricePerKg || '0.00'}
-              placeholder="0.00"
-              editable={false}
-              className="border border-gray-300 rounded-lg pl-8 pr-3 py-3 text-base bg-gray-50"
-            />
-          </View>
+          <TextInput
+            value={formItem.pricePerKg || '0.00'}
+            onChangeText={(value) => handleUpdateFormItem(formItem.id, 'pricePerKg', value)}
+            placeholder="0.00"
+            keyboardType="numeric"
+            className="border border-gray-300 rounded-lg px-3 py-3 text-base text-center"
+          />
         </View>
 
         {/* Kg Field */}
@@ -459,6 +480,14 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
         </View>
       </View>
 
+      {/* Per-line total */}
+      <View className="mt-1 flex-row justify-between items-center">
+        <Text className="text-sm text-gray-600">Item Total:</Text>
+        <Text className="text-sm font-semibold text-gray-900">
+{formatCurrency(parseFloat(formItem.calculatedPrice || formItem.price || '0') || 0)}
+        </Text>
+      </View>
+
       {/* Show stock error for this form item - below all fields */}
       {formItem.stockError && (
         <Text className="text-red-500 text-sm mt-2">{formItem.stockError}</Text>
@@ -480,15 +509,20 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
       backgroundColor: 'white',
       zIndex: 9999,
     }}>
+      <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
       {/* Header */}
-      <SafeAreaView style={{
-        backgroundColor: 'white',
-      }}>
+      <View
+        // Reduce top space while staying safely below the status bar / notch
+        style={{
+          backgroundColor: 'white',
+          paddingTop: Math.max((insets?.top || 0) - 20, 0),
+        }}
+      >
         <View style={{
           backgroundColor: 'white',
-          paddingHorizontal: 24,
-          paddingTop: 8,
-          paddingBottom: 16,
+          paddingHorizontal: 16,
+          paddingTop: 2,
+          paddingBottom: 4,
         }}>
         <View className="flex-row items-center justify-between">
           <TouchableOpacity onPress={onClose} style={{
@@ -515,26 +549,22 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
           </TouchableOpacity>
         </View>
         </View>
-      </SafeAreaView>
+      </View>
 
           <ScrollView 
-            className="flex-1 p-4"
+            className="flex-1"
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled={true}
-            contentContainerStyle={{ paddingBottom: 100 }}
+            contentContainerStyle={{ paddingBottom: 100, paddingHorizontal: 16, paddingTop: 4 }}
             showsVerticalScrollIndicator={false}
             style={{ zIndex: 1 }}
           >
             {/* Customer Information Section */}
-            <View className="mb-6" style={{ zIndex: 10000 }}>
-              <Text className="text-lg font-semibold text-gray-900 mb-2">Customer Information</Text>
-              <Text className="text-gray-600 text-sm mb-4">
-                Customer information is required for the Receipt. Start typing to search existing customers or add a new one.
-              </Text>
+            <View className="mb-6" style={{ zIndex: showCustomerDropdown ? 20000 : 1000 }}>
+              <Text className="text-lg font-semibold text-gray-900 mb-3">Customer Information</Text>
               
-              <View className="bg-white rounded-lg p-4 shadow-sm border border-gray-200" style={{ overflow: 'visible' }}>
-                {/* Customer Name with Search */}
-                <View className="mb-4" style={{ zIndex: 10001, position: 'relative' }}>
+              {/* Customer Name with Search */}
+              <View style={{ zIndex: showCustomerDropdown ? 20001 : 1001, position: 'relative', marginBottom: showCustomerDropdown ? 200 : 0 }}>
                   <View className="flex-row items-center justify-between mb-2">
                     <Text className="text-sm font-medium text-gray-700">
                       Customer Name <Text className="text-red-500">*</Text>
@@ -560,11 +590,10 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
                     onAddParty={handleAddParty}
                   />
                 </View>
-              </View>
             </View>
 
             {/* Items Form Section */}
-            <View className="mb-6">
+            <View className="mb-3">
               {/* Form-level errors */}
               {errors.form && (
                 <View className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
@@ -593,34 +622,43 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
             </View>
 
             {/* Total Section */}
-            <View className="mb-6">
-              <View className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
-                <Text className="text-lg font-semibold text-gray-900 mb-4">Total</Text>
+            <View className="mb-3">
+              <View>
+                <Text className="text-lg font-semibold text-gray-900 mb-2">Total</Text>
                 
                 {/* Subtotal */}
-                <View className="flex-row justify-between items-center mb-2">
+                <View className="flex-row justify-between items-center mb-1">
                   <Text className="text-base text-gray-700">Subtotal:</Text>
                   <Text className="text-base font-medium text-gray-900">
-                    ${receiptTotals.subtotal.toFixed(2)}
+{formatCurrency(receiptTotals.subtotal)}
                   </Text>
                 </View>
                 
                 {/* Tax */}
-                <View className="flex-row justify-between items-center mb-2">
-                  <Text className="text-base text-gray-700">Tax (10%):</Text>
+                <View className="flex-row justify-between items-center mb-1">
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text className="text-base text-gray-700">Tax ({taxRate}%):</Text>
+                    <TouchableOpacity
+                      onPress={() => setShowTaxSettings(true)}
+                      style={{ marginLeft: 6, padding: 4 }}
+                      accessibilityLabel="Edit tax rate"
+                    >
+                      <Ionicons name="pencil" size={14} color="#2563eb" />
+                    </TouchableOpacity>
+                  </View>
                   <Text className="text-base font-medium text-gray-900">
-                    ${receiptTotals.tax.toFixed(2)}
+{formatCurrency(receiptTotals.tax)}
                   </Text>
                 </View>
                 
                 {/* Divider */}
-                <View className="border-t border-gray-200 my-3" />
+                <View className="border-t border-gray-200 my-2" />
                 
                 {/* Total */}
                 <View className="flex-row justify-between items-center">
                   <Text className="text-lg font-bold text-gray-900">Total:</Text>
                   <Text className="text-lg font-bold text-blue-600">
-                    ${receiptTotals.total.toFixed(2)}
+{formatCurrency(receiptTotals.total)}
                   </Text>
                 </View>
               </View>
@@ -744,6 +782,21 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
       >
         <PartyManagementScreen onBack={() => setShowPartyManagement(false)} />
       </Modal>
+
+      {/* Quick Tax Settings Modal */}
+      <TaxSettingsModal
+        visible={showTaxSettings}
+        onClose={() => setShowTaxSettings(false)}
+        onTaxRateUpdated={async () => {
+          try {
+            await loadTaxRate();
+          } catch (e) {
+            console.log('Failed to refresh tax rate after update', e);
+          } finally {
+            setShowTaxSettings(false);
+          }
+        }}
+      />
     </View>
   );
 };

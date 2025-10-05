@@ -11,6 +11,7 @@ import { useItems, useUpdateStock } from '../hooks/useSyncManager';
 import { useConnectionState, usePendingUpdates } from '../store/syncStore';
 import { ItemDetails } from '../types';
 import ItemForm from './ItemForm';
+import { formatCurrency } from '../utils';
 
 const ItemsScreenNew: React.FC = () => {
   // TanStack Query hooks
@@ -346,7 +347,7 @@ const ItemsScreenNew: React.FC = () => {
                     fontWeight: 'bold',
                     color: '#3b82f6',
                   }}>
-                    ${item.price.toFixed(2)}
+{formatCurrency(item.price, 'INR', 'en-IN')}
                   </Text>
                 </View>
               </TouchableOpacity>

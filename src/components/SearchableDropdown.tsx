@@ -144,7 +144,7 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
   );
 
   return (
-    <View ref={containerRef} style={{ position: 'relative', zIndex: 1000 }}>
+    <View ref={containerRef} style={{ position: 'relative', zIndex: showDropdown ? 10000 : 1000 }}>
       {/* Input Field */}
       <View style={{
         flexDirection: 'row',
@@ -221,7 +221,7 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
             shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 8 } : { width: 0, height: 0 },
             shadowOpacity: Platform.OS === 'ios' ? 0.15 : 0,
             shadowRadius: Platform.OS === 'ios' ? 12 : 0,
-            zIndex: 9999,
+            zIndex: 20000,
             marginTop: 4,
           }}
         >

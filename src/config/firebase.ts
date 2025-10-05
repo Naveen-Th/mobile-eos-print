@@ -1,7 +1,13 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, initializeFirestore, connectFirestoreEmulator } from 'firebase/firestore';
+import { 
+  getFirestore, 
+  initializeFirestore, 
+  connectFirestoreEmulator,
+  persistentLocalCache,
+  persistentSingleTabManager,
+  memoryLocalCache,
+} from 'firebase/firestore';
 import { getAuth, connectAuthEmulator, initializeAuth } from 'firebase/auth';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 // Firebase configuration (same as shared config but adapted for mobile)
@@ -17,14 +23,20 @@ const firebaseConfig = {
 // Initialize Firebase app
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// Initialize Firebase services with React Native optimizations
+// Initialize Firebase services with platform-appropriate caching
 let db: ReturnType<typeof getFirestore>;
 let auth: ReturnType<typeof getAuth>;
 
 try {
-  // Initialize Firestore with offline persistence
+  // Use persistent IndexedDB cache on web, in-memory cache on native.
+  // Note: Firebase Web SDK does not provide persistent cache on React Native.
   db = initializeFirestore(app, {
-    experimentalForceLongPolling: true, // For React Native
+    localCache: Platform.OS === 'web'
+      ? persistentLocalCache({
+          tabManager: persistentSingleTabManager(undefined),
+        })
+      : memoryLocalCache(),
+    experimentalForceLongPolling: Platform.OS !== 'web',
   });
 } catch (error) {
   // Fallback if already initialized
@@ -34,7 +46,7 @@ try {
 try {
   // Initialize Auth for React Native
   auth = initializeAuth(app, {
-    // Note: React Native persistence is handled automatically
+    // Note: React Native persistence is handled automatically by the SDK
   });
 } catch (error) {
   // Fallback if already initialized

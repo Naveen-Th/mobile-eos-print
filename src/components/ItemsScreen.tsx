@@ -8,6 +8,7 @@ import { useItems, useCreateItem, useUpdateItem, useDeleteItem, useUpdateStock }
 import { usePendingUpdates } from '../store/syncStore';
 import { db, auth } from '../config/firebase';
 import { collection } from 'firebase/firestore';
+import { formatCurrency } from '../utils';
 
 const ItemsScreen: React.FC = () => {
   // TanStack Query hooks for items
@@ -426,7 +427,7 @@ const ItemsScreen: React.FC = () => {
                   fontWeight: 'bold',
                   color: '#3b82f6'
                 }}>
-                  ${item.price.toFixed(2)}
+{formatCurrency(item.price, 'INR', 'en-IN')}
                 </Text>
               </View>
             </TouchableOpacity>

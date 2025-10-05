@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { FirebaseReceipt } from '../../services/ReceiptFirebaseService';
@@ -22,6 +23,7 @@ interface ReceiptItemProps {
   onToggleSelection: (receiptId: string) => void;
   onViewReceipt: (receipt: FirebaseReceipt) => void;
   onDeleteReceipt: (receiptId: string) => void;
+  onSavePDF?: (receipt: FirebaseReceipt) => Promise<void>;
 }
 
 const ReceiptItem: React.FC<ReceiptItemProps> = ({
@@ -37,7 +39,22 @@ const ReceiptItem: React.FC<ReceiptItemProps> = ({
   onToggleSelection,
   onViewReceipt,
   onDeleteReceipt,
+  onSavePDF,
 }) => {
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+
+  const handleSavePDF = async () => {
+    if (isGeneratingPDF || !onSavePDF) return;
+    
+    setIsGeneratingPDF(true);
+    try {
+      await onSavePDF(item);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+    } finally {
+      setIsGeneratingPDF(false);
+    }
+  };
   return (
     <TouchableOpacity
       style={[
@@ -102,10 +119,25 @@ const ReceiptItem: React.FC<ReceiptItemProps> = ({
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.actionButton, styles.pdfButton]}
+              style={[
+                styles.actionButton, 
+                styles.pdfButton,
+                (isGeneratingPDF || !onSavePDF) && styles.pdfButtonDisabled
+              ]}
+              onPress={handleSavePDF}
+              disabled={isGeneratingPDF || isPendingDeletion || !onSavePDF}
             >
-              <Ionicons name="document-outline" size={16} color="#3b82f6" />
-              <Text style={styles.pdfButtonText}>Save PDF</Text>
+              {isGeneratingPDF ? (
+                <ActivityIndicator size={16} color="#3b82f6" />
+              ) : (
+                <Ionicons name="document-outline" size={16} color="#3b82f6" />
+              )}
+              <Text style={[
+                styles.pdfButtonText, 
+                (isGeneratingPDF || !onSavePDF) && styles.pdfButtonTextDisabled
+              ]}>
+                {isGeneratingPDF ? 'Generating...' : (!onSavePDF ? 'Save PDF' : 'Save PDF')}
+              </Text>
             </TouchableOpacity>
           </View>
         )}
@@ -248,6 +280,13 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#3b82f6',
     marginLeft: 4,
+  },
+  pdfButtonDisabled: {
+    backgroundColor: '#f3f4f6',
+    opacity: 0.7,
+  },
+  pdfButtonTextDisabled: {
+    color: '#9ca3af',
   },
 });
 

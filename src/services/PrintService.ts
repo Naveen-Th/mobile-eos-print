@@ -1,4 +1,4 @@
-import {Receipt, CompanySettings} from '../types';
+import {Receipt, CompanySettings, ReceiptTemplate} from '../types';
 import {
   formatCurrency,
   formatReceiptDate,
@@ -11,6 +11,7 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import { StorageService } from './StorageService';
 import { DirectFileSystemService } from './DirectFileSystemService';
+import ReceiptTemplateService from './ReceiptTemplateService';
 
 export interface PrintOptions {
   method: 'pdf' | 'thermal';
@@ -19,6 +20,302 @@ export interface PrintOptions {
 }
 
 export class PrintService {
+  /**
+   * Generate receipt using template
+   */
+  private static async generateReceiptWithTemplate(
+    receipt: Receipt,
+    template: ReceiptTemplate,
+    companySettings: CompanySettings,
+    format: 'html' | 'text' = 'text'
+  ): Promise<string> {
+    if (format === 'html') {
+      return this.generateTemplatedReceiptHTML(receipt, template, companySettings);
+    } else {
+      return this.generateTemplatedReceiptText(receipt, template, companySettings);
+    }
+  }
+
+  /**
+   * Generate HTML content using template
+   */
+  private static generateTemplatedReceiptHTML(
+    receipt: Receipt,
+    template: ReceiptTemplate,
+    companySettings: CompanySettings,
+  ): string {
+    // For now, use the existing HTML generation but apply template styling
+    // This could be enhanced to fully support template customization
+    const html = this.generateReceiptHTML(receipt, companySettings);
+    
+    // Apply template-specific styling
+    const templateStyles = `
+      <style>
+        .template-${template.id} {
+          font-family: '${template.layout.paperWidth === 58 ? 'Arial' : 'Courier New'}', monospace;
+          max-width: ${template.layout.maxWidth * 8.5}px;
+        }
+        .template-${template.id} .company-name {
+          font-size: ${template.fields.find(f => f.id === 'company-name')?.style.fontSize || 16}px;
+          font-weight: ${template.fields.find(f => f.id === 'company-name')?.style.fontWeight || 'bold'};
+          text-align: ${template.fields.find(f => f.id === 'company-name')?.style.textAlign || 'center'};
+        }
+      </style>
+    `;
+    
+    // Inject template styles into HTML
+    return html.replace('<style>', templateStyles + '<style>');
+  }
+
+  /**
+   * Generate text content using template
+   */
+  private static generateTemplatedReceiptText(
+    receipt: Receipt,
+    template: ReceiptTemplate,
+    companySettings: CompanySettings,
+  ): string {
+    const { items, subtotal, tax, total, date, receiptNumber } = receipt;
+    const maxWidth = template.layout.maxWidth;
+    
+    let text = '';
+    
+    // Add top margin
+    for (let i = 0; i < template.layout.margins.top; i++) {
+      text += '\n';
+    }
+    
+    // Process each section according to template
+    const sections = template.layout.sections;
+    
+    // Header Section
+    if (sections.header.enabled) {
+      text += this.renderTemplateSection(
+        'header',
+        sections.header,
+        template,
+        receipt,
+        companySettings,
+        maxWidth
+      );
+    }
+    
+    // Company Info Section
+    if (sections.companyInfo.enabled) {
+      text += this.renderTemplateSection(
+        'companyInfo',
+        sections.companyInfo,
+        template,
+        receipt,
+        companySettings,
+        maxWidth
+      );
+    }
+    
+    // Receipt Info Section
+    if (sections.receiptInfo.enabled) {
+      text += this.renderTemplateSection(
+        'receiptInfo',
+        sections.receiptInfo,
+        template,
+        receipt,
+        companySettings,
+        maxWidth
+      );
+    }
+    
+    // Items Section
+    if (sections.items.enabled) {
+      text += this.renderItemsSection(sections.items, template, receipt, maxWidth);
+    }
+    
+    // Totals Section
+    if (sections.totals.enabled) {
+      text += this.renderTemplateSection(
+        'totals',
+        sections.totals,
+        template,
+        receipt,
+        companySettings,
+        maxWidth
+      );
+    }
+    
+    // Footer Section
+    if (sections.footer.enabled) {
+      text += this.renderTemplateSection(
+        'footer',
+        sections.footer,
+        template,
+        receipt,
+        companySettings,
+        maxWidth
+      );
+    }
+    
+    // Add bottom margin
+    for (let i = 0; i < template.layout.margins.bottom; i++) {
+      text += '\n';
+    }
+    
+    return text;
+  }
+  
+  /**
+   * Render a template section
+   */
+  private static renderTemplateSection(
+    sectionType: string,
+    section: any,
+    template: ReceiptTemplate,
+    receipt: Receipt,
+    companySettings: CompanySettings,
+    maxWidth: number
+  ): string {
+    let text = '';
+    
+    // Add spacing before section
+    for (let i = 0; i < section.style.spacing; i++) {
+      text += '\n';
+    }
+    
+    // Render fields in this section
+    section.fields.forEach((fieldId: string) => {
+      const field = template.fields.find(f => f.id === fieldId);
+      if (field && field.visible) {
+        const fieldValue = this.getFieldValue(field, receipt, companySettings);
+        if (fieldValue) {
+          text += this.formatFieldText(fieldValue, field, maxWidth) + '\n';
+        }
+      }
+    });
+    
+    // Add separator if enabled
+    if (section.style.separator) {
+      text += createSeparatorLine(maxWidth) + '\n';
+    }
+    
+    return text;
+  }
+  
+  /**
+   * Render items section with template formatting
+   */
+  private static renderItemsSection(
+    section: any,
+    template: ReceiptTemplate,
+    receipt: Receipt,
+    maxWidth: number
+  ): string {
+    let text = '';
+    
+    // Add spacing before section
+    for (let i = 0; i < section.style.spacing; i++) {
+      text += '\n';
+    }
+    
+    // Add headers if enabled
+    if (section.showHeaders) {
+      if (section.columns.quantity.width === 0) {
+        // Modern style
+        text += 'Item'.padEnd(Math.floor(maxWidth * 0.65)) + 'Total'.padStart(Math.floor(maxWidth * 0.35)) + '\n';
+      } else {
+        // Classic/Detailed style
+        text += 'Item'.padEnd(Math.floor(maxWidth * 0.5)) + 
+               'Qty'.padStart(8) + 
+               'Price'.padStart(10) + 
+               'Total'.padStart(10) + '\n';
+      }
+    }
+    
+    // Add items
+    receipt.items.forEach(item => {
+      const itemTotal = item.price * item.quantity;
+      
+      if (section.columns.quantity.width === 0) {
+        // Modern style - name and total only
+        const nameWidth = Math.floor(maxWidth * 0.65);
+        const totalWidth = maxWidth - nameWidth - 1;
+        text += item.name.substring(0, nameWidth).padEnd(nameWidth) + ' ' + 
+               formatCurrency(itemTotal).padStart(totalWidth) + '\n';
+               
+        if (item.quantity > 1) {
+          text += `  ${item.quantity} × ${formatCurrency(item.price)}\n`;
+        }
+      } else {
+        // Classic/Detailed style
+        text += formatReceiptItemLine(item.name, formatCurrency(itemTotal), maxWidth) + '\n';
+        if (item.quantity > 1) {
+          text += `  ${item.quantity} × ${formatCurrency(item.price)}\n`;
+        }
+      }
+    });
+    
+    // Add separator if enabled
+    if (section.style.separator) {
+      text += createSeparatorLine(maxWidth) + '\n';
+    }
+    
+    return text;
+  }
+  
+  /**
+   * Get field value from receipt data
+   */
+  private static getFieldValue(
+    field: any,
+    receipt: Receipt,
+    companySettings: CompanySettings
+  ): string {
+    switch (field.name) {
+      case 'companyName':
+        return companySettings.name || receipt.companyName || '';
+      case 'companyAddress':
+        return companySettings.address || receipt.companyAddress || '';
+      case 'companyPhone':
+        return companySettings.phone || receipt.businessPhone || '';
+      case 'companyEmail':
+        return companySettings.email || '';
+      case 'receiptNumber':
+        return receipt.receiptNumber;
+      case 'date':
+        return formatReceiptDate(receipt.date);
+      case 'customerName':
+        return receipt.customerName || '';
+      case 'subtotal':
+        return formatCurrency(receipt.subtotal);
+      case 'tax':
+        return formatCurrency(receipt.tax);
+      case 'total':
+        return formatCurrency(receipt.total);
+      case 'footerMessage':
+        return receipt.footerMessage || '';
+      case 'thankYou':
+        return field.value || 'Thank you for your business!';
+      default:
+        return field.value || '';
+    }
+  }
+  
+  /**
+   * Format field text according to style
+   */
+  private static formatFieldText(
+    text: string,
+    field: any,
+    maxWidth: number
+  ): string {
+    if (!text) return '';
+    
+    switch (field.style.textAlign) {
+      case 'center':
+        return centerText(text, maxWidth);
+      case 'right':
+        return text.padStart(maxWidth);
+      default:
+        return text;
+    }
+  }
   /**
    * Generate HTML content for receipt
    */
@@ -426,6 +723,153 @@ export class PrintService {
         success: false,
         error: error instanceof Error ? error.message : 'PDF generation failed',
       };
+    }
+  }
+
+  /**
+   * Generate PDF with template support
+   */
+  static async generatePDFWithTemplate(
+    receipt: Receipt,
+    companySettings: CompanySettings,
+    templateId?: string,
+    saveToOrganizedFolder: boolean = true
+  ): Promise<{success: boolean; filePath?: string; error?: string}> {
+    try {
+      // Get template
+      let template: ReceiptTemplate | null = null;
+      if (templateId) {
+        template = await ReceiptTemplateService.getTemplate(templateId);
+      } else {
+        template = await ReceiptTemplateService.getDefaultTemplate();
+      }
+      
+      if (!template) {
+        // Fallback to original method if no template
+        return this.generatePDF(receipt, companySettings, saveToOrganizedFolder);
+      }
+      
+      // Generate HTML using template
+      const html = await this.generateReceiptWithTemplate(
+        receipt,
+        template,
+        companySettings,
+        'html'
+      );
+      
+      // Generate PDF using expo-print
+      const { uri } = await Print.printToFileAsync({
+        html,
+        base64: false,
+      });
+      
+      if (saveToOrganizedFolder) {
+        // Save to organized folder structure (year/month)
+        const saveResult = await StorageService.savePDFToOrganizedFolder(uri, receipt);
+        if (saveResult.success && saveResult.filePath) {
+          return {
+            success: true,
+            filePath: saveResult.filePath,
+          };
+        } else {
+          // Fallback to simple save if organized save fails
+          console.warn('Organized folder save failed, falling back to simple save:', saveResult.error);
+        }
+      }
+      
+      // Fallback: Save with basic filename structure
+      const fileName = StorageService.generateReceiptFileName(receipt);
+      const documentsDir = FileSystem.documentDirectory;
+      const newPath = `${documentsDir}${fileName}`;
+      
+      // Move the file to documents directory
+      await FileSystem.moveAsync({
+        from: uri,
+        to: newPath,
+      });
+      
+      return {
+        success: true,
+        filePath: newPath,
+      };
+    } catch (error) {
+      console.error('Template PDF generation failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Template PDF generation failed',
+      };
+    }
+  }
+  
+  /**
+   * Print receipt as PDF with template support
+   */
+  static async printPDFWithTemplate(
+    receipt: Receipt,
+    companySettings: CompanySettings,
+    templateId?: string,
+    options: Partial<PrintOptions> = {},
+  ): Promise<{success: boolean; filePath?: string; error?: string}> {
+    try {
+      // First generate the PDF with template
+      const result = await this.generatePDFWithTemplate(receipt, companySettings, templateId);
+      if (!result.success || !result.filePath) {
+        return result;
+      }
+
+      // Then share it
+      const shareResult = await this.sharePDF(result.filePath);
+      if (!shareResult.success) {
+        // If sharing fails, still return success since PDF was generated
+        console.warn('PDF sharing failed:', shareResult.error);
+      }
+      
+      return {
+        success: true,
+        filePath: result.filePath,
+      };
+    } catch (error) {
+      console.error('Template PDF printing failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Template PDF generation failed',
+      };
+    }
+  }
+
+  /**
+   * Generate thermal receipt text with template support
+   */
+  static async generateThermalTextWithTemplate(
+    receipt: Receipt,
+    companySettings: CompanySettings,
+    templateId?: string
+  ): Promise<string> {
+    try {
+      // Get template
+      let template: ReceiptTemplate | null = null;
+      if (templateId) {
+        template = await ReceiptTemplateService.getTemplate(templateId);
+      } else {
+        template = await ReceiptTemplateService.getDefaultTemplate();
+      }
+      
+      if (!template) {
+        // Fallback to original method if no template
+        return this.generateReceiptText(receipt, companySettings);
+      }
+      
+      // Generate text using template
+      return await this.generateReceiptWithTemplate(
+        receipt,
+        template,
+        companySettings,
+        'text'
+      );
+    } catch (error) {
+      console.error('Template text generation failed:', error);
+      // Fallback to original method
+      return this.generateReceiptText(receipt, companySettings);
     }
   }
 

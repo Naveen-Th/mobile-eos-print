@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ReceiptFirebaseService, { FirebaseReceipt } from '../../services/ReceiptFirebaseService';
 import { useReceipts } from '../../hooks/useSyncManager';
 import { usePendingUpdates } from '../../store/syncStore';
+import PDFService from '../../services/PDFService';
 
 // Import components
 import ReceiptDetailModal from '../../components/Receipts/ReceiptDetailModal';
@@ -373,6 +374,20 @@ const ReceiptsScreen: React.FC = () => {
     setIsSelectionMode(false);
   };
 
+  // Handle PDF generation
+  const handleSavePDF = React.useCallback(async (receipt: FirebaseReceipt) => {
+    try {
+      console.log('Generating PDF for receipt:', receipt.receiptNumber);
+      await PDFService.generateAndSaveReceiptPDF(receipt);
+      
+      // Update receipt status to exported
+      await handleReceiptStatusUpdate(receipt.id, 'exported');
+    } catch (error) {
+      console.error('Error in handleSavePDF:', error);
+      // Error handling is done in PDFService.generateAndSaveReceiptPDF
+    }
+  }, [handleReceiptStatusUpdate]);
+
   // Note: Optimistic updates are handled by the real-time sync system
 
   const renderReceiptItem = ({ item }: { item: FirebaseReceipt }) => {
@@ -402,6 +417,7 @@ const ReceiptsScreen: React.FC = () => {
         onToggleSelection={toggleReceiptSelection}
         onViewReceipt={setSelectedReceipt}
         onDeleteReceipt={handleDeleteSingle}
+        onSavePDF={handleSavePDF}
       />
     );
   };

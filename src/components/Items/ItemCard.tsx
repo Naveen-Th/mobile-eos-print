@@ -9,6 +9,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { ItemDetails } from '../../types';
 import { usePendingUpdates } from '../../store/syncStore';
+import { formatCurrency } from '../../utils';
 
 interface ItemCardProps {
   item: ItemDetails;
@@ -90,7 +91,7 @@ const ItemCard: React.FC<ItemCardProps> = ({
               {item.item_name}
             </Text>
             <Text style={styles.itemPrice}>
-              ${item.price.toFixed(2)}
+              {formatCurrency(item.price)}
             </Text>
           </View>
 

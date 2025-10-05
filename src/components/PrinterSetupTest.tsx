@@ -29,7 +29,7 @@ const PrinterSetupTest: React.FC = () => {
         </div>
 
         {/* Status Indicator - Compact */}
-        <div>
+        <div> 
           <h2 className="text-xl font-semibold text-gray-800 mb-4">
             Compact Status Indicator
           </h2>

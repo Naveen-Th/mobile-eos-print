@@ -20,7 +20,8 @@
       "buildNumber": "1.0.0",
       "infoPlist": {
         "NSBluetoothPeripheralUsageDescription": "This app uses Bluetooth to connect to thermal printers",
-        "NSBluetoothAlwaysUsageDescription": "This app uses Bluetooth to connect to thermal printers"
+        "NSBluetoothAlwaysUsageDescription": "This app uses Bluetooth to connect to thermal printers",
+        "NSContactsUsageDescription": "This app accesses contacts to import customer information for party management"
       }
     },
     "android": {
@@ -35,7 +36,8 @@
         "android.permission.BLUETOOTH_SCAN",
         "android.permission.BLUETOOTH_ADVERTISE",
         "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.INTERNET"
+        "android.permission.INTERNET",
+        "android.permission.READ_CONTACTS"
       ]
     },
     "web": {
