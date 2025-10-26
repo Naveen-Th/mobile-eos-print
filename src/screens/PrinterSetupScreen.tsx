@@ -36,6 +36,7 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({
   const [selectedPrinter, setSelectedPrinter] = useState<Printer | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [connectingPrinterId, setConnectingPrinterId] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   
   // Configuration settings
@@ -90,15 +91,17 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({
 
   const connectToPrinter = async (printer: Printer) => {
     setIsConnecting(true);
+    setConnectingPrinterId(printer.id);
     
     try {
-      const connected = await printerService.connectToPrinter(printer);
+      // Skip test print on connection
+      const connected = await printerService.connectToPrinter(printer, true);
       
       if (connected) {
         const connectedPrinter = { ...printer, status: 'connected' as const };
         setSelectedPrinter(connectedPrinter);
         
-        // Update printer list
+        // Update printer list to show connected status
         setPrinters(prev => 
           prev.map(p => 
             p.id === printer.id 
@@ -107,7 +110,8 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({
           )
         );
         
-        ReceiptAlerts.printerConnected(printer.name);
+        // Show success message
+        ReceiptAlerts.printerConnected(`Successfully connected to ${printer.name}`);
         
         // Update configuration
         await printerService.updateConfiguration({
@@ -122,10 +126,14 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({
         }
       }
       
-    } catch (error) {
-      ReceiptAlerts.printerError('Failed to connect to printer');
+    } catch (error: any) {
+      console.error('Connection error:', error);
+      ReceiptAlerts.printerError(
+        error?.message || 'Failed to connect to printer. Check printer is on and in range.'
+      );
     } finally {
       setIsConnecting(false);
+      setConnectingPrinterId(null);
     }
   };
 
@@ -207,7 +215,7 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({
         }
         disabled={isConnecting}
       >
-        {isConnecting && selectedPrinter?.id === printer.id ? (
+        {connectingPrinterId === printer.id ? (
           <ActivityIndicator size="small" color="#FFFFFF" />
         ) : (
           <Text style={styles.connectButtonText}>
@@ -245,16 +253,18 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({
         {/* Content */}
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.contentCard}>
-            
-            {/* Current Printer Status */}
+            {/* Connected Device Section - Shows when printer is connected */}
             {selectedPrinter && (
               <View style={styles.currentPrinterSection}>
-                <Text style={styles.sectionTitle}>Current Printer</Text>
+                <Text style={styles.sectionTitle}>✓ Connected Device</Text>
                 <View style={styles.currentPrinter}>
-                  <Ionicons name="checkmark-circle" size={24} color="#10B981" />
+                  <View style={styles.connectedIconContainer}>
+                    <Ionicons name="checkmark-circle" size={28} color="#10B981" />
+                  </View>
                   <View style={styles.currentPrinterInfo}>
                     <Text style={styles.currentPrinterName}>{selectedPrinter.name}</Text>
-                    <Text style={styles.currentPrinterStatus}>Connected & Ready</Text>
+                    <Text style={styles.currentPrinterStatus}>✓ Connected & Ready to Print</Text>
+                    <Text style={styles.currentPrinterAddress}>{selectedPrinter.address}</Text>
                   </View>
                   <TouchableOpacity 
                     style={styles.testButton}
@@ -499,28 +509,50 @@ const styles = StyleSheet.create({
   currentPrinter: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F0FDF4',
     padding: 16,
     borderRadius: 12,
-    shadowColor: '#000',
+    borderWidth: 2,
+    borderColor: '#10B981',
+    shadowColor: '#10B981',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.15,
     shadowRadius: 4,
     elevation: 3,
+  },
+  connectedIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
   },
   currentPrinterInfo: {
     flex: 1,
     marginLeft: 12,
   },
   currentPrinterName: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
     color: '#1F2937',
+    marginBottom: 4,
   },
   currentPrinterStatus: {
     fontSize: 14,
+    fontWeight: '600',
     color: '#10B981',
     marginTop: 2,
+  },
+  currentPrinterAddress: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 4,
   },
   testButton: {
     backgroundColor: '#DC2626',
