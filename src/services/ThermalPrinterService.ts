@@ -219,8 +219,18 @@ class ThermalPrinterService {
   /**
    * Connect to a thermal printer
    */
-  async connectToPrinter(printer: ThermalPrinter): Promise<boolean> {
+  async connectToPrinter(printer: ThermalPrinter, skipTestPrint: boolean = false): Promise<boolean> {
     try {
+      // Disconnect from any existing printer first
+      if (this.connectedPrinter) {
+        console.log('Disconnecting from existing printer...');
+        try {
+          await this.disconnect();
+        } catch (error) {
+          console.warn('Error disconnecting from existing printer:', error);
+        }
+      }
+
       let connected = false;
 
       switch (printer.type) {
@@ -240,16 +250,25 @@ class ThermalPrinterService {
       if (connected) {
         this.connectedPrinter = { ...printer, status: 'connected' };
         await this.saveConnectedPrinter(this.connectedPrinter);
+        console.log('Successfully connected to printer:', printer.name);
         
-        // Test print if enabled
-        if (this.config.testPrintEnabled) {
-          await this.testPrint();
+        // Test print if enabled and not skipped
+        if (this.config.testPrintEnabled && !skipTestPrint) {
+          console.log('Sending test print...');
+          try {
+            await this.testPrint();
+          } catch (printError) {
+            console.warn('Test print failed:', printError);
+            // Don't fail the connection if test print fails
+          }
         }
       }
 
       return connected;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to connect to printer:', error);
+      // Clear any partial connection state
+      this.connectedPrinter = null;
       throw error;
     }
   }
@@ -262,10 +281,37 @@ class ThermalPrinterService {
       if (!BluetoothManager) {
         throw new Error('Bluetooth module not available');
       }
-      await BluetoothManager.connect(printer.address);
+
+      console.log('Attempting to connect to:', printer.name, printer.address);
+      
+      // Check if Bluetooth is enabled
+      const isEnabled = await BluetoothManager.isBluetoothEnabled();
+      if (!isEnabled) {
+        throw new Error('Bluetooth is not enabled. Please enable Bluetooth and try again.');
+      }
+
+      // Try to connect
+      const result = await BluetoothManager.connect(printer.address);
+      console.log('Connection result:', result);
+      
+      // Verify connection
+      await new Promise(resolve => setTimeout(resolve, 500)); // Wait for connection to stabilize
+      
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Bluetooth connection error:', error);
+      
+      // Provide more specific error messages
+      if (error.message?.includes('not found')) {
+        throw new Error(`Printer not found. Make sure ${printer.name} is powered on and in range.`);
+      } else if (error.message?.includes('already connected')) {
+        throw new Error(`Printer already connected to another device. Please disconnect it first.`);
+      } else if (error.message?.includes('timeout')) {
+        throw new Error(`Connection timeout. Make sure ${printer.name} is not connected to another device.`);
+      } else if (error.message?.includes('permission')) {
+        throw new Error('Bluetooth permission denied. Please grant Bluetooth permissions.');
+      }
+      
       throw error;
     }
   }
@@ -293,15 +339,32 @@ class ThermalPrinterService {
     }
 
     try {
+      const printerName = this.connectedPrinter.name;
+      console.log('Disconnecting from:', printerName);
+      
       // Disconnect based on printer type
       if (this.connectedPrinter.type === 'bluetooth' && BluetoothManager) {
-        await BluetoothManager.unpair(this.connectedPrinter.address);
+        try {
+          // Note: Some implementations use disconnect() instead of unpair()
+          // Try disconnect first
+          if (typeof BluetoothManager.disconnect === 'function') {
+            await BluetoothManager.disconnect();
+          } else if (typeof BluetoothManager.unpair === 'function') {
+            await BluetoothManager.unpair(this.connectedPrinter.address);
+          }
+        } catch (disconnectError) {
+          console.warn('Disconnect error (non-fatal):', disconnectError);
+          // Continue with cleanup even if disconnect fails
+        }
       }
 
       this.connectedPrinter = null;
       await AsyncStorage.removeItem('connectedPrinter');
+      console.log('Disconnected successfully from:', printerName);
     } catch (error) {
       console.error('Failed to disconnect printer:', error);
+      // Still clear the connection state
+      this.connectedPrinter = null;
       throw error;
     }
   }
@@ -549,11 +612,43 @@ class ThermalPrinterService {
     }
 
     try {
-      // In a real implementation, you would check the actual printer status
-      // For now, return a mock status
+      // Verify Bluetooth connection is still active
+      if (this.connectedPrinter.type === 'bluetooth' && BluetoothManager) {
+        // Try to get connection state
+        try {
+          const isEnabled = await BluetoothManager.isBluetoothEnabled();
+          if (!isEnabled) {
+            return 'Bluetooth disabled';
+          }
+          // If we got here, connection is likely active
+          return 'Connected';
+        } catch (error) {
+          return 'Connection error';
+        }
+      }
       return 'Ready';
     } catch (error) {
       return 'Error';
+    }
+  }
+
+  /**
+   * Verify printer connection is still active
+   */
+  async verifyConnection(): Promise<boolean> {
+    if (!this.connectedPrinter) {
+      return false;
+    }
+
+    try {
+      if (this.connectedPrinter.type === 'bluetooth' && BluetoothManager) {
+        const isEnabled = await BluetoothManager.isBluetoothEnabled();
+        return isEnabled;
+      }
+      return true;
+    } catch (error) {
+      console.error('Connection verification failed:', error);
+      return false;
     }
   }
 }

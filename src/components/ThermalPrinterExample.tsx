@@ -82,14 +82,18 @@ const ThermalPrinterExample: React.FC = () => {
   const handleConnectPrinter = async (printer: ThermalPrinter) => {
     setIsConnecting(true);
     try {
-      const connected = await printerService.connectToPrinter(printer);
+      // Skip test print on connection to avoid auto-print
+      const connected = await printerService.connectToPrinter(printer, true);
       
       if (connected) {
         setConnectedPrinter(printer);
-        Alert.alert('Success', `Connected to ${printer.name}`);
+        Alert.alert('Success', `Connected to ${printer.name}. Ready to print!`);
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to connect to printer');
+      Alert.alert(
+        'Connection Failed', 
+        error.message || 'Failed to connect to printer. Check printer is on and in range.'
+      );
     } finally {
       setIsConnecting(false);
     }
