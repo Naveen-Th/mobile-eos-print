@@ -7,12 +7,15 @@ import {
   ScrollView,
   FlatList,
   Modal,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { FirebaseReceipt } from '../../services/ReceiptFirebaseService';
 import { formatCurrency, formatReceiptDate } from '../../utils';
 import ReceiptDeliveryModal from '../ReceiptDeliveryModal';
 import { Receipt } from '../../types';
+import ThermalPrinterService from '../../services/ThermalPrinterService';
 
 interface ReceiptDetailModalProps {
   receipt: FirebaseReceipt;
@@ -21,6 +24,9 @@ interface ReceiptDetailModalProps {
 
 const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClose }) => {
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+  
+  const printerService = ThermalPrinterService.getInstance();
 
   // Add debug logging
   console.log('Receipt Modal Data:', {
@@ -221,14 +227,80 @@ const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClos
               </View>
             )}
 
-            {/* Send Receipt Button */}
-            <TouchableOpacity
-              style={modalStyles.sendReceiptButton}
-              onPress={() => setShowDeliveryModal(true)}
-            >
-              <Ionicons name="mail-outline" size={20} color="white" style={{ marginRight: 8 }} />
-              <Text style={modalStyles.sendReceiptText}>Send Receipt via Email/SMS</Text>
-            </TouchableOpacity>
+            {/* Action Buttons */}
+            <View style={modalStyles.actionButtonsContainer}>
+              {/* Print Receipt Button */}
+              <TouchableOpacity
+                style={[modalStyles.actionButton, modalStyles.printButton]}
+                onPress={async () => {
+                  // Check if printer is connected
+                  if (!printerService.isConnected()) {
+                    Alert.alert(
+                      'No Printer Connected',
+                      'Please connect to a thermal printer first.\n\nGo to Settings → Printer Setup',
+                      [
+                        { text: 'OK', style: 'cancel' },
+                      ]
+                    );
+                    return;
+                  }
+
+                  setIsPrinting(true);
+                  try {
+                    // Convert receipt to printer format
+                    const receiptData = {
+                      storeInfo: {
+                        name: receipt.companyName,
+                        address: receipt.companyAddress || '',
+                        phone: receipt.businessPhone || '',
+                      },
+                      items: receipt.items.map(item => ({
+                        name: item.name,
+                        price: Number(item.price) || 0,
+                        quantity: Number(item.quantity) || 0,
+                        total: (Number(item.price) || 0) * (Number(item.quantity) || 0),
+                      })),
+                      subtotal: Number(receipt.subtotal) || 0,
+                      tax: Number(receipt.tax) || 0,
+                      total: Number(receipt.total) || 0,
+                      paymentMethod: 'Cash', // Default
+                      receiptNumber: receipt.receiptNumber,
+                      timestamp: receipt.date.toDate ? receipt.date.toDate() : new Date(receipt.date),
+                    };
+
+                    await printerService.printReceipt(receiptData);
+                    Alert.alert('Success', 'Receipt printed successfully! ✓');
+                  } catch (error: any) {
+                    console.error('Print error:', error);
+                    Alert.alert(
+                      'Print Failed',
+                      error.message || 'Failed to print receipt. Check printer connection.'
+                    );
+                  } finally {
+                    setIsPrinting(false);
+                  }
+                }}
+                disabled={isPrinting}
+              >
+                {isPrinting ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <>
+                    <Ionicons name="print" size={20} color="white" style={{ marginRight: 8 }} />
+                    <Text style={modalStyles.actionButtonText}>Print Receipt</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {/* Send Receipt Button */}
+              <TouchableOpacity
+                style={[modalStyles.actionButton, modalStyles.sendButton]}
+                onPress={() => setShowDeliveryModal(true)}
+              >
+                <Ionicons name="mail-outline" size={20} color="white" style={{ marginRight: 8 }} />
+                <Text style={modalStyles.actionButtonText}>Send Receipt</Text>
+              </TouchableOpacity>
+            </View>
 
             {/* Receipt Metadata */}
             <View style={modalStyles.infoCard}>
@@ -495,6 +567,36 @@ const modalStyles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
+  actionButtonsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  printButton: {
+    backgroundColor: '#DC2626',
+  },
+  sendButton: {
+    backgroundColor: '#10b981',
+  },
+  actionButtonText: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  // Deprecated - keeping for backward compatibility
   sendReceiptButton: {
     backgroundColor: '#10b981',
     flexDirection: 'row',
