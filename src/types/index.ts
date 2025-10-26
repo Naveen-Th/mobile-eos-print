@@ -23,6 +23,7 @@ export interface ItemDetails {
   unit?: string;
   minStock?: number;
   maxStock?: number;
+  lowStockThreshold?: number; // Threshold for low stock alerts
   isActive?: boolean;
   createdAt?: Date | any;
   updatedAt?: Date | any;
@@ -42,6 +43,7 @@ export interface Receipt {
   businessPhone?: string;
   footerMessage?: string;
   customerName?: string;
+  customerPhone?: string; // Customer phone number for auto-sharing
   // Additional receipt properties
   paymentMethod?: 'cash' | 'card' | 'digital' | 'other';
   paymentReference?: string;
@@ -49,6 +51,11 @@ export interface Receipt {
   discount?: number;
   discountType?: 'percentage' | 'fixed';
   roundingAdjustment?: number;
+  // Balance and payment tracking
+  oldBalance?: number;
+  isPaid?: boolean;
+  amountPaid?: number;
+  newBalance?: number;
 }
 
 export interface CompanySettings {
@@ -68,10 +75,15 @@ export interface CartState {
   total: number;
   discount: number;
   customerName?: string;
+  customerPhone?: string; // Customer phone number for auto-sharing
   businessName?: string;
   businessPhone?: string;
   globalDiscount?: number;
   globalDiscountType?: 'percentage' | 'fixed';
+  oldBalance?: number;
+  isPaid?: boolean;
+  amountPaid?: number;
+  newBalance?: number;
 }
 
 export type PrintMethod = 'pdf' | 'thermal';
@@ -102,6 +114,11 @@ export interface FirebaseReceiptData {
   status: 'draft' | 'printed' | 'exported';
   createdAt: Date;
   updatedAt: Date;
+  // Balance and payment tracking
+  oldBalance?: number;
+  isPaid?: boolean;
+  amountPaid?: number;
+  newBalance?: number;
 }
 
 export type Theme = 'light' | 'dark' | 'system';

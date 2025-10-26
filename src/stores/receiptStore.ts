@@ -29,6 +29,14 @@ interface CustomerInfo {
   isNewCustomer: boolean;
 }
 
+// Balance information interface
+interface BalanceInfo {
+  oldBalance: number;
+  isPaid: boolean;
+  amountPaid: number;
+  newBalance: number;
+}
+
 // Receipt totals interface
 interface ReceiptTotals {
   subtotal: number;
@@ -44,6 +52,9 @@ interface ReceiptState {
   
   // Customer information
   customer: CustomerInfo;
+  
+  // Balance information
+  balance: BalanceInfo;
   
   // Available items from database
   availableItems: ItemDetails[];
@@ -79,6 +90,10 @@ interface ReceiptActions {
   // Customer actions
   updateCustomerInfo: (info: Partial<CustomerInfo>) => void;
   clearCustomerErrors: () => void;
+  
+  // Balance actions
+  updateBalanceInfo: (info: Partial<BalanceInfo>) => void;
+  calculateNewBalance: () => void;
   
   // Available items actions
   setAvailableItems: (items: ItemDetails[]) => void;
@@ -119,6 +134,12 @@ const initialState: ReceiptState = {
   customer: {
     customerName: '',
     isNewCustomer: false
+  },
+  balance: {
+    oldBalance: 0,
+    isPaid: false,
+    amountPaid: 0,
+    newBalance: 0
   },
   availableItems: [],
   isLoadingItems: true,
@@ -290,6 +311,36 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
           state.errors.customer = '';
         });
       },
+      
+      // Balance actions
+      updateBalanceInfo: (info: Partial<BalanceInfo>) => {
+        set((state) => {
+          Object.assign(state.balance, info);
+        });
+        
+        // Auto-calculate new balance whenever balance info changes
+        setTimeout(() => get().calculateNewBalance(), 0);
+      },
+      
+      calculateNewBalance: () => {
+        const state = get();
+        const { oldBalance, isPaid, amountPaid } = state.balance;
+        const { total } = state.receiptTotals;
+        
+        // Calculate new balance:
+        // If paid: oldBalance + total - amountPaid
+        // If not paid: oldBalance + total (no payment made)
+        let newBalance: number;
+        if (isPaid) {
+          newBalance = oldBalance + total - amountPaid;
+        } else {
+          newBalance = oldBalance + total;
+        }
+        
+        set((state) => {
+          state.balance.newBalance = newBalance;
+        });
+      },
 
       // Available items actions
       setAvailableItems: (items: ItemDetails[]) => {
@@ -423,6 +474,9 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
         set((state) => {
           state.receiptTotals = totals;
         });
+        
+        // Recalculate new balance when totals change
+        setTimeout(() => get().calculateNewBalance(), 0);
 
         return totals;
       },
@@ -538,7 +592,18 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             businessPhone: businessPhone || undefined,
             footerMessage: 'Thank you for your business!',
             customerName: state.customer.customerName?.trim(),
+            oldBalance: state.balance.oldBalance,
+            isPaid: state.balance.isPaid,
+            amountPaid: state.balance.amountPaid,
+            newBalance: state.balance.newBalance,
           };
+          
+          console.log('Creating receipt with balance data:', {
+            oldBalance: receipt.oldBalance,
+            isPaid: receipt.isPaid,
+            amountPaid: receipt.amountPaid,
+            newBalance: receipt.newBalance
+          });
 
           // Save receipt to Firebase
           const result = await ReceiptFirebaseService.saveReceipt(receipt, 'thermal');
@@ -630,6 +695,12 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             customerName: '',
             isNewCustomer: false
           };
+          state.balance = {
+            oldBalance: 0,
+            isPaid: false,
+            amountPaid: 0,
+            newBalance: 0
+          };
           state.errors = {
             customer: '',
             form: ''
@@ -678,4 +749,4 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
 );
 
 // Export types for use in components
-export type { FormItem, CustomerInfo, ReceiptTotals };
+export type { FormItem, CustomerInfo, BalanceInfo, ReceiptTotals };

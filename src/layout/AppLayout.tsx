@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
+import { createStackNavigator } from '@react-navigation/stack';
 import { CartProvider } from '../context/CartContext';
 import TabLayout from '../app/(tabs)/_layout';
 import QueryProvider from '../providers/QueryProvider';
@@ -7,9 +8,13 @@ import { enableMapSet } from 'immer';
 import { View, Text, ActivityIndicator, Alert } from 'react-native';
 import MobileAuthService, { MobileUser } from '../services/MobileAuthService';
 import { useSyncStore } from '../store/syncStore';
+import AnalyticsScreen from '../screens/AnalyticsScreen';
+import PendingBillsScreen from '../screens/PendingBillsScreen';
 
 // Enable Immer MapSet plugin for Map and Set support
 enableMapSet();
+
+const Stack = createStackNavigator();
 
 interface AppLayoutProps {
   user?: MobileUser | null;
@@ -28,7 +33,19 @@ const AppLayout: React.FC<AppLayoutProps> = ({ user: propUser, onLogout }) => {
     
     const initializeAuth = async () => {
       try {
-        // Initialize the auth service
+        // Try to restore stored session from AsyncStorage first (for instant app access)
+        try {
+          const stored = await MobileAuthService.loadStoredSession();
+          if (stored) {
+            console.log('🔄 Restored stored session, user can access app immediately');
+            setCurrentUser(stored);
+            setIsLoading(false);
+          }
+        } catch (restoreError) {
+          console.warn('Failed to restore session:', restoreError);
+        }
+
+        // Initialize the auth service (will sync with Firebase in background)
         MobileAuthService.initialize();
 
         // Set up auth state change listener
@@ -122,7 +139,31 @@ const AppLayout: React.FC<AppLayoutProps> = ({ user: propUser, onLogout }) => {
     <QueryProvider>
       <CartProvider>
         <NavigationContainer>
-          <TabLayout user={currentUser} onLogout={handleLogout} />
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="MainTabs">
+              {(props) => <TabLayout {...props} user={currentUser} onLogout={handleLogout} />}
+            </Stack.Screen>
+            <Stack.Screen 
+              name="AnalyticsScreen" 
+              component={AnalyticsScreen}
+              options={{
+                headerShown: true,
+                title: 'Analytics & Reports',
+                headerStyle: { backgroundColor: '#fff' },
+                headerTitleStyle: { fontWeight: 'bold' },
+              }}
+            />
+            <Stack.Screen 
+              name="PendingBillsScreen" 
+              component={PendingBillsScreen}
+              options={{
+                headerShown: true,
+                title: 'Pending Bills',
+                headerStyle: { backgroundColor: '#fff' },
+                headerTitleStyle: { fontWeight: 'bold' },
+              }}
+            />
+          </Stack.Navigator>
         </NavigationContainer>
       </CartProvider>
     </QueryProvider>

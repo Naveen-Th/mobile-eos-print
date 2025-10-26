@@ -1,11 +1,7 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { View, Text, TouchableOpacity } from 'react-native';
+import Card from '../ui/Card';
+import Button from '../ui/Button';
 
 interface EmptyStateProps {
   hasSearch: boolean;
@@ -17,97 +13,27 @@ const EmptyState: React.FC<EmptyStateProps> = ({ hasSearch, hasFilters, onClearF
   const isFiltered = hasSearch || hasFilters;
   
   return (
-    <View style={styles.container}>
-      <View style={styles.card}>
-        <View style={styles.content}>
-          <View style={styles.iconContainer}>
-            <Ionicons 
-              name={isFiltered ? 'search-outline' : 'receipt-outline'} 
-              size={32} 
-              color="white" 
-            />
-          </View>
-          <Text style={styles.title}>
-            {isFiltered ? 'No Matching Receipts' : 'No Receipts Found'}
-          </Text>
-          <Text style={styles.description}>
-            {isFiltered 
-              ? 'Try adjusting your search or filters'
-              : 'No receipts have been created yet. Start creating receipts to see them here!'
-            }
-          </Text>
-          {isFiltered && (
-            <TouchableOpacity 
-              onPress={onClearFilters}
-              style={styles.clearButton}
-            >
-              <Text style={styles.clearButtonText}>Clear Filters</Text>
-            </TouchableOpacity>
-          )}
+    <View className="flex-1 items-center justify-center px-4">
+      <Card accent={isFiltered ? 'warning' : 'secondary'} className="w-full max-w-[280px] items-center">
+        <View className={`mb-4 rounded-2xl p-4 ${isFiltered ? 'bg-warning-500' : 'bg-secondary-500'}`}>
+          <Text className="text-2xl">{isFiltered ? '🔎' : '🧾'}</Text>
         </View>
-      </View>
+        <Text className="mb-2 text-center text-lg font-extrabold text-secondary-900">
+          {isFiltered ? 'No Matching Receipts' : 'No Receipts Found'}
+        </Text>
+        <Text className="text-center text-sm leading-5 text-secondary-500">
+          {isFiltered
+            ? 'Try adjusting your search or filters'
+            : 'No receipts have been created yet. Start creating receipts to see them here!'}
+        </Text>
+        {isFiltered && (
+          <View className="mt-3">
+            <Button title="Clear Filters" onPress={onClearFilters} />
+          </View>
+        )}
+      </Card>
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-  },
-  card: {
-    backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    maxWidth: 280,
-    width: '100%',
-  },
-  content: {
-    alignItems: 'center',
-  },
-  iconContainer: {
-    backgroundColor: '#6b7280',
-    borderRadius: 32,
-    padding: 16,
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#111827',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  description: {
-    color: '#6b7280',
-    textAlign: 'center',
-    lineHeight: 20,
-    fontSize: 14,
-  },
-  clearButton: {
-    backgroundColor: '#3b82f6',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 12,
-    marginTop: 12,
-  },
-  clearButtonText: {
-    color: 'white',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-});
 
 export default EmptyState;

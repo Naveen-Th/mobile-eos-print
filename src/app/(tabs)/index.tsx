@@ -12,6 +12,8 @@ import { Ionicons } from '@expo/vector-icons';
 import ReceiptCreationScreen from '../../components/ReceiptCreationScreen';
 import PrinterSetupScreen from '../../screens/PrinterSetupScreen';
 import { useNavigation } from '@react-navigation/native';
+import { useLanguage } from '../../contexts/LanguageContext';
+import LowStockAlertsPanel from '../../components/LowStockAlertsPanel';
 
 // Try to import LinearGradient, fallback to View if not available
 let LinearGradient: any;
@@ -44,6 +46,7 @@ interface StatsCard {
 }
 
 const HomeScreen: React.FC = () => {
+  const { t } = useLanguage();
   const navigation = useNavigation<any>();
   const [todayStats] = useState({
     sales: 1250.75,
@@ -59,13 +62,13 @@ const HomeScreen: React.FC = () => {
     const currentHour = new Date().getHours();
     
     if (currentHour >= 5 && currentHour < 12) {
-      return 'Good Morning!';
+      return t('pos.greeting.morning');
     } else if (currentHour >= 12 && currentHour < 17) {
-      return 'Good Afternoon!';
+      return t('pos.greeting.afternoon');
     } else if (currentHour >= 17 && currentHour < 21) {
-      return 'Good Evening!';
+      return t('pos.greeting.evening');
     } else {
-      return 'Good Night!';
+      return t('pos.greeting.night');
     }
   };
 
@@ -91,7 +94,12 @@ const HomeScreen: React.FC = () => {
 
   const handleViewReports = () => {
     console.log('=== handleViewReports called ===');
-    Alert.alert('Reports', 'View sales reports and analytics');
+    try {
+      navigation.navigate('AnalyticsScreen');
+    } catch (e) {
+      console.warn('Navigation to analytics failed:', e);
+      Alert.alert('Reports', 'Analytics feature coming soon');
+    }
   };
 
   const handlePrinterSettings = () => {
@@ -107,48 +115,48 @@ const HomeScreen: React.FC = () => {
   const quickActions: QuickAction[] = [
     {
       id: '1',
-      title: 'Create Receipt',
-      subtitle: 'New receipt',
+      title: t('pos.createReceipt'),
+      subtitle: t('pos.createReceiptSubtitle'),
       icon: 'add-circle',
       gradientColors: ['#10b981', '#059669'],
       onPress: handleCreateReceipt,
     },
     {
       id: '2',
-      title: 'Quick Print',
-      subtitle: 'Reprint receipt',
+      title: t('pos.quickPrint'),
+      subtitle: t('pos.quickPrintSubtitle'),
       icon: 'print',
       gradientColors: ['#3b82f6', '#2563eb'],
       onPress: handleQuickPrint,
     },
     {
       id: '3',
-      title: 'Manage Items',
-      subtitle: 'Edit inventory',
+      title: t('pos.manageItems'),
+      subtitle: t('pos.manageItemsSubtitle'),
       icon: 'cube',
       gradientColors: ['#8b5cf6', '#7c3aed'],
       onPress: handleManageItems,
     },
     {
       id: '4',
-      title: 'Reports',
-      subtitle: 'View analytics',
+      title: t('pos.reports'),
+      subtitle: t('pos.reportsSubtitle'),
       icon: 'bar-chart',
       gradientColors: ['#f59e0b', '#d97706'],
       onPress: handleViewReports,
     },
     {
       id: '5',
-      title: 'Printer Setup',
-      subtitle: 'Configure printer',
+      title: t('pos.printerSetup'),
+      subtitle: t('pos.printerSetupSubtitle'),
       icon: 'settings',
       gradientColors: ['#ef4444', '#dc2626'],
       onPress: handlePrinterSettings,
     },
     {
       id: '6',
-      title: 'Backup',
-      subtitle: 'Save data',
+      title: t('pos.backup'),
+      subtitle: t('pos.backupSubtitle'),
       icon: 'cloud-upload',
       gradientColors: ['#06b6d4', '#0891b2'],
       onPress: handleBackup,
@@ -157,7 +165,7 @@ const HomeScreen: React.FC = () => {
 
   const statsCards: StatsCard[] = [
     {
-      title: 'Today\'s Sales',
+      title: t('pos.todaysSales'),
       value: `$${todayStats.sales.toLocaleString()}`,
       subtitle: '+12% from yesterday',
       icon: 'trending-up',
@@ -165,25 +173,25 @@ const HomeScreen: React.FC = () => {
       trend: 'up',
     },
     {
-      title: 'Transactions',
+      title: t('pos.transactions'),
       value: todayStats.transactions.toString(),
-      subtitle: 'completed today',
+      subtitle: t('pos.completedToday'),
       icon: 'receipt',
       iconColor: '#3b82f6',
       trend: 'up',
     },
     {
-      title: 'Items Sold',
+      title: t('pos.itemsSold'),
       value: todayStats.items.toString(),
-      subtitle: 'units moved',
+      subtitle: t('pos.unitsMoved'),
       icon: 'cube',
       iconColor: '#8b5cf6',
       trend: 'neutral',
     },
     {
-      title: 'Avg Order',
+      title: t('pos.avgOrder'),
       value: `$${todayStats.avgOrder.toFixed(2)}`,
-      subtitle: 'per transaction',
+      subtitle: t('pos.perTransaction'),
       icon: 'calculator',
       iconColor: '#f59e0b',
       trend: 'up',
@@ -257,9 +265,14 @@ const HomeScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
 
+        {/* Low Stock Alerts */}
+        <LowStockAlertsPanel onItemPress={(itemId) => {
+          navigation.navigate('items');
+        }} />
+
         {/* Today's Stats */}
         <View className="mb-8">
-          <Text className="text-gray-900 text-lg font-semibold px-5 mb-4">Today's Overview</Text>
+          <Text className="text-gray-900 text-lg font-semibold px-5 mb-4">{t('pos.todaysOverview')}</Text>
           <ScrollView 
             horizontal 
             showsHorizontalScrollIndicator={false}
@@ -271,7 +284,7 @@ const HomeScreen: React.FC = () => {
 
         {/* Quick Actions */}
         <View className="mb-8">
-          <Text className="text-gray-900 text-lg font-semibold px-5 mb-4">Quick Actions</Text>
+          <Text className="text-gray-900 text-lg font-semibold px-5 mb-4">{t('pos.quickActions')}</Text>
           <View className="flex-row flex-wrap justify-between px-5">
             {quickActions.map((action, index) => renderQuickAction(action, index))}
           </View>

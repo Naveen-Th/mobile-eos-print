@@ -17,6 +17,7 @@ interface CartContextType {
     businessPhone?: string;
   }) => void;
   applyGlobalDiscount: (discount: number, discountType: 'percentage' | 'fixed') => void;
+  updateBalance: (oldBalance: number, amountPaid: number) => void;
 }
 
 type CartAction =
@@ -27,7 +28,8 @@ type CartAction =
   | {type: 'UPDATE_QUANTITY'; payload: {id: string; quantity: number}}
   | {type: 'UPDATE_CUSTOMER_INFO'; payload: {customerName?: string; businessName?: string; businessPhone?: string}}
   | {type: 'RECALCULATE_TOTALS'; payload: {taxRate: number; globalDiscount?: number; globalDiscountType?: 'percentage' | 'fixed'}}
-  | {type: 'APPLY_GLOBAL_DISCOUNT'; payload: {discount: number; discountType: 'percentage' | 'fixed'}};
+  | {type: 'APPLY_GLOBAL_DISCOUNT'; payload: {discount: number; discountType: 'percentage' | 'fixed'}}
+  | {type: 'UPDATE_BALANCE'; payload: {oldBalance: number; amountPaid: number}};
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
@@ -191,6 +193,16 @@ const cartReducer = (state: CartState, action: CartAction, taxRate: number = 8):
       };
     }
     
+    case 'UPDATE_BALANCE': {
+      const {oldBalance, amountPaid} = action.payload;
+      return {
+        ...state,
+        oldBalance,
+        amountPaid,
+        newBalance: oldBalance - amountPaid,
+      };
+    }
+    
     default:
       return state;
   }
@@ -207,6 +219,9 @@ const initialState: CartState = {
   businessPhone: undefined,
   globalDiscount: undefined,
   globalDiscountType: undefined,
+  oldBalance: undefined,
+  amountPaid: undefined,
+  newBalance: undefined,
 };
 
 interface CartProviderProps {
@@ -316,6 +331,14 @@ export const CartProvider: React.FC<CartProviderProps> = ({
     dispatch({type: 'APPLY_GLOBAL_DISCOUNT', payload: {discount, discountType}});
   }, []);
 
+  const updateBalance = React.useCallback((oldBalance: number, amountPaid: number) => {
+    if (typeof oldBalance !== 'number' || typeof amountPaid !== 'number') {
+      console.error('Invalid balance values provided');
+      return;
+    }
+    dispatch({type: 'UPDATE_BALANCE', payload: {oldBalance, amountPaid}});
+  }, []);
+
   const getTotalItems = React.useCallback((): number => {
     return state.items.reduce((total, item) => {
       const quantity = typeof item.quantity === 'number' ? item.quantity : 0;
@@ -334,7 +357,8 @@ export const CartProvider: React.FC<CartProviderProps> = ({
     getTotalItems,
     updateCustomerInfo,
     applyGlobalDiscount,
-  }), [state, addItem, updateItem, removeItem, clearCart, updateQuantity, getTotalItems, updateCustomerInfo, applyGlobalDiscount]);
+    updateBalance,
+  }), [state, addItem, updateItem, removeItem, clearCart, updateQuantity, getTotalItems, updateCustomerInfo, applyGlobalDiscount, updateBalance]);
 
   return (
     <CartContext.Provider value={contextValue}>

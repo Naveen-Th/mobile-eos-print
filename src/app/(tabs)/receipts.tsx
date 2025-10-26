@@ -531,7 +531,8 @@ const styles = StyleSheet.create({
   },
   list: {
     flex: 1,
-    paddingTop: 8,
+    paddingTop: 12,
+    paddingBottom: 12,
   },
   loadingContainer: {
     flex: 1,

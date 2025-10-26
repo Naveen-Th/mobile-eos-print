@@ -22,6 +22,7 @@ import ItemService from '../services/ItemService';
 import CustomerService, { UniqueCustomer } from '../services/CustomerService';
 import { useReceiptStore } from '../stores/receiptStore';
 import { useReceiptIntegration } from '../hooks/useReceiptIntegration';
+import ReceiptFirebaseService from '../services/ReceiptFirebaseService';
 import {
   formatCurrency,
   validateCustomerInfo,
@@ -46,6 +47,7 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
   const {
     formItems,
     customer,
+    balance,
     availableItems,
     isLoadingItems,
     itemsError,
@@ -58,6 +60,7 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     updateFormItem,
     selectItem,
     updateCustomerInfo,
+    updateBalanceInfo,
     setItemsLoading,
     setItemsError,
     validateForm,
@@ -114,9 +117,29 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
 
   // Quantity changes are handled through the store now
 
-  const handleCustomerNameChange = (text: string) => {
+  const handleCustomerNameChange = async (text: string) => {
     updateCustomerInfo({ customerName: text });
     clearError('customer'); // Clear error when typing
+    
+    // If user clears the name, reset balance
+    if (!text.trim()) {
+      updateBalanceInfo({ oldBalance: 0, isPaid: false, amountPaid: 0 });
+      return;
+    }
+    
+    // Debounce balance fetch to avoid too many queries
+    // Only fetch if customer name is at least 3 characters
+    if (text.trim().length >= 3) {
+      try {
+        const oldBalance = await ReceiptFirebaseService.getCustomerLatestBalance(text);
+        if (oldBalance > 0) {
+          updateBalanceInfo({ oldBalance });
+          console.log(`Auto-loaded balance for ${text}: ${oldBalance}`);
+        }
+      } catch (error) {
+        console.error('Error fetching customer balance on name change:', error);
+      }
+    }
   };
 
   const handleCustomerSearch = async (query: string) => {
@@ -167,7 +190,7 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     }
   };
 
-  const handleCustomerSelect = (customer: UniqueCustomer) => {
+  const handleCustomerSelect = async (customer: UniqueCustomer) => {
     // Set customer information
     updateCustomerInfo({
       customerName: customer.customerName,
@@ -179,6 +202,15 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     
     // Hide dropdown
     setShowCustomerDropdown(false);
+    
+    // Fetch and set old balance for this customer
+    try {
+      const oldBalance = await ReceiptFirebaseService.getCustomerLatestBalance(customer.customerName);
+      updateBalanceInfo({ oldBalance });
+      console.log(`Auto-loaded balance for ${customer.customerName}: ${oldBalance}`);
+    } catch (error) {
+      console.error('Error fetching customer balance:', error);
+    }
   };
 
   const handleCustomerFocus = async () => {
@@ -465,17 +497,49 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
           />
         </View>
 
-        {/* Gms Field */}
-        <View style={{ width: 60 }}>
+        {/* Gms Field - Dropdown with fixed options */}
+        <View style={{ width: 80 }}>
           <Text className="text-sm font-medium text-gray-700 mb-2">
             Gms
           </Text>
-          <TextInput
-            value={formItem.gms || '0'}
-            onChangeText={(value) => handleUpdateFormItem(formItem.id, 'gms', value)}
+          <Dropdown
+            style={{
+              borderWidth: 1,
+              borderColor: '#d1d5db',
+              borderRadius: 8,
+              paddingHorizontal: 8,
+              paddingVertical: 12,
+              backgroundColor: 'white',
+              minHeight: 44
+            }}
+            placeholderStyle={{
+              fontSize: 16,
+              color: '#1f2937',
+              textAlign: 'center'
+            }}
+            selectedTextStyle={{
+              fontSize: 16,
+              color: '#1f2937',
+              fontWeight: '500',
+              textAlign: 'center'
+            }}
+            iconStyle={{
+              width: 16,
+              height: 16
+            }}
+            data={[50, 100, 150, 200].map(v => ({ label: String(v), value: String(v) }))}
+            labelField="label"
+            valueField="value"
             placeholder="0"
-            keyboardType="numeric"
-            className="border border-gray-300 rounded-lg px-3 py-3 text-base text-center"
+            value={['50','100','150','200'].includes(formItem.gms) ? formItem.gms : null}
+            onChange={(item) => handleUpdateFormItem(formItem.id, 'gms', item.value)}
+            renderRightIcon={() => (
+              <Ionicons
+                name="chevron-down"
+                size={16}
+                color="#9ca3af"
+              />
+            )}
           />
         </View>
       </View>
@@ -589,6 +653,86 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
                     onSearch={handleCustomerSearch}
                     onAddParty={handleAddParty}
                   />
+                </View>
+                
+                {/* Balance Information */}
+                <View className="mt-4">
+                  <View className="flex-row items-center justify-between mb-2">
+                    <Text className="text-sm font-medium text-gray-700">Old Balance</Text>
+                    <View className="flex-row items-center">
+                      <Text className="text-xs text-gray-600 mr-2">{balance.isPaid ? 'Paid' : 'Not Paid'}</Text>
+                      <TouchableOpacity
+                        onPress={() => updateBalanceInfo({ isPaid: !balance.isPaid })}
+                        style={{
+                          width: 50,
+                          height: 28,
+                          borderRadius: 14,
+                          backgroundColor: balance.isPaid ? '#10b981' : '#d1d5db',
+                          justifyContent: 'center',
+                          paddingHorizontal: 3,
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 22,
+                            height: 22,
+                            borderRadius: 11,
+                            backgroundColor: 'white',
+                            transform: [{ translateX: balance.isPaid ? 22 : 0 }],
+                          }}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <TextInput
+                    value={balance.oldBalance === 0 ? '' : balance.oldBalance.toString()}
+                    onChangeText={(value) => {
+                      // Allow empty string to show placeholder
+                      if (!value) {
+                        updateBalanceInfo({ oldBalance: 0 });
+                        return;
+                      }
+                      // Parse the number, removing any non-numeric characters except decimal point
+                      const cleanValue = value.replace(/[^0-9.]/g, '');
+                      const numValue = parseFloat(cleanValue) || 0;
+                      updateBalanceInfo({ oldBalance: numValue });
+                    }}
+                    placeholder="0.00"
+                    keyboardType="decimal-pad"
+                    className="border border-gray-300 rounded-lg px-3 py-3 text-base bg-white"
+                  />
+                  
+                  {/* Amount Paid - Only show when isPaid is true */}
+                  {balance.isPaid && (
+                    <View className="mt-3">
+                      <Text className="text-sm font-medium text-gray-700 mb-2">Amount Paid</Text>
+                      <TextInput
+                        value={balance.amountPaid === 0 ? '' : balance.amountPaid.toString()}
+                        onChangeText={(value) => {
+                          // Allow empty string to show placeholder
+                          if (!value) {
+                            updateBalanceInfo({ amountPaid: 0 });
+                            return;
+                          }
+                          // Parse the number, removing any non-numeric characters except decimal point
+                          const cleanValue = value.replace(/[^0-9.]/g, '');
+                          const numValue = parseFloat(cleanValue) || 0;
+                          updateBalanceInfo({ amountPaid: numValue });
+                        }}
+                        placeholder="0.00"
+                        keyboardType="decimal-pad"
+                        className="border border-gray-300 rounded-lg px-3 py-3 text-base bg-white"
+                      />
+                    </View>
+                  )}
+                  
+                  {/* New Balance Display */}
+                  <View className="mt-3 flex-row justify-between items-center bg-gray-50 rounded-lg p-3">
+                    <Text className="text-sm font-medium text-gray-700">New Balance:</Text>
+                    <Text className="text-base font-bold text-blue-600">
+{formatCurrency(balance.newBalance)}
+                    </Text>
+                  </View>
                 </View>
             </View>
 

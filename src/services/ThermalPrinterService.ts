@@ -1,44 +1,25 @@
+import { Platform, PermissionsAndroid } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 // Platform detection for web/mobile compatibility
 const isWeb = typeof window !== 'undefined' && typeof window.document !== 'undefined';
 const isReactNative = !isWeb && typeof navigator !== 'undefined' && navigator.product === 'ReactNative';
 
-// Dynamic imports for platform-specific modules
-let Platform: any;
-let PermissionsAndroid: any;
-let AsyncStorage: any;
+// Lazy import Bluetooth modules with error handling
+let BluetoothManager: any = null;
+let BluetoothEscposPrinter: any = null;
+let BluetoothTscPrinter: any = null;
 
 if (isReactNative) {
   try {
-    const RN = require('react-native');
-    Platform = RN.Platform;
-    PermissionsAndroid = RN.PermissionsAndroid;
-    AsyncStorage = require('@react-native-async-storage/async-storage').default;
-  } catch (e) {
-    console.warn('React Native modules not available:', e);
+    const BluetoothModule = require('react-native-bluetooth-escpos-printer');
+    BluetoothManager = BluetoothModule.BluetoothManager;
+    BluetoothEscposPrinter = BluetoothModule.BluetoothEscposPrinter;
+    BluetoothTscPrinter = BluetoothModule.BluetoothTscPrinter;
+  } catch (error) {
+    console.warn('Bluetooth printer module not available:', error);
   }
-} else if (isWeb) {
-  // Web fallbacks
-  Platform = { OS: 'web' };
-  PermissionsAndroid = null;
-  // Simple localStorage-based AsyncStorage fallback for web
-  AsyncStorage = {
-    setItem: (key: string, value: string) => {
-      localStorage.setItem(key, value);
-      return Promise.resolve();
-    },
-    getItem: (key: string) => {
-      return Promise.resolve(localStorage.getItem(key));
-    },
-    removeItem: (key: string) => {
-      localStorage.removeItem(key);
-      return Promise.resolve();
-    },
-  };
 }
-
-// Import the thermal printer library
-// Note: You'll need to install react-native-thermal-receipt-printer
-// npm install react-native-thermal-receipt-printer
 
 interface ThermalPrinter {
   id: string;
@@ -102,23 +83,38 @@ class ThermalPrinterService {
    */
   async requestPermissions(): Promise<boolean> {
     if (isWeb) {
-      // Web environment - assume permissions are handled by browser
       return true;
     }
     
-    if (Platform?.OS === 'android' && PermissionsAndroid) {
+    if (Platform.OS === 'android') {
       try {
-        const permissions = [
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-        ];
-
-        const granted = await PermissionsAndroid.requestMultiple(permissions);
-
-        return Object.values(granted).every(
-          (permission) => permission === PermissionsAndroid.RESULTS.GRANTED
-        );
+        const apiLevel = Platform.Version;
+        
+        // Android 12+ (API 31+) requires new Bluetooth permissions
+        if (apiLevel >= 31) {
+          const permissions = [
+            PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+            PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          ];
+          
+          const granted = await PermissionsAndroid.requestMultiple(permissions);
+          
+          return Object.values(granted).every(
+            (permission) => permission === PermissionsAndroid.RESULTS.GRANTED
+          );
+        } else {
+          // Android 11 and below
+          const granted = await PermissionsAndroid.requestMultiple([
+            PermissionsAndroid.PERMISSIONS.BLUETOOTH,
+            PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADMIN,
+            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          ]);
+          
+          return Object.values(granted).every(
+            (permission) => permission === PermissionsAndroid.RESULTS.GRANTED
+          );
+        }
       } catch (error) {
         console.error('Permission request failed:', error);
         return false;
@@ -132,9 +128,20 @@ class ThermalPrinterService {
    */
   async scanForPrinters(): Promise<ThermalPrinter[]> {
     try {
+      if (!BluetoothManager) {
+        throw new Error('Bluetooth module not available. Please rebuild the app after installing the package.');
+      }
+
       const hasPermissions = await this.requestPermissions();
       if (!hasPermissions) {
         throw new Error('Required permissions not granted');
+      }
+
+      // Check if Bluetooth is enabled
+      const isEnabled = await BluetoothManager.isBluetoothEnabled();
+      if (!isEnabled) {
+        // Try to enable Bluetooth
+        await BluetoothManager.enableBluetooth();
       }
 
       const printers: ThermalPrinter[] = [];
@@ -145,22 +152,6 @@ class ThermalPrinterService {
         printers.push(...bluetoothPrinters);
       } catch (error) {
         console.warn('Bluetooth scan failed:', error);
-      }
-
-      // Scan for WiFi/Network printers
-      try {
-        const wifiPrinters = await this.scanWiFiPrinters();
-        printers.push(...wifiPrinters);
-      } catch (error) {
-        console.warn('WiFi scan failed:', error);
-      }
-
-      // Check for USB printers (mainly for Android with OTG support)
-      try {
-        const usbPrinters = await this.scanUSBPrinters();
-        printers.push(...usbPrinters);
-      } catch (error) {
-        console.warn('USB scan failed:', error);
       }
 
       return printers;
@@ -174,94 +165,56 @@ class ThermalPrinterService {
    * Scan for Bluetooth thermal printers
    */
   private async scanBluetoothPrinters(): Promise<ThermalPrinter[]> {
-    // This is a mock implementation
-    // In a real app, you would use the actual thermal printer library
-    
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const mockPrinters: ThermalPrinter[] = [
-          {
-            id: 'bt_epson_tm82',
-            name: 'EPSON TM-T82II',
-            address: '00:22:58:3C:4B:7A',
+    try {
+      if (!BluetoothManager) {
+        throw new Error('Bluetooth module not available');
+      }
+
+      // Scan for paired and nearby Bluetooth devices
+      const pairedDevices = await BluetoothManager.scanDevices();
+      const devices = typeof pairedDevices === 'string' 
+        ? JSON.parse(pairedDevices) 
+        : pairedDevices;
+
+      const printers: ThermalPrinter[] = [];
+
+      // Filter for likely printer devices
+      if (Array.isArray(devices.paired)) {
+        devices.paired.forEach((device: any) => {
+          printers.push({
+            id: `bt_${device.address.replace(/:/g, '_')}`,
+            name: device.name || 'Unknown Printer',
+            address: device.address,
             type: 'bluetooth',
             status: 'disconnected',
-          },
-          {
-            id: 'bt_star_tsp143',
-            name: 'Star TSP143IIIU',
-            address: '00:11:67:2A:8C:5F',
-            type: 'bluetooth',
-            status: 'disconnected',
-          },
-        ];
-        resolve(mockPrinters);
-      }, 2000);
-    });
+          });
+        });
+      }
 
-    /* 
-    // Real implementation would look like this:
-    const ThermalPrinterLib = require('react-native-thermal-receipt-printer');
-    
-    return new Promise((resolve, reject) => {
-      ThermalPrinterLib.scanBluetoothPrinters(
-        (printers: any[]) => {
-          const thermalPrinters = printers.map((printer) => ({
-            id: `bt_${printer.address.replace(/:/g, '_')}`,
-            name: printer.name || 'Unknown Printer',
-            address: printer.address,
-            type: 'bluetooth' as const,
-            status: 'disconnected' as const,
-          }));
-          resolve(thermalPrinters);
-        },
-        (error: any) => reject(error)
-      );
-    });
-    */
+      // Add found (unpaired) devices
+      if (Array.isArray(devices.found)) {
+        devices.found.forEach((device: any) => {
+          // Check if not already in paired list
+          const exists = printers.some(p => p.address === device.address);
+          if (!exists) {
+            printers.push({
+              id: `bt_${device.address.replace(/:/g, '_')}`,
+              name: device.name || 'Unknown Device',
+              address: device.address,
+              type: 'bluetooth',
+              status: 'disconnected',
+            });
+          }
+        });
+      }
+
+      return printers;
+    } catch (error) {
+      console.error('Bluetooth scan error:', error);
+      throw error;
+    }
   }
 
-  /**
-   * Scan for WiFi/Network thermal printers
-   */
-  private async scanWiFiPrinters(): Promise<ThermalPrinter[]> {
-    // This is a mock implementation
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const mockPrinters: ThermalPrinter[] = [
-          {
-            id: 'wifi_star_tsp100',
-            name: 'Star TSP100IIIU',
-            address: '192.168.1.100',
-            type: 'wifi',
-            status: 'disconnected',
-          },
-        ];
-        resolve(mockPrinters);
-      }, 1500);
-    });
-  }
-
-  /**
-   * Scan for USB thermal printers
-   */
-  private async scanUSBPrinters(): Promise<ThermalPrinter[]> {
-    // This is a mock implementation
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const mockPrinters: ThermalPrinter[] = [
-          {
-            id: 'usb_zebra_zd220',
-            name: 'Zebra ZD220',
-            address: 'USB001',
-            type: 'usb',
-            status: 'disconnected',
-          },
-        ];
-        resolve(mockPrinters);
-      }, 1000);
-    });
-  }
 
   /**
    * Connect to a thermal printer
@@ -305,49 +258,30 @@ class ThermalPrinterService {
    * Connect to Bluetooth printer
    */
   private async connectBluetoothPrinter(printer: ThermalPrinter): Promise<boolean> {
-    // Mock implementation
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve(true);
-      }, 2000);
-    });
-
-    /*
-    // Real implementation:
-    const ThermalPrinterLib = require('react-native-thermal-receipt-printer');
-    
-    return new Promise((resolve, reject) => {
-      ThermalPrinterLib.connectBluetooth(
-        printer.address,
-        () => resolve(true),
-        (error: any) => reject(error)
-      );
-    });
-    */
+    try {
+      if (!BluetoothManager) {
+        throw new Error('Bluetooth module not available');
+      }
+      await BluetoothManager.connect(printer.address);
+      return true;
+    } catch (error) {
+      console.error('Bluetooth connection error:', error);
+      throw error;
+    }
   }
 
   /**
-   * Connect to WiFi printer
+   * Connect to WiFi printer (not implemented yet)
    */
   private async connectWiFiPrinter(printer: ThermalPrinter): Promise<boolean> {
-    // Mock implementation
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve(true);
-      }, 1500);
-    });
+    throw new Error('WiFi printer connection not implemented');
   }
 
   /**
-   * Connect to USB printer
+   * Connect to USB printer (not implemented yet)
    */
   private async connectUSBPrinter(printer: ThermalPrinter): Promise<boolean> {
-    // Mock implementation
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve(true);
-      }, 1000);
-    });
+    throw new Error('USB printer connection not implemented');
   }
 
   /**
@@ -360,16 +294,8 @@ class ThermalPrinterService {
 
     try {
       // Disconnect based on printer type
-      switch (this.connectedPrinter.type) {
-        case 'bluetooth':
-          // ThermalPrinterLib.disconnectBluetooth();
-          break;
-        case 'wifi':
-          // Disconnect WiFi printer
-          break;
-        case 'usb':
-          // Disconnect USB printer
-          break;
+      if (this.connectedPrinter.type === 'bluetooth' && BluetoothManager) {
+        await BluetoothManager.unpair(this.connectedPrinter.address);
       }
 
       this.connectedPrinter = null;
@@ -414,33 +340,104 @@ class ThermalPrinterService {
   }
 
   /**
-   * Print a receipt
+   * Print a receipt using ESC/POS commands
    */
   async printReceipt(receiptData: ReceiptData): Promise<void> {
     if (!this.connectedPrinter) {
       throw new Error('No printer connected');
     }
 
+    if (!BluetoothEscposPrinter) {
+      throw new Error('Bluetooth printer module not available');
+    }
+
     try {
-      const receiptContent = this.formatReceiptContent(receiptData);
+      const { storeInfo, items, subtotal, tax, total, paymentMethod, receiptNumber, timestamp } = receiptData;
       
-      // Mock printing - replace with actual thermal printer commands
-      await new Promise((resolve) => {
-        setTimeout(resolve, 1500);
+      // Initialize printer
+      await BluetoothEscposPrinter.printerInit();
+      
+      // Set alignment to center
+      await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.CENTER);
+      
+      // Print store name (large, bold)
+      await BluetoothEscposPrinter.printText(storeInfo.name + '\n', {
+        widthtimes: 2,
+        heigthtimes: 2,
       });
-
+      
+      // Print store details
+      await BluetoothEscposPrinter.setBlob(0);
+      await BluetoothEscposPrinter.printText(storeInfo.address + '\n', {});
+      await BluetoothEscposPrinter.printText(storeInfo.phone + '\n', {});
+      
+      // Print separator
+      await BluetoothEscposPrinter.printText('================================\n', {});
+      
+      // Print receipt info
+      await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.LEFT);
+      await BluetoothEscposPrinter.printText(`Receipt #: ${receiptNumber}\n`, {});
+      await BluetoothEscposPrinter.printText(
+        `Date: ${timestamp.toLocaleDateString()} ${timestamp.toLocaleTimeString()}\n`,
+        {}
+      );
+      
+      await BluetoothEscposPrinter.printText('================================\n', {});
+      
+      // Print items
+      for (const item of items) {
+        // Item name
+        await BluetoothEscposPrinter.printText(item.name + '\n', {});
+        
+        // Item details (quantity, price, total)
+        const itemLine = `  ${item.quantity} x $${item.price.toFixed(2)} = $${item.total.toFixed(2)}`;
+        await BluetoothEscposPrinter.printText(itemLine + '\n', {});
+      }
+      
+      // Print separator
+      await BluetoothEscposPrinter.printText('--------------------------------\n', {});
+      
+      // Print totals
+      await BluetoothEscposPrinter.printColumn(
+        [18, 10],
+        [BluetoothEscposPrinter.ALIGN.LEFT, BluetoothEscposPrinter.ALIGN.RIGHT],
+        ['Subtotal:', `$${subtotal.toFixed(2)}`],
+        {}
+      );
+      
+      await BluetoothEscposPrinter.printColumn(
+        [18, 10],
+        [BluetoothEscposPrinter.ALIGN.LEFT, BluetoothEscposPrinter.ALIGN.RIGHT],
+        ['Tax:', `$${tax.toFixed(2)}`],
+        {}
+      );
+      
+      await BluetoothEscposPrinter.printColumn(
+        [18, 10],
+        [BluetoothEscposPrinter.ALIGN.LEFT, BluetoothEscposPrinter.ALIGN.RIGHT],
+        ['Total:', `$${total.toFixed(2)}`],
+        { widthtimes: 1, heigthtimes: 1 }
+      );
+      
+      await BluetoothEscposPrinter.printText('================================\n', {});
+      
+      // Payment method
+      await BluetoothEscposPrinter.printText(`Payment: ${paymentMethod}\n`, {});
+      
+      await BluetoothEscposPrinter.printText('================================\n', {});
+      
+      // Thank you message
+      await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.CENTER);
+      await BluetoothEscposPrinter.printText('Thank you for your business!\n', {});
+      
+      // Feed paper and cut
+      await BluetoothEscposPrinter.printText('\n\n\n', {});
+      
+      if (this.config.autoCutEnabled) {
+        await BluetoothEscposPrinter.cutOnePoint();
+      }
+      
       console.log('Receipt printed successfully');
-
-      /*
-      // Real implementation would use the thermal printer library:
-      const ThermalPrinterLib = require('react-native-thermal-receipt-printer');
-      
-      await ThermalPrinterLib.printText(receiptContent, {
-        paperWidth: this.config.paperWidth,
-        density: this.config.printDensity,
-        autoCut: this.config.autoCutEnabled,
-      });
-      */
     } catch (error) {
       console.error('Failed to print receipt:', error);
       throw error;

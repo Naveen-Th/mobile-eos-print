@@ -4,10 +4,22 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import SignInForm from './components/SignInForm';
 import MobileAuthService, { MobileUser } from './services/MobileAuthService';
 import AppLayout from './layout/AppLayout';
+import { QueryProvider } from './providers/QueryProvider';
+import OfflineFirstService from './services/OfflineFirstService';
+import { useNetworkStatus } from './hooks/useNetworkStatus';
+import SyncStatus from './components/SyncStatus';
+import { LanguageProvider } from './contexts/LanguageContext';
+
+// Network monitoring component
+const NetworkMonitor: React.FC = () => {
+  useNetworkStatus();
+  return null;
+};
 
 const MobileApp: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<MobileUser | null>(null);
+  const [offlineInitialized, setOfflineInitialized] = useState(false);
 
   useEffect(() => {
     // Initialize Firebase Auth service
@@ -21,6 +33,26 @@ const MobileApp: React.FC = () => {
 
     return unsubscribe;
   }, []);
+
+  // Initialize offline-first service after auth is ready
+  useEffect(() => {
+    const initOfflineFirst = async () => {
+      if (!isLoading && !offlineInitialized) {
+        try {
+          console.log('🚀 Initializing offline-first service...');
+          await OfflineFirstService.initialize();
+          setOfflineInitialized(true);
+          console.log('✅ Offline-first service initialized');
+        } catch (error) {
+          console.error('❌ Failed to initialize offline-first:', error);
+          // Still mark as initialized - app should work offline
+          setOfflineInitialized(true);
+        }
+      }
+    };
+
+    initOfflineFirst();
+  }, [isLoading, offlineInitialized]);
 
   const handleSignOut = async () => {
     try {
@@ -93,7 +125,15 @@ const MobileApp: React.FC = () => {
   if (currentUser) {
     return (
       <SafeAreaProvider>
-        <AppLayout user={currentUser} onLogout={handleSignOut} />
+        <LanguageProvider>
+          <QueryProvider>
+            <NetworkMonitor />
+            <View style={{ flex: 1 }}>
+              <AppLayout user={currentUser} onLogout={handleSignOut} />
+              <SyncStatus />
+            </View>
+          </QueryProvider>
+        </LanguageProvider>
       </SafeAreaProvider>
     );
   }
@@ -101,10 +141,12 @@ const MobileApp: React.FC = () => {
   // Sign-in form when user is not authenticated
   return (
     <SafeAreaProvider>
-      <SignInForm 
-        onSignInSuccess={handleSignInSuccess}
-        onSignInError={handleSignInError}
-      />
+      <LanguageProvider>
+        <SignInForm 
+          onSignInSuccess={handleSignInSuccess}
+          onSignInError={handleSignInError}
+        />
+      </LanguageProvider>
     </SafeAreaProvider>
   );
 };

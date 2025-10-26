@@ -1,8 +1,9 @@
 import { create } from 'zustand';
-import { devtools, subscribeWithSelector } from 'zustand/middleware';
+import { devtools, subscribeWithSelector, persist, createJSONStorage } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 import { enableMapSet } from 'immer';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Enable Immer MapSet plugin for Map and Set support
 enableMapSet();
@@ -66,17 +67,18 @@ const initialConnectionState: ConnectionState = {
 
 export const useSyncStore = create<SyncState>()(
   devtools(
-    subscribeWithSelector(
-      immer((set, get) => ({
-        connection: initialConnectionState,
-        pendingUpdates: {},
-        failedUpdates: {},
-        activeListeners: [],
-        metrics: {
-          totalSyncs: 0,
-          failedSyncs: 0,
-          avgSyncTime: 0,
-        },
+    persist(
+      subscribeWithSelector(
+        immer((set, get) => ({
+          connection: initialConnectionState,
+          pendingUpdates: {},
+          failedUpdates: {},
+          activeListeners: [],
+          metrics: {
+            totalSyncs: 0,
+            failedSyncs: 0,
+            avgSyncTime: 0,
+          },
 
         setConnectionState: (newState) =>
           set((state) => {
@@ -157,6 +159,21 @@ export const useSyncStore = create<SyncState>()(
             };
           }),
       }))
+      ),
+      {
+        name: 'sync-store-storage',
+        storage: createJSONStorage(() => AsyncStorage),
+        // Only persist important state, not transient data
+        partialize: (state) => ({
+          connection: {
+            ...state.connection,
+            // Don't persist lastSync date object - causes issues
+            lastSync: null,
+          },
+          metrics: state.metrics,
+          failedUpdates: state.failedUpdates,
+        }),
+      }
     ),
     { name: 'sync-store' }
   )

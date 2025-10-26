@@ -47,6 +47,10 @@
     <string>This app uses Bluetooth to connect to thermal printers</string>
     <key>NSBluetoothPeripheralUsageDescription</key>
     <string>This app uses Bluetooth to connect to thermal printers</string>
+    <key>NSContactsUsageDescription</key>
+    <string>This app accesses contacts to import customer information for party management</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Allow $(PRODUCT_NAME) to access your microphone</string>
     <key>NSPhotoLibraryAddUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to save photos</string>
     <key>NSPhotoLibraryUsageDescription</key>

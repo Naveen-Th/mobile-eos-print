@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
 import { 
   useConnectionState, 
   usePendingUpdates, 
@@ -8,15 +8,20 @@ import {
   useSyncStore 
 } from '../store/syncStore';
 import { queryUtils } from '../providers/QueryProvider';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import OfflineFirstService from '../services/OfflineFirstService';
+import SyncEngine from '../sync/SyncEngine';
 
 const SyncStatus: React.FC = () => {
   const [showDetails, setShowDetails] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   
   const connectionState = useConnectionState();
   const pendingUpdates = usePendingUpdates();
   const failedUpdates = useFailedUpdates();
   const metrics = useSyncMetrics();
   const { clearFailedUpdates, retryFailedUpdate } = useSyncStore();
+  const networkStatus = useNetworkStatus();
 
   const getConnectionColor = () => {
     if (!connectionState.isOnline) return '#ef4444';
@@ -43,6 +48,19 @@ const SyncStatus: React.FC = () => {
   const handleRetryAll = async () => {
     const failed = Array.from(failedUpdates.keys());
     failed.forEach(id => retryFailedUpdate(id));
+  };
+
+  const handleManualSync = async () => {
+    if (syncing || !connectionState.isConnected) return;
+    
+    setSyncing(true);
+    try {
+      await SyncEngine.sync();
+    } catch (error) {
+      console.error('Manual sync failed:', error);
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const cacheStats = queryUtils.getCacheStats();
@@ -153,9 +171,45 @@ const SyncStatus: React.FC = () => {
               </View>
 
               {connectionState.lastSync && (
-                <Text style={{ fontSize: 14, color: '#6b7280' }}>
+                <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10 }}>
                   Last sync: {connectionState.lastSync.toLocaleString()}
                 </Text>
+              )}
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 15 }}>
+                <Text style={{ fontSize: 14, color: '#6b7280' }}>Network: </Text>
+                <Text style={{ fontSize: 14, color: '#1f2937', fontWeight: '600' }}>
+                  {networkStatus.type.toUpperCase()} {networkStatus.effectiveType ? `(${networkStatus.effectiveType})` : ''}
+                </Text>
+              </View>
+
+              {connectionState.isConnected && (
+                <TouchableOpacity
+                  onPress={handleManualSync}
+                  disabled={syncing}
+                  style={{
+                    backgroundColor: syncing ? '#9ca3af' : '#3b82f6',
+                    paddingHorizontal: 16,
+                    paddingVertical: 10,
+                    borderRadius: 8,
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  {syncing ? (
+                    <>
+                      <ActivityIndicator size="small" color="white" style={{ marginRight: 8 }} />
+                      <Text style={{ color: 'white', fontSize: 14, fontWeight: '600' }}>
+                        Syncing...
+                      </Text>
+                    </>
+                  ) : (
+                    <Text style={{ color: 'white', fontSize: 14, fontWeight: '600' }}>
+                      🔄 Sync Now
+                    </Text>
+                  )}
+                </TouchableOpacity>
               )}
             </View>
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { FirebaseReceipt } from '../../services/ReceiptFirebaseService';
 import { formatCurrency, formatReceiptDate } from '../../utils';
+import ReceiptDeliveryModal from '../ReceiptDeliveryModal';
+import { Receipt } from '../../types';
 
 interface ReceiptDetailModalProps {
   receipt: FirebaseReceipt;
@@ -18,6 +20,8 @@ interface ReceiptDetailModalProps {
 }
 
 const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClose }) => {
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+
   // Add debug logging
   console.log('Receipt Modal Data:', {
     status: receipt.status,
@@ -26,6 +30,26 @@ const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClos
     date: receipt.date,
     customerName: receipt.customerName
   });
+
+  // Convert FirebaseReceipt to Receipt type for delivery modal
+  const receiptForDelivery: Receipt = {
+    id: receipt.id,
+    receiptNumber: receipt.receiptNumber,
+    items: receipt.items.map(item => ({
+      id: item.id || '',
+      name: item.name,
+      price: item.price,
+      quantity: item.quantity,
+    })),
+    subtotal: receipt.subtotal,
+    tax: receipt.tax,
+    total: receipt.total,
+    date: receipt.date.toDate ? receipt.date.toDate() : new Date(receipt.date),
+    companyName: receipt.companyName,
+    companyAddress: receipt.companyAddress,
+    customerName: receipt.customerName,
+    footerMessage: receipt.footerMessage,
+  };
 
   const getStatusStyle = (status: string | undefined) => {
     switch (status) {
@@ -190,12 +214,21 @@ const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClos
               </View>
             </View>
 
-            {/* Footer Message */}
+          {/* Footer Message */}
             {receipt.footerMessage && (
               <View style={modalStyles.infoCard}>
                 <Text style={[modalStyles.cardTitle, { textAlign: 'center' }]}>💬 {receipt.footerMessage}</Text>
               </View>
             )}
+
+            {/* Send Receipt Button */}
+            <TouchableOpacity
+              style={modalStyles.sendReceiptButton}
+              onPress={() => setShowDeliveryModal(true)}
+            >
+              <Ionicons name="mail-outline" size={20} color="white" style={{ marginRight: 8 }} />
+              <Text style={modalStyles.sendReceiptText}>Send Receipt via Email/SMS</Text>
+            </TouchableOpacity>
 
             {/* Receipt Metadata */}
             <View style={modalStyles.infoCard}>
@@ -223,14 +256,24 @@ const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClos
             </View>
           </ScrollView>
           
-          {/* Action Button */}
+          {/* Action Footer */}
           <View style={modalStyles.footer}>
-            <TouchableOpacity onPress={onClose} style={modalStyles.closeButtonFinal}>
+            <TouchableOpacity
+              onPress={onClose}
+              style={modalStyles.closeButtonFinal}
+            >
               <Text style={modalStyles.closeButtonText}>✓ Close Details</Text>
             </TouchableOpacity>
           </View>
         </View>
       </View>
+
+      {/* Receipt Delivery Modal */}
+      <ReceiptDeliveryModal
+        visible={showDeliveryModal}
+        receipt={receiptForDelivery}
+        onClose={() => setShowDeliveryModal(false)}
+      />
     </Modal>
   );
 };
@@ -450,6 +493,20 @@ const modalStyles = StyleSheet.create({
   closeButtonText: {
     color: 'white',
     fontSize: 18,
+    fontWeight: 'bold',
+  },
+  sendReceiptButton: {
+    backgroundColor: '#10b981',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  sendReceiptText: {
+    color: 'white',
+    fontSize: 16,
     fontWeight: 'bold',
   },
 });

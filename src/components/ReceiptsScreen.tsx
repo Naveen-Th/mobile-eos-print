@@ -176,6 +176,52 @@ const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClos
                   <span className="text-3xl font-bold text-gray-900">TOTAL:</span>
                   <span className="text-4xl font-black text-green-700">{formatCurrency(receipt.total)}</span>
                 </div>
+                
+                {/* Balance Information */}
+                {(receipt.oldBalance !== undefined || receipt.newBalance !== undefined || receipt.isPaid !== undefined) && (
+                  <div className="mt-6 pt-6 border-t-2 border-green-200">
+                    <h4 className="text-lg font-bold text-gray-900 mb-4 text-center">📊 Balance Details</h4>
+                    <div className="space-y-3">
+                      {receipt.oldBalance !== undefined && receipt.oldBalance !== 0 && (
+                        <div className="flex justify-between items-center py-2">
+                          <span className="text-base font-medium text-gray-600">Old Balance:</span>
+                          <span className="text-lg font-semibold text-gray-900">{formatCurrency(receipt.oldBalance)}</span>
+                        </div>
+                      )}
+                      
+                      {receipt.isPaid !== undefined && (
+                        <div className="flex justify-between items-center py-2">
+                          <span className="text-base font-medium text-gray-600">Payment Status:</span>
+                          <span className={`px-3 py-1 rounded-full text-sm font-bold ${
+                            receipt.isPaid 
+                              ? 'bg-green-200 text-green-800' 
+                              : 'bg-red-200 text-red-800'
+                          }`}>
+                            {receipt.isPaid ? '✓ PAID' : '✗ UNPAID'}
+                          </span>
+                        </div>
+                      )}
+                      
+                      {receipt.amountPaid !== undefined && receipt.amountPaid > 0 && (
+                        <div className="flex justify-between items-center py-2">
+                          <span className="text-base font-medium text-gray-600">Amount Paid:</span>
+                          <span className="text-lg font-semibold text-green-700">{formatCurrency(receipt.amountPaid)}</span>
+                        </div>
+                      )}
+                      
+                      {receipt.newBalance !== undefined && (
+                        <div className="flex justify-between items-center py-3 bg-white/90 rounded-lg px-4 mt-3">
+                          <span className="text-lg font-bold text-gray-900">New Balance:</span>
+                          <span className={`text-2xl font-black ${
+                            receipt.newBalance > 0 ? 'text-red-600' : 'text-green-600'
+                          }`}>
+                            {formatCurrency(receipt.newBalance)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

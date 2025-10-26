@@ -1,17 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  ScrollView, 
-  ActivityIndicator 
-} from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useItems, useUpdateStock } from '../hooks/useSyncManager';
 import { useConnectionState, usePendingUpdates } from '../store/syncStore';
 import { ItemDetails } from '../types';
 import ItemForm from './ItemForm';
 import { formatCurrency } from '../utils';
+import Input from './ui/Input';
+import Button from './ui/Button';
+import Card from './ui/Card';
+import Badge from './ui/Badge';
+import { Title, Muted } from './ui/Typography';
 
 const ItemsScreenNew: React.FC = () => {
   // TanStack Query hooks
@@ -131,226 +130,131 @@ const ItemsScreenNew: React.FC = () => {
 
   if (error) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-        <Text style={{ fontSize: 18, color: '#ef4444', marginBottom: 10 }}>
-          ❌ Error loading items
-        </Text>
-        <Text style={{ color: '#6b7280', textAlign: 'center', marginBottom: 20 }}>
-          {error.message}
-        </Text>
-        <TouchableOpacity
-          onPress={() => refetch()}
-          style={{
-            backgroundColor: '#3b82f6',
-            paddingHorizontal: 20,
-            paddingVertical: 10,
-            borderRadius: 8,
-          }}
-        >
-          <Text style={{ color: 'white', fontWeight: 'bold' }}>Retry</Text>
-        </TouchableOpacity>
+      <View className="flex-1 items-center justify-center p-5">
+        <Text className="text-lg font-bold text-danger-500">❌ Error loading items</Text>
+        <Text className="mt-2 text-center text-secondary-500">{error.message}</Text>
+        <View className="mt-4">
+          <Button title="Retry" onPress={() => refetch()} />
+        </View>
       </View>
     );
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#f8f9fa' }}>
-      {/* Header with connection status */}
-      <View style={{ backgroundColor: 'white', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 20 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <View>
-            <Text style={{ fontSize: 28, fontWeight: 'bold', color: '#1f2937' }}>Items</Text>
-            <Text style={{ fontSize: 12, color: connectionIndicator.color, marginTop: 2 }}>
-              {connectionIndicator.text}
-              {connectionState.lastSync && (
-                ` • Last sync: ${connectionState.lastSync.toLocaleTimeString()}`
-              )}
-            </Text>
+    <View className="flex-1 bg-secondary-50">
+      {/* Header with connection status, colorful gradient */}
+      <LinearGradient colors={["#3b82f6", "#2563eb"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ paddingTop: 56, paddingBottom: 20 }}>
+        <View className="px-5">
+          <View className="mb-5 flex-row items-center justify-between">
+            <View>
+              <Title className="text-white">Items</Title>
+              <Text style={{ color: connectionIndicator.color }} className="mt-1 text-xs">
+                {connectionIndicator.text}
+                {connectionState.lastSync && (
+                  ` • Last sync: ${connectionState.lastSync.toLocaleTimeString()}`
+                )}
+              </Text>
+            </View>
+            <View className="flex-row gap-3">
+              <Button
+                title={isLoading ? 'Refreshing' : 'Refresh'}
+                onPress={() => refetch()}
+                disabled={isLoading}
+                className="rounded-full bg-white/10 border border-white/20"
+                textClassName="text-white"
+                leftIcon={isLoading ? <ActivityIndicator color="#fff" /> : <Text className="text-white">🔄</Text>}
+              />
+              <Button
+                title="Add"
+                onPress={() => setShowForm(true)}
+                className="rounded-full bg-white"
+                textClassName="text-primary-700"
+              />
+            </View>
           </View>
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <TouchableOpacity
-              onPress={() => refetch()}
-              disabled={isLoading}
-              style={{
-                width: 50,
-                height: 50,
-                borderRadius: 25,
-                backgroundColor: isLoading ? '#9ca3af' : '#10b981',
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-            >
-              {isLoading ? (
-                <ActivityIndicator size="small" color="white" />
-              ) : (
-                <Text style={{ color: 'white', fontSize: 16 }}>🔄</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setShowForm(true)}
-              style={{
-                width: 50,
-                height: 50,
-                borderRadius: 25,
-                backgroundColor: '#3b82f6',
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-            >
-              <Text style={{ color: 'white', fontSize: 24, fontWeight: 'bold' }}>+</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
 
-        {/* Search Bar */}
-        <View style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          backgroundColor: '#f3f4f6',
-          borderRadius: 12,
-          paddingHorizontal: 15,
-          paddingVertical: 12,
-          marginBottom: 20,
-        }}>
-          <Text style={{ marginRight: 10, fontSize: 16, color: '#6b7280' }}>🔍</Text>
-          <TextInput
+          {/* Search Bar */}
+          <Input
             value={searchTerm}
             onChangeText={setSearchTerm}
             placeholder="Search items..."
-            style={{ flex: 1, fontSize: 16, color: '#1f2937' }}
-            placeholderTextColor="#9ca3af"
+            left={<Text className="text-secondary-500">🔍</Text>}
+            containerClassName="bg-white/15 border border-white/20"
+            className="text-white"
           />
-        </View>
 
-        {/* Category Filters */}
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          {['All', 'Beverages', 'Food'].map((category) => (
-            <TouchableOpacity
-              key={category}
-              onPress={() => setSelectedCategory(category as any)}
-              style={{
-                paddingHorizontal: 20,
-                paddingVertical: 10,
-                borderRadius: 20,
-                backgroundColor: selectedCategory === category ? '#3b82f6' : '#e5e7eb',
-              }}
-            >
-              <Text style={{
-                color: selectedCategory === category ? 'white' : '#6b7280',
-                fontWeight: selectedCategory === category ? 'bold' : 'normal',
-              }}>
-                {category}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {/* Category Filters */}
+          <View className="mt-3 flex-row gap-2">
+            {['All', 'Beverages', 'Food'].map((category) => (
+              <TouchableOpacity
+                key={category}
+                onPress={() => setSelectedCategory(category as any)}
+                className={`rounded-full px-4 py-2 ${
+                  selectedCategory === category ? 'bg-white' : 'bg-white/20 border border-white/30'
+                }`}
+              >
+                <Text className={`${selectedCategory === category ? 'text-primary-700 font-semibold' : 'text-white'}`}>
+                  {category}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
-      </View>
+      </LinearGradient>
 
       {/* Items List */}
-      <ScrollView style={{ flex: 1, paddingHorizontal: 20 }}>
+      <ScrollView className="flex-1 px-5">
         {isLoading && items.length === 0 ? (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 50 }}>
+          <View className="items-center py-12">
             <ActivityIndicator size="large" color="#3b82f6" />
-            <Text style={{ marginTop: 10, color: '#6b7280' }}>Loading items...</Text>
+            <Muted className="mt-2">Loading items...</Muted>
           </View>
         ) : filteredAndSortedItems.length === 0 ? (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 50 }}>
-            <Text style={{ fontSize: 18, color: '#6b7280', marginBottom: 10 }}>
+          <View className="items-center py-12">
+            <Text className="mb-2 text-lg font-semibold text-secondary-500">
               {searchTerm ? 'No items found' : 'No items yet'}
             </Text>
-            <Text style={{ color: '#9ca3af', textAlign: 'center', marginBottom: 20 }}>
-              {searchTerm
-                ? 'Try adjusting your search terms'
-                : 'Start by adding your first item to the inventory'}
-            </Text>
+            <Muted className="mb-4 text-center">
+              {searchTerm ? 'Try adjusting your search terms' : 'Start by adding your first item to the inventory'}
+            </Muted>
             {!searchTerm && (
-              <TouchableOpacity
-                onPress={() => setShowForm(true)}
-                style={{
-                  backgroundColor: '#3b82f6',
-                  paddingHorizontal: 20,
-                  paddingVertical: 12,
-                  borderRadius: 8,
-                }}
-              >
-                <Text style={{ color: 'white', fontWeight: 'bold' }}>Add Your First Item</Text>
-              </TouchableOpacity>
+              <Button title="Add Your First Item" onPress={() => setShowForm(true)} />
             )}
           </View>
         ) : (
           filteredAndSortedItems.map((item) => {
             const isPending = isItemPending(item.id);
-            
+
             return (
-              <TouchableOpacity
-                key={item.id}
-                onPress={() => handleEditItem(item)}
-                disabled={isPending}
-                activeOpacity={0.7}
-                style={{
-                  backgroundColor: 'white',
-                  borderRadius: 16,
-                  padding: 20,
-                  marginBottom: 15,
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 1 },
-                  shadowOpacity: 0.1,
-                  shadowRadius: 3,
-                  elevation: 2,
-                  opacity: isPending ? 0.6 : 1,
-                }}
-              >
-                <View style={{ marginBottom: 12 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1f2937', marginBottom: 4 }}>
-                        {item.item_name}
-                      </Text>
-                      <Text style={{ color: '#6b7280', fontSize: 14 }}>
-                        {item.item_name.toLowerCase()} - Available in store
-                      </Text>
-                      <Text style={{ color: '#9ca3af', fontSize: 12, marginTop: 2 }}>GENERAL • Tap to edit</Text>
-                    </View>
-                    <View style={{
-                      backgroundColor: '#f3f4f6',
-                      borderRadius: 15,
-                      width: 30,
-                      height: 30,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                    }}>
-                      <Text style={{ fontSize: 12, color: '#6b7280' }}>✏️</Text>
+              <Card key={item.id} className={`${isPending ? 'opacity-60' : ''} mb-4`}>
+                <TouchableOpacity onPress={() => handleEditItem(item)} disabled={isPending} activeOpacity={0.7}>
+                  <View className="mb-3">
+                    <View className="flex-row items-start justify-between">
+                      <View className="flex-1">
+                        <Text className="mb-1 text-lg font-bold text-secondary-900">{item.item_name}</Text>
+                        <Text className="text-sm text-secondary-500">
+                          {item.item_name.toLowerCase()} - Available in store
+                        </Text>
+                        <Muted className="mt-0.5">GENERAL • Tap to edit</Muted>
+                      </View>
+                      <View className="h-8 w-8 items-center justify-center rounded-xl bg-secondary-100">
+                        <Text className="text-xs text-secondary-500">✏️</Text>
+                      </View>
                     </View>
                   </View>
-                </View>
 
-                <View style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={{
-                      backgroundColor: item.stocks > 20 ? '#10b981' : item.stocks > 10 ? '#f59e0b' : '#ef4444',
-                      paddingHorizontal: 12,
-                      paddingVertical: 6,
-                      borderRadius: 12,
-                    }}>
-                      <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>
+                  <View className="flex-row items-center justify-between">
+                    <View className="flex-row items-center">
+                      <Badge variant={item.stocks > 20 ? 'success' : item.stocks > 10 ? 'warning' : 'danger'}>
                         {item.stocks} in stock{isPending ? ' (syncing...)' : ''}
-                      </Text>
+                      </Badge>
                     </View>
+                    <Text className="text-xl font-extrabold text-primary-600">
+                      {formatCurrency(item.price, 'INR', 'en-IN')}
+                    </Text>
                   </View>
-
-                  <Text style={{
-                    fontSize: 20,
-                    fontWeight: 'bold',
-                    color: '#3b82f6',
-                  }}>
-{formatCurrency(item.price, 'INR', 'en-IN')}
-                  </Text>
-                </View>
-              </TouchableOpacity>
+                </TouchableOpacity>
+              </Card>
             );
           })
         )}
@@ -361,7 +265,6 @@ const ItemsScreenNew: React.FC = () => {
         <ItemForm
           item={editingItem}
           onSubmit={async (itemData) => {
-            // Handle form submission here
             console.log('Form submitted:', itemData);
             handleCloseForm();
           }}

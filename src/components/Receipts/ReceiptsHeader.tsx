@@ -1,13 +1,10 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Modal,
-} from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Input from '../ui/Input';
+import Button from '../ui/Button';
+import Modal from '../ui/Modal';
+import Card from '../ui/Card';
 
 interface ReceiptsHeaderProps {
   isSelectionMode: boolean;
@@ -68,53 +65,49 @@ const ReceiptsHeader: React.FC<ReceiptsHeaderProps> = ({
   return (
     <>
       {/* Main Header */}
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
+      <View className="bg-white border-b border-secondary-100 px-4 pt-2 pb-4">
+        <View className="mb-4 flex-row items-center justify-between">
           {isSelectionMode ? (
-            // Selection Mode Header
             <>
-              <View style={styles.selectionInfo}>
-                <TouchableOpacity onPress={onClearSelection} style={styles.closeButton}>
+              <View className="flex-row items-center">
+                <TouchableOpacity onPress={onClearSelection} className="mr-3 rounded-lg p-2">
                   <Ionicons name="close" size={24} color="#374151" />
                 </TouchableOpacity>
-                <Text style={styles.selectionText}>
+                <Text className="text-base font-semibold text-secondary-800">
                   {selectedCount} of {filteredCount} selected
                 </Text>
               </View>
-              <View style={styles.selectionActions}>
-                <TouchableOpacity onPress={onSelectAll} style={styles.selectionButton}>
-                  <Text style={styles.selectionButtonText}>All</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  onPress={onDeleteMultiple} 
-                  style={[styles.selectionButton, styles.deleteButton]}
+              <View className="flex-row items-center gap-2">
+                <Button title="All" onPress={onSelectAll} variant="outline" />
+                <Button
+                  title=""
+                  onPress={onDeleteMultiple}
                   disabled={selectedCount === 0}
-                >
-                  <Ionicons name="trash-outline" size={18} color="white" />
-                </TouchableOpacity>
+                  variant="destructive"
+                  leftIcon={<Ionicons name="trash-outline" size={18} color="#fff" />}
+                />
               </View>
             </>
           ) : (
-            // Normal Header
             <>
               <View>
-                <Text style={styles.title}>Receipts</Text>
-                <Text style={styles.subtitle}>
+                <Text className="text-2xl font-extrabold text-secondary-900">Receipts</Text>
+                <Text className="mt-0.5 text-sm text-secondary-500">
                   {totalCount} receipts {filteredCount !== totalCount && `(${filteredCount} filtered)`}
                 </Text>
               </View>
-              <View style={styles.headerActions}>
-                <TouchableOpacity onPress={onToggleFilters} style={styles.iconButton}>
-                  <Ionicons 
-                    name={showFilters ? "options" : "options-outline"} 
-                    size={22} 
-                    color={showFilters ? "#3b82f6" : "#6b7280"} 
+              <View className="flex-row items-center gap-2">
+                <TouchableOpacity onPress={onToggleFilters} className="rounded-xl p-2">
+                  <Ionicons
+                    name={showFilters ? 'options' : 'options-outline'}
+                    size={22}
+                    color={showFilters ? '#3b82f6' : '#6b7280'}
                   />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={onToggleSelectionMode} style={styles.iconButton}>
+                <TouchableOpacity onPress={onToggleSelectionMode} className="rounded-xl p-2">
                   <Ionicons name="checkmark-circle-outline" size={22} color="#6b7280" />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={onRefresh} style={styles.iconButton}>
+                <TouchableOpacity onPress={onRefresh} className="rounded-xl p-2">
                   <Ionicons name="refresh-outline" size={22} color="#6b7280" />
                 </TouchableOpacity>
               </View>
@@ -124,315 +117,94 @@ const ReceiptsHeader: React.FC<ReceiptsHeaderProps> = ({
 
         {/* Search Bar */}
         {!isSelectionMode && (
-          <View style={styles.searchContainer}>
-            <Ionicons name="search-outline" size={20} color="#6b7280" />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search receipts, customers, items..."
-              value={searchQuery}
-              onChangeText={onSearchChange}
-              placeholderTextColor="#9ca3af"
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={onClearSearch} style={styles.clearSearchButton}>
-                <Ionicons name="close-circle" size={20} color="#6b7280" />
-              </TouchableOpacity>
-            )}
-          </View>
+          <Input
+            value={searchQuery}
+            onChangeText={onSearchChange}
+            placeholder="Search receipts, customers, items..."
+            left={<Ionicons name="search-outline" size={20} color="#6b7280" />}
+            right={
+              searchQuery.length > 0 ? (
+                <TouchableOpacity onPress={onClearSearch} className="rounded-lg">
+                  <Ionicons name="close-circle" size={20} color="#6b7280" />
+                </TouchableOpacity>
+              ) : undefined
+            }
+          />
         )}
       </View>
 
       {/* Filters Modal/Panel */}
-      <Modal
-        visible={showFilters}
-        transparent
-        animationType="fade"
-        onRequestClose={onToggleFilters}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay} 
-          activeOpacity={1} 
-          onPress={onToggleFilters}
-        >
-          <View style={styles.filtersPanel}>
-            <View style={styles.filtersPanelHeader}>
-              <Text style={styles.filtersPanelTitle}>Sort & Filter</Text>
-              <TouchableOpacity onPress={onToggleFilters}>
-                <Ionicons name="close" size={24} color="#374151" />
-              </TouchableOpacity>
+      <Modal visible={showFilters} onClose={onToggleFilters}>
+        <View className="-mx-1">
+          <View className="mb-3 flex-row items-center justify-between">
+            <Text className="text-lg font-extrabold text-secondary-900">Sort & Filter</Text>
+            <TouchableOpacity onPress={onToggleFilters} className="rounded-lg p-1">
+              <Ionicons name="close" size={22} color="#374151" />
+            </TouchableOpacity>
+          </View>
+
+          <View>
+            {/* Status Filter */}
+            <Text className="mb-2 text-sm font-semibold text-secondary-700">Status</Text>
+            <View className="flex-row flex-wrap gap-2">
+              {['all', 'printed', 'exported', 'draft'].map((status) => (
+                <TouchableOpacity
+                  key={status}
+                  onPress={() => onStatusFilterChange(status)}
+                  className={`rounded-full px-4 py-2 ${
+                    statusFilter === status ? 'bg-primary-600' : 'bg-secondary-100'
+                  }`}
+                >
+                  <Text
+                    className={`${
+                      statusFilter === status ? 'text-white font-semibold' : 'text-secondary-700'
+                    }`}
+                  >
+                    {status.charAt(0).toUpperCase() + status.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
-            
-            <View style={styles.filtersContent}>
-              {/* Status Filter */}
-              <Text style={styles.filterSectionTitle}>Status</Text>
-              <View style={styles.statusOptions}>
-                {['all', 'printed', 'exported', 'draft'].map((status) => (
+
+            {/* Sort By */}
+            <Text className="mt-5 mb-2 text-sm font-semibold text-secondary-700">Sort By</Text>
+            <View className="gap-2">
+              {[{ key: 'date', label: 'Date' }, { key: 'customer', label: 'Customer' }, { key: 'total', label: 'Total' }].map(
+                (option) => (
                   <TouchableOpacity
-                    key={status}
-                    style={[styles.statusOption, statusFilter === status && styles.statusOptionActive]}
-                    onPress={() => onStatusFilterChange(status)}
-                  >
-                    <Text style={[styles.statusOptionText, statusFilter === status && styles.statusOptionTextActive]}>
-                      {status.charAt(0).toUpperCase() + status.slice(1)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              
-              {/* Sort By */}
-              <Text style={[styles.filterSectionTitle, { marginTop: 20 }]}>Sort By</Text>
-              
-              <View style={styles.sortOptions}>
-                {[{ key: 'date', label: 'Date' }, { key: 'customer', label: 'Customer' }, { key: 'total', label: 'Total' }].map((option) => (
-                  <TouchableOpacity 
                     key={option.key}
-                    style={[styles.sortOption, sortBy === option.key && styles.sortOptionActive]}
                     onPress={() => onSortByChange(option.key)}
+                    className={`flex-row items-center justify-between rounded-xl border px-4 py-3 ${
+                      sortBy === option.key ? 'border-primary-300 bg-primary-50' : 'border-secondary-200'
+                    }`}
                   >
-                    <Text style={[styles.sortOptionText, sortBy === option.key && styles.sortOptionTextActive]}>
+                    <Text className={`text-base ${sortBy === option.key ? 'text-primary-700 font-semibold' : 'text-secondary-800'}`}>
                       {option.label}
                     </Text>
-                    <Ionicons 
-                      name={getSortIcon(option.key)} 
-                      size={18} 
-                      color={getSortColor(option.key)} 
+                    <Ionicons
+                      name={getSortIcon(option.key)}
+                      size={18}
+                      color={sortBy === option.key ? '#2563eb' : '#6b7280'}
                     />
                   </TouchableOpacity>
-                ))}
-              </View>
-
-              <TouchableOpacity 
-                style={styles.sortOrderButton}
-                onPress={onSortOrderToggle}
-              >
-                <Text style={styles.sortOrderText}>
-                  Order: {sortOrder === 'asc' ? 'Ascending' : 'Descending'}
-                </Text>
-                <Ionicons 
-                  name={sortOrder === 'asc' ? 'arrow-up' : 'arrow-down'} 
-                  size={18} 
-                  color="#3b82f6" 
-                />
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={styles.deleteAllButton}
-                onPress={onDeleteAll}
-              >
-                <Ionicons name="trash-outline" size={18} color="#ef4444" />
-                <Text style={styles.deleteAllText}>Delete All Receipts</Text>
-              </TouchableOpacity>
+                )
+              )}
             </View>
+
+            <TouchableOpacity onPress={onSortOrderToggle} className="mt-3 flex-row items-center justify-between rounded-xl bg-primary-50 px-4 py-3">
+              <Text className="text-primary-700">Order: {sortOrder === 'asc' ? 'Ascending' : 'Descending'}</Text>
+              <Ionicons name={sortOrder === 'asc' ? 'arrow-up' : 'arrow-down'} size={18} color="#2563eb" />
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={onDeleteAll} className="mt-4 flex-row items-center gap-2 rounded-xl border border-danger-200 bg-danger-50 px-4 py-3">
+              <Ionicons name="trash-outline" size={18} color="#ef4444" />
+              <Text className="font-semibold text-danger-600">Delete All Receipts</Text>
+            </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
     </>
   );
 };
-
-const styles = StyleSheet.create({
-  header: {
-    backgroundColor: 'white',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
-  },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginTop: 2,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  iconButton: {
-    padding: 8,
-    marginLeft: 4,
-  },
-  selectionInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  closeButton: {
-    padding: 4,
-    marginRight: 12,
-  },
-  selectionText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#374151',
-  },
-  selectionActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  selectionButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#f3f4f6',
-    borderRadius: 8,
-    marginLeft: 8,
-  },
-  selectionButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-  },
-  deleteButton: {
-    backgroundColor: '#ef4444',
-    paddingHorizontal: 12,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f9fafb',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: '#111827',
-    marginLeft: 8,
-  },
-  clearSearchButton: {
-    padding: 4,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-start',
-  },
-  filtersPanel: {
-    backgroundColor: 'white',
-    marginTop: 100,
-    marginHorizontal: 16,
-    borderRadius: 16,
-    maxHeight: 400,
-  },
-  filtersPanelHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
-  },
-  filtersPanelTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  filtersContent: {
-    padding: 20,
-  },
-  filterSectionTitle: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#374151',
-    marginBottom: 12,
-  },
-  statusOptions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 20,
-  },
-  statusOption: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: '#f3f4f6',
-    marginRight: 8,
-    marginBottom: 8,
-  },
-  statusOptionActive: {
-    backgroundColor: '#3b82f6',
-  },
-  statusOptionText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#6b7280',
-  },
-  statusOptionTextActive: {
-    color: 'white',
-  },
-  sortOptions: {
-    marginBottom: 20,
-  },
-  sortOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  sortOptionActive: {
-    backgroundColor: '#eff6ff',
-    borderColor: '#3b82f6',
-  },
-  sortOptionText: {
-    fontSize: 14,
-    color: '#6b7280',
-  },
-  sortOptionTextActive: {
-    color: '#3b82f6',
-    fontWeight: '500',
-  },
-  sortOrderButton: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
-    marginBottom: 20,
-  },
-  sortOrderText: {
-    fontSize: 14,
-    color: '#3b82f6',
-    fontWeight: '500',
-  },
-  deleteAllButton: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: '#fef2f2',
-    borderWidth: 1,
-    borderColor: '#fecaca',
-  },
-  deleteAllText: {
-    fontSize: 14,
-    color: '#ef4444',
-    fontWeight: '500',
-    marginLeft: 8,
-  },
-});
 
 export default ReceiptsHeader;

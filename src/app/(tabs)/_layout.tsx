@@ -22,19 +22,23 @@ export default function TabLayout({ user, onLogout }: TabLayoutProps) {
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#2563eb',
-        tabBarInactiveTintColor: '#6b7280',
+        tabBarActiveTintColor: '#3b82f6',
+        tabBarInactiveTintColor: '#94a3b8',
         tabBarStyle: {
           backgroundColor: '#ffffff',
-          borderTopWidth: 1,
-          borderTopColor: '#e5e7eb',
-          height: 90,
-          paddingBottom: 30,
+          borderTopWidth: 0,
+          height: 86,
+          paddingBottom: 24,
           paddingTop: 10,
+          shadowColor: '#000',
+          shadowOpacity: 0.08,
+          shadowRadius: 10,
+          shadowOffset: { width: 0, height: -2 },
+          elevation: 12,
         },
         tabBarLabelStyle: {
           fontSize: 12,
-          fontWeight: '600',
+          fontWeight: '700',
           marginTop: 4,
         },
         tabBarIconStyle: {

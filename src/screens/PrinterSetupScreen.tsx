@@ -46,11 +46,9 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({
   
   const printerService = ThermalPrinterService.getInstance();
   
-  // Load saved printer configuration and initial printers
+  // Load saved printer configuration
   useEffect(() => {
     loadSavedConfiguration();
-    // Load some initial mock printers for demo
-    loadInitialPrinters();
   }, []);
 
   const loadSavedConfiguration = async () => {
@@ -70,58 +68,21 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({
     }
   };
 
-  const loadInitialPrinters = () => {
-    // Load some initial mock printers so user sees something
-    const initialPrinters: Printer[] = [
-      {
-        id: '1',
-        name: 'EPSON TM-T82II',
-        address: '00:22:58:3C:4B:7A',
-        type: 'bluetooth',
-        status: 'disconnected',
-      },
-      {
-        id: '2',
-        name: 'Star TSP143IIIU',
-        address: '192.168.1.100',
-        type: 'wifi',
-        status: 'disconnected',
-      },
-    ];
-    setPrinters(initialPrinters);
-  };
-
 
   const scanForPrinters = async () => {
     setIsScanning(true);
     
     try {
       const discoveredPrinters = await printerService.scanForPrinters();
+      setPrinters(discoveredPrinters);
       
-      // Add some additional mock printers for better demo experience
-      const additionalPrinters: Printer[] = [
-        {
-          id: '3',
-          name: 'Zebra ZD220',
-          address: 'USB001',
-          type: 'usb',
-          status: 'disconnected',
-        },
-        {
-          id: '4',
-          name: 'Canon SELPHY CP1300',
-          address: '192.168.1.201',
-          type: 'wifi',
-          status: 'disconnected',
-        },
-      ];
-      
-      const allPrinters = [...discoveredPrinters, ...additionalPrinters];
-      setPrinters(allPrinters);
-      ReceiptAlerts.printerConnected(`Found ${allPrinters.length} printers`);
-      
-    } catch (error) {
-      ReceiptAlerts.printerError('Failed to scan for printers');
+      if (discoveredPrinters.length > 0) {
+        ReceiptAlerts.printerConnected(`Found ${discoveredPrinters.length} printer(s)`);
+      } else {
+        ReceiptAlerts.printerError('No printers found. Make sure Bluetooth is enabled.');
+      }
+    } catch (error: any) {
+      ReceiptAlerts.printerError(error?.message || 'Failed to scan for printers');
     } finally {
       setIsScanning(false);
     }

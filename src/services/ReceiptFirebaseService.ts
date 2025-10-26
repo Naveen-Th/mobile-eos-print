@@ -25,6 +25,11 @@ export interface FirebaseReceipt extends Omit<Receipt, 'date'> {
   printedAt?: Timestamp;
   pdfPath?: string;
   status: 'draft' | 'printed' | 'exported';
+  // Balance and payment tracking
+  oldBalance?: number;
+  isPaid?: boolean;
+  amountPaid?: number;
+  newBalance?: number;
 }
 
 class ReceiptFirebaseService {
@@ -92,7 +97,12 @@ class ReceiptFirebaseService {
         updatedAt: now,
         printMethod,
         printed: printMethod === 'thermal',
-        status: printMethod === 'pdf' ? 'exported' : 'printed'
+        status: printMethod === 'pdf' ? 'exported' : 'printed',
+        // Balance and payment tracking
+        oldBalance: receipt.oldBalance !== undefined ? receipt.oldBalance : 0,
+        isPaid: receipt.isPaid !== undefined ? receipt.isPaid : false,
+        amountPaid: receipt.amountPaid !== undefined ? receipt.amountPaid : 0,
+        newBalance: receipt.newBalance !== undefined ? receipt.newBalance : 0,
       };
       
       // Only add printedAt if it's thermal (avoid undefined values)
@@ -426,6 +436,56 @@ class ReceiptFirebaseService {
       taxAmount: receipt.tax,
       taxRate: receipt.subtotal > 0 ? (receipt.tax / receipt.subtotal) : 0
     };
+  }
+  
+  /**
+   * Get the latest balance for a customer
+   * Returns the newBalance from the most recent receipt for this customer
+   */
+  public async getCustomerLatestBalance(customerName: string): Promise<number> {
+    try {
+      if (!customerName?.trim()) {
+        return 0;
+      }
+      
+      const trimmedName = customerName.trim().toLowerCase();
+      
+      // Query receipts for this customer, ordered by creation date (most recent first)
+      const receiptsRef = collection(db, this.COLLECTION_NAME);
+      const q = query(
+        receiptsRef,
+        orderBy('createdAt', 'desc'),
+        limit(50) // Get recent receipts to search through
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      // Find the most recent receipt for this customer
+      let latestReceipt: FirebaseReceipt | null = null;
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data() as FirebaseReceipt;
+        
+        // Case-insensitive customer name comparison
+        if (data.customerName?.trim().toLowerCase() === trimmedName) {
+          if (!latestReceipt) {
+            latestReceipt = data;
+          }
+        }
+      });
+      
+      // Return the newBalance from the latest receipt, or 0 if no receipt found
+      if (latestReceipt && latestReceipt.newBalance !== undefined) {
+        console.log(`Found latest balance for ${customerName}: ${latestReceipt.newBalance}`);
+        return latestReceipt.newBalance;
+      }
+      
+      console.log(`No previous balance found for ${customerName}, returning 0`);
+      return 0;
+    } catch (error) {
+      console.error('Error getting customer latest balance:', error);
+      return 0;
+    }
   }
 }
 

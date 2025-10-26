@@ -33,6 +33,7 @@ class MobileAuthService {
   private static instance: MobileAuthService;
   private readonly USERS_COLLECTION = 'users';
   private readonly LAST_USER_KEY = 'lastUser';
+  private readonly SESSION_KEY = 'authSession'; // Full session data for restore
   private currentUser: MobileUser | null = null;
 
   public static getInstance(): MobileAuthService {
@@ -101,18 +102,22 @@ class MobileAuthService {
         createdAt: userProfile?.createdAt
       };
 
-      // Store user in AsyncStorage for offline access
+      // Store full session in AsyncStorage for persistent login
       try {
-        await AsyncStorage.setItem(this.LAST_USER_KEY, JSON.stringify({
+        await AsyncStorage.setItem(this.SESSION_KEY, JSON.stringify({
           uid: user.uid,
           email: user.email,
           displayName: mobileUser.displayName,
+          photoURL: mobileUser.photoURL,
+          emailVerified: user.emailVerified,
           role: mobileUser.role,
-          lastLogin: new Date().toISOString()
+          isActive: mobileUser.isActive,
+          lastLoginAt: new Date().toISOString(),
+          createdAt: mobileUser.createdAt,
         }));
+        console.log('✅ Session persisted to AsyncStorage');
       } catch (storageError) {
-        console.warn('Failed to store user in AsyncStorage:', storageError);
-        // Don't fail the login for this
+        console.warn('Failed to persist session:', storageError);
       }
 
       console.log('Mobile sign in successful');
@@ -236,8 +241,9 @@ class MobileAuthService {
       // Sign out from Firebase
       await firebaseSignOut(auth);
       
-      // Clear stored user data
+      // Clear stored session data
       try {
+        await AsyncStorage.removeItem(this.SESSION_KEY);
         await AsyncStorage.removeItem(this.LAST_USER_KEY);
       } catch (storageError) {
         console.warn('Failed to clear AsyncStorage on signout:', storageError);
@@ -250,6 +256,7 @@ class MobileAuthService {
       // Even if Firebase signout fails, clear local state
       this.currentUser = null;
       try {
+        await AsyncStorage.removeItem(this.SESSION_KEY);
         await AsyncStorage.removeItem(this.LAST_USER_KEY);
       } catch (storageError) {
         console.warn('Failed to clear AsyncStorage on signout error:', storageError);
@@ -320,6 +327,34 @@ class MobileAuthService {
       return storedUser ? JSON.parse(storedUser) : null;
     } catch (error) {
       console.error('Error getting offline user:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Load stored session from AsyncStorage to restore login on app restart
+   */
+  public async loadStoredSession(): Promise<MobileUser | null> {
+    try {
+      const sessionData = await AsyncStorage.getItem(this.SESSION_KEY);
+      if (!sessionData) return null;
+
+      const session = JSON.parse(sessionData);
+      const user: MobileUser = {
+        uid: session.uid,
+        email: session.email || null,
+        displayName: session.displayName || 'User',
+        photoURL: session.photoURL || null,
+        emailVerified: session.emailVerified ?? true,
+        role: session.role || 'viewer',
+        isActive: session.isActive !== false,
+        lastLoginAt: session.lastLoginAt,
+        createdAt: session.createdAt,
+      };
+      console.log('✅ Restored session from AsyncStorage:', user.email);
+      return user;
+    } catch (error) {
+      console.error('Error loading stored session from AsyncStorage:', error);
       return null;
     }
   }

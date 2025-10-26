@@ -7,14 +7,14 @@ import {
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { Platform } from 'react-native';
 
-// Default query options optimized for Firebase real-time apps
+// Default query options optimized for offline-first with Firebase
 const defaultOptions: DefaultOptions = {
   queries: {
-    // Stale time for real-time data (we rely on real-time listeners)
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    // Stale time - data is considered fresh for longer since we have offline cache
+    staleTime: 10 * 60 * 1000, // 10 minutes
     
-    // Cache time - how long to keep in cache after component unmounts
-    gcTime: 10 * 60 * 1000, // 10 minutes
+    // Cache time - keep data in memory cache longer
+    gcTime: 30 * 60 * 1000, // 30 minutes
     
     // Retry configuration
     retry: (failureCount, error) => {
@@ -35,20 +35,20 @@ const defaultOptions: DefaultOptions = {
     // Refetch on window focus for web
     refetchOnWindowFocus: Platform.OS === 'web',
     
-    // Don't refetch on reconnect since we have real-time listeners
-    refetchOnReconnect: false,
+    // Refetch on reconnect to sync with server
+    refetchOnReconnect: true,
     
-    // Network mode
-    networkMode: 'online',
+    // OFFLINE-FIRST: Allow queries to return cached data even when offline
+    networkMode: 'offlineFirst',
   },
   
   mutations: {
-    // Retry failed mutations
-    retry: 1,
+    // Retry failed mutations (will be queued if offline)
+    retry: 2,
     retryDelay: 1000,
     
-    // Network mode for mutations
-    networkMode: 'online',
+    // OFFLINE-FIRST: Allow mutations to be queued when offline
+    networkMode: 'offlineFirst',
   },
 };
 

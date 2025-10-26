@@ -1,9 +1,13 @@
 import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
+import { enableScreens } from 'react-native-screens';
 import MobileApp from './src/MobileApp';
 import { AlertProvider } from './src/components/common/Alert';
 import { enableMapSet } from 'immer';
+
+// Enable react-native-screens for better performance and fix navigation issues
+enableScreens();
 
 // Enable Immer MapSet plugin for Map and Set support
 enableMapSet();

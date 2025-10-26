@@ -18,6 +18,11 @@ import ReceiptTemplatesScreen from '../../screens/ReceiptTemplatesScreen';
 import MobileAuthService, { MobileUser } from '../../services/MobileAuthService';
 import TaxSettingsModal from '../../components/TaxSettingsModal';
 import { getTaxRate } from '../../services/TaxSettings';
+import SyncStatus from '../../components/SyncStatus';
+import { useLanguage } from '../../contexts/LanguageContext';
+import { Language } from '../../locales';
+import CategoryManagementModal from '../../components/CategoryManagementModal';
+import { useNavigation } from '@react-navigation/native';
 
 interface SettingItem {
   id: string;
@@ -35,10 +40,15 @@ interface SettingsScreenProps {
 }
 
 const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
+  const { language, setLanguage, t, availableLanguages } = useLanguage();
+  const navigation = useNavigation<any>();
   const [showPartyManagement, setShowPartyManagement] = useState(false);
   const [showPrinterSetup, setShowPrinterSetup] = useState(false);
   const [showTaxSettings, setShowTaxSettings] = useState(false);
   const [showReceiptTemplates, setShowReceiptTemplates] = useState(false);
+  const [showSyncStatus, setShowSyncStatus] = useState(false);
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [showCategoryManagement, setShowCategoryManagement] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userInitial, setUserInitial] = useState<string>('U');
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -73,88 +83,154 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
   const settingsData: SettingItem[] = [
     {
       id: '1',
-      title: 'Printer Configuration',
-      subtitle: 'Configure thermal printers',
+      title: t('settings.printerConfiguration'),
+      subtitle: t('settings.printerConfigurationSubtitle'),
       type: 'navigation',
       icon: 'print-outline',
       onPress: () => setShowPrinterSetup(true),
     },
     {
       id: '2',
-      title: 'Tax Settings',
-      subtitle: `Current rate: ${currentTaxRate}%`,
+      title: t('settings.taxSettings'),
+      subtitle: t('settings.taxSettingsSubtitle', { rate: currentTaxRate }),
       type: 'navigation',
       icon: 'calculator-outline',
       onPress: () => setShowTaxSettings(true),
     },
     {
       id: '3',
-      title: 'Store Information',
-      subtitle: 'Update store details',
+      title: t('settings.storeInformation'),
+      subtitle: t('settings.storeInformationSubtitle'),
       type: 'navigation',
       icon: 'storefront-outline',
       onPress: () => console.log('Store info pressed'),
     },
     {
       id: '4',
-      title: 'Party Name',
-      subtitle: 'Manage party details',
+      title: t('settings.partyName'),
+      subtitle: t('settings.partyNameSubtitle'),
       type: 'navigation',
       icon: 'people-outline',
       onPress: () => setShowPartyManagement(true),
     },
     {
+      id: '4a',
+      title: 'Categories',
+      subtitle: 'Manage item categories',
+      type: 'navigation',
+      icon: 'folder-outline',
+      onPress: () => setShowCategoryManagement(true),
+    },
+    {
+      id: '4b',
+      title: 'Pending Bills',
+      subtitle: 'View customer balances',
+      type: 'navigation',
+      icon: 'wallet-outline',
+      onPress: () => {
+        try {
+          navigation.navigate('PendingBillsScreen');
+        } catch (e) {
+          console.warn('Navigation failed:', e);
+        }
+      },
+    },
+    {
+      id: '4c',
+      title: 'Analytics',
+      subtitle: 'View sales reports',
+      type: 'navigation',
+      icon: 'stats-chart-outline',
+      onPress: () => {
+        try {
+          navigation.navigate('AnalyticsScreen');
+        } catch (e) {
+          console.warn('Navigation failed:', e);
+        }
+      },
+    },
+    {
       id: '5',
-      title: 'Receipt Template',
-      subtitle: 'Customize receipt format',
+      title: t('settings.receiptTemplate'),
+      subtitle: t('settings.receiptTemplateSubtitle'),
       type: 'navigation',
       icon: 'receipt-outline',
       onPress: () => setShowReceiptTemplates(true),
     },
     {
       id: '6',
-      title: 'Auto Print',
-      subtitle: 'Automatically print receipts',
+      title: t('settings.autoPrint'),
+      subtitle: t('settings.autoPrintSubtitle'),
       type: 'toggle',
       icon: 'flash-outline',
       value: true,
     },
     {
       id: '7',
-      title: 'Sound Notifications',
-      subtitle: 'Play sound for print confirmations',
+      title: t('settings.soundNotifications'),
+      subtitle: t('settings.soundNotificationsSubtitle'),
       type: 'toggle',
       icon: 'volume-medium-outline',
       value: false,
     },
     {
       id: '8',
-      title: 'Backup Data',
-      subtitle: 'Backup receipts and settings',
+      title: t('settings.language'),
+      subtitle: availableLanguages[language],
+      type: 'navigation',
+      icon: 'language-outline',
+      onPress: () => setShowLanguageModal(true),
+    },
+    {
+      id: '9',
+      title: t('settings.sync'),
+      subtitle: t('settings.syncSubtitle'),
+      type: 'navigation',
+      icon: 'sync-outline',
+      onPress: () => setShowSyncStatus(true),
+    },
+    {
+      id: '10',
+      title: t('settings.backupData'),
+      subtitle: t('settings.backupDataSubtitle'),
       type: 'navigation',
       icon: 'cloud-upload-outline',
       onPress: () => console.log('Backup pressed'),
     },
     {
-      id: '9',
-      title: 'App Version',
+      id: '11',
+      title: t('settings.appVersion'),
       subtitle: '1.0.0',
       type: 'info',
       icon: 'information-circle-outline',
     },
   ];
 
+  const handleLanguageChange = async (lang: Language) => {
+    try {
+      await setLanguage(lang);
+      setShowLanguageModal(false);
+    } catch (error) {
+      console.error('Error changing language:', error);
+      Alert.alert(
+        'Error',
+        'Failed to change language. Please try again.',
+        [{ text: t('common.ok') }]
+      );
+    }
+  };
+
   const handleSignOut = async () => {
     Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
+      t('settings.signOut'),
+      t('settings.signOutConfirm'),
       [
         {
-          text: 'Cancel',
+          text: t('settings.cancel'),
           style: 'cancel',
         },
         {
-          text: 'Sign Out',
+          text: t('settings.signOut'),
           style: 'destructive',
           onPress: async () => {
             setIsSigningOut(true);
@@ -173,7 +249,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
               Alert.alert(
                 'Sign Out Error',
                 'Failed to sign out. Please try again.',
-                [{ text: 'OK' }]
+                [{ text: t('common.ok') }]
               );
             } finally {
               setIsSigningOut(false);
@@ -231,7 +307,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Settings</Text>
+        <Text style={styles.headerTitle}>{t('settings.title')}</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -242,29 +318,29 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
           </View>
           <View style={styles.profileInfo}>
             <Text style={styles.profileName}>{userEmail || 'User Email'}</Text>
-            <Text style={styles.profileRole}>Viewer</Text>
+            <Text style={styles.profileRole}>{t('settings.viewer')}</Text>
           </View>
         </View>
 
         {/* Settings Sections */}
         <View style={styles.settingsSection}>
-          <Text style={styles.sectionTitle}>App Settings</Text>
+          <Text style={styles.sectionTitle}>{t('settings.appSettings')}</Text>
           <View style={styles.settingsCard}>
             {settingsData.slice(0, 5).map(renderSettingItem)}
           </View>
         </View>
 
         <View style={styles.settingsSection}>
-          <Text style={styles.sectionTitle}>Preferences</Text>
+          <Text style={styles.sectionTitle}>{t('settings.preferences')}</Text>
           <View style={styles.settingsCard}>
-            {settingsData.slice(5, 7).map(renderSettingItem)}
+            {settingsData.slice(5, 8).map(renderSettingItem)}
           </View>
         </View>
 
         <View style={styles.settingsSection}>
-          <Text style={styles.sectionTitle}>Data & Info</Text>
+          <Text style={styles.sectionTitle}>{t('settings.dataAndInfo')}</Text>
           <View style={styles.settingsCard}>
-            {settingsData.slice(7).map(renderSettingItem)}
+            {settingsData.slice(8).map(renderSettingItem)}
           </View>
         </View>
 
@@ -281,7 +357,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
               <Ionicons name="log-out-outline" size={20} color="#dc2626" />
             )}
             <Text style={styles.signOutText}>
-              {isSigningOut ? 'Signing Out...' : 'Sign Out'}
+              {isSigningOut ? t('settings.signingOut') : t('settings.signOut')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -323,6 +399,128 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
         onRequestClose={() => setShowReceiptTemplates(false)}
       >
         <ReceiptTemplatesScreen onBack={() => setShowReceiptTemplates(false)} />
+      </Modal>
+      
+      {/* Language Selection Modal */}
+      <Modal
+        visible={showLanguageModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowLanguageModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: '#f8f9fa' }}>
+          {/* Header */}
+          <View style={{
+            backgroundColor: 'white',
+            paddingHorizontal: 20,
+            paddingTop: 60,
+            paddingBottom: 20,
+            borderBottomWidth: 1,
+            borderBottomColor: '#e5e7eb',
+          }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#111827' }}>
+                {t('settings.language')}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowLanguageModal(false)}
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  backgroundColor: '#f3f4f6',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ fontSize: 18, color: '#6b7280' }}>×</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          <ScrollView contentContainerStyle={{ padding: 20 }}>
+            {Object.entries(availableLanguages).map(([code, name]) => (
+              <TouchableOpacity
+                key={code}
+                style={{
+                  backgroundColor: 'white',
+                  padding: 16,
+                  borderRadius: 12,
+                  marginBottom: 12,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  borderWidth: language === code ? 2 : 1,
+                  borderColor: language === code ? '#2563eb' : '#e5e7eb',
+                }}
+                onPress={() => handleLanguageChange(code as Language)}
+              >
+                <Text style={{ fontSize: 16, fontWeight: language === code ? '600' : '400', color: '#111827' }}>
+                  {name}
+                </Text>
+                {language === code && (
+                  <Ionicons name="checkmark-circle" size={24} color="#2563eb" />
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
+      
+      {/* Category Management Modal */}
+      <CategoryManagementModal
+        visible={showCategoryManagement}
+        onClose={() => setShowCategoryManagement(false)}
+      />
+
+      {/* Sync Status Modal - using Modal wrapper */}
+      <Modal
+        visible={showSyncStatus}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowSyncStatus(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: '#f8f9fa' }}>
+          {/* Header */}
+          <View style={{
+            backgroundColor: 'white',
+            paddingHorizontal: 20,
+            paddingTop: 60,
+            paddingBottom: 20,
+            borderBottomWidth: 1,
+            borderBottomColor: '#e5e7eb',
+          }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#111827' }}>
+                Sync Status
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowSyncStatus(false)}
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  backgroundColor: '#f3f4f6',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ fontSize: 18, color: '#6b7280' }}>×</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          <ScrollView contentContainerStyle={{ padding: 20 }}>
+            <Text style={{ fontSize: 16, color: '#6b7280', textAlign: 'center' }}>
+              Data synchronization will sync your receipts, items, and settings across devices.
+            </Text>
+            <View style={{ marginTop: 20 }}>
+              <Text style={{ fontSize: 14, color: '#111827', marginBottom: 8 }}>• Real-time sync with cloud</Text>
+              <Text style={{ fontSize: 14, color: '#111827', marginBottom: 8 }}>• Offline support</Text>
+              <Text style={{ fontSize: 14, color: '#111827', marginBottom: 8 }}>• Automatic backup</Text>
+            </View>
+          </ScrollView>
+        </View>
       </Modal>
     </SafeAreaView>
   );
