@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, Modal, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, Modal, StyleSheet, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { FirebaseReceipt } from '../../services/ReceiptFirebaseService';
 import { formatCurrency } from '../../utils';
 import Card from '../ui/Card';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
+import ThermalPrinterService from '../../services/ThermalPrinterService';
 
 interface ReceiptItemProps {
   item: FirebaseReceipt;
@@ -39,7 +40,10 @@ const ReceiptItem: React.FC<ReceiptItemProps> = ({
   onSavePDF,
 }) => {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  
+  const printerService = ThermalPrinterService.getInstance();
 
   const handleSavePDF = async () => {
     if (isGeneratingPDF || !onSavePDF) return;
@@ -55,10 +59,55 @@ const ReceiptItem: React.FC<ReceiptItemProps> = ({
     }
   };
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     setShowMenu(false);
-    // Add print functionality here
-    console.log('Print receipt:', item.receiptNumber);
+    
+    // Check if printer is connected
+    if (!printerService.isConnected()) {
+      Alert.alert(
+        'No Printer Connected',
+        'Please connect to a thermal printer first.\n\nGo to Settings → Printer Setup',
+        [
+          { text: 'OK', style: 'cancel' },
+        ]
+      );
+      return;
+    }
+
+    setIsPrinting(true);
+    try {
+      // Convert receipt to printer format
+      const receiptData = {
+        storeInfo: {
+          name: item.companyName,
+          address: item.companyAddress || '',
+          phone: item.businessPhone || '',
+        },
+        items: item.items.map(receiptItem => ({
+          name: receiptItem.name,
+          price: Number(receiptItem.price) || 0,
+          quantity: Number(receiptItem.quantity) || 0,
+          total: (Number(receiptItem.price) || 0) * (Number(receiptItem.quantity) || 0),
+        })),
+        subtotal: Number(item.subtotal) || 0,
+        tax: Number(item.tax) || 0,
+        total: Number(item.total) || 0,
+        paymentMethod: 'Cash', // Default
+        receiptNumber: item.receiptNumber,
+        timestamp: item.date.toDate ? item.date.toDate() : new Date(item.date),
+      };
+
+      await printerService.printReceipt(receiptData);
+      Alert.alert('Success', '✓ Receipt printed successfully!');
+    } catch (error: any) {
+      console.error('Print error:', error);
+      Alert.alert(
+        'Print Failed',
+        error.message || 'Failed to print receipt. Check printer connection.'
+      );
+    } finally {
+      setIsPrinting(false);
+    }
   };
   return (
     <View style={{ zIndex: showMenu ? 1000 : 1 }}>
@@ -196,9 +245,16 @@ const ReceiptItem: React.FC<ReceiptItemProps> = ({
               <TouchableOpacity
                 style={styles.dropdownItem}
                 onPress={handlePrint}
+                disabled={isPrinting}
               >
-                <Ionicons name="print-outline" size={18} color="#10b981" />
-                <Text style={styles.dropdownText}>Print</Text>
+                {isPrinting ? (
+                  <ActivityIndicator size="small" color="#10b981" />
+                ) : (
+                  <Ionicons name="print-outline" size={18} color="#10b981" />
+                )}
+                <Text style={styles.dropdownText}>
+                  {isPrinting ? 'Printing...' : 'Print'}
+                </Text>
               </TouchableOpacity>
 
               {/* Save PDF Option */}
