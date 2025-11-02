@@ -37,6 +37,24 @@ const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClos
     customerName: receipt.customerName
   });
 
+  // Safely convert date to Date object
+  const convertDate = (date: any): Date => {
+    try {
+      if (date && typeof date.toDate === 'function') {
+        return date.toDate();
+      } else if (date instanceof Date) {
+        return date;
+      } else if (typeof date === 'string' || typeof date === 'number') {
+        return new Date(date);
+      }
+      console.warn('Invalid date format in receipt:', date);
+      return new Date();
+    } catch (error) {
+      console.error('Error converting receipt date:', error);
+      return new Date();
+    }
+  };
+
   // Convert FirebaseReceipt to Receipt type for delivery modal
   const receiptForDelivery: Receipt = {
     id: receipt.id,
@@ -50,7 +68,7 @@ const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClos
     subtotal: receipt.subtotal,
     tax: receipt.tax,
     total: receipt.total,
-    date: receipt.date.toDate ? receipt.date.toDate() : new Date(receipt.date),
+    date: convertDate(receipt.date),
     companyName: receipt.companyName,
     companyAddress: receipt.companyAddress,
     customerName: receipt.customerName,
@@ -247,15 +265,28 @@ const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClos
 
                   setIsPrinting(true);
                   try {
+                    console.log('🖨️ [ReceiptDetailModal] Starting print process...');
+                    console.log('🖨️ [ReceiptDetailModal] Receipt data:', {
+                      id: receipt.id,
+                      receiptNumber: receipt.receiptNumber,
+                      companyName: receipt.companyName,
+                      itemCount: receipt.items?.length,
+                      total: receipt.total,
+                    });
+                    
                     // Convert receipt to printer format
                     const receiptData = {
                       storeInfo: {
-                        name: receipt.companyName,
+                        name: receipt.companyName || 'Store',
                         address: receipt.companyAddress || '',
                         phone: receipt.businessPhone || '',
                       },
+                      customerInfo: {
+                        name: receipt.customerName || undefined,
+                        phone: receipt.businessPhone || undefined,
+                      },
                       items: receipt.items.map(item => ({
-                        name: item.name,
+                        name: item.name || 'Item',
                         price: Number(item.price) || 0,
                         quantity: Number(item.quantity) || 0,
                         total: (Number(item.price) || 0) * (Number(item.quantity) || 0),
@@ -264,11 +295,14 @@ const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClos
                       tax: Number(receipt.tax) || 0,
                       total: Number(receipt.total) || 0,
                       paymentMethod: 'Cash', // Default
-                      receiptNumber: receipt.receiptNumber,
-                      timestamp: receipt.date.toDate ? receipt.date.toDate() : new Date(receipt.date),
+                      receiptNumber: receipt.receiptNumber || 'N/A',
+                      timestamp: convertDate(receipt.date),
+                      isPaid: receipt.isPaid !== undefined ? receipt.isPaid : true,
                     };
 
+                    console.log('🖨️ [ReceiptDetailModal] Calling printReceipt...');
                     await printerService.printReceipt(receiptData);
+                    console.log('🖨️ [ReceiptDetailModal] Print completed successfully');
                     Alert.alert('Success', 'Receipt printed successfully! ✓');
                   } catch (error: any) {
                     console.error('Print error:', error);

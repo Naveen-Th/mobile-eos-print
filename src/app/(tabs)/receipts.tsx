@@ -12,6 +12,7 @@ import ReceiptFirebaseService, { FirebaseReceipt } from '../../services/ReceiptF
 import { useReceipts } from '../../hooks/useSyncManager';
 import { usePendingUpdates } from '../../store/syncStore';
 import PDFService from '../../services/PDFService';
+import BalanceTrackingService from '../../services/BalanceTrackingService';
 
 // Import components
 import ReceiptDetailModal from '../../components/Receipts/ReceiptDetailModal';
@@ -21,6 +22,7 @@ import ReceiptsHeader from '../../components/Receipts/ReceiptsHeader';
 import EmptyState from '../../components/Receipts/EmptyState';
 import LoadingState from '../../components/Receipts/LoadingState';
 import ErrorState from '../../components/Receipts/ErrorState';
+import RecordPaymentModal from '../../components/RecordPaymentModal';
 
 const ReceiptsScreen: React.FC = () => {
   // TanStack Query hooks for receipts
@@ -60,6 +62,13 @@ const ReceiptsScreen: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [pendingDeletions, setPendingDeletions] = useState<Set<string>>(new Set());
   const [pendingStatusUpdates, setPendingStatusUpdates] = useState<Set<string>>(new Set());
+  
+  // Payment modal state
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [receiptForPayment, setReceiptForPayment] = useState<FirebaseReceipt | null>(null);
+  
+  // Customer balances cache
+  const [customerBalances, setCustomerBalances] = useState<Map<string, number>>(new Map());
 
   // Helper function to handle receipt status updates (simplified - relies on real-time sync)
   const handleReceiptStatusUpdate = React.useCallback(async (receiptId: string, newStatus: 'printed' | 'exported' | 'draft') => {
@@ -215,9 +224,78 @@ const ReceiptsScreen: React.FC = () => {
     }
   }, []);
 
+  // Calculate customer balances from receipts with dynamic balances
+  useEffect(() => {
+    const calculateBalances = () => {
+      const balances = new Map<string, number>();
+      
+      // For each customer, calculate their total outstanding balance across ALL receipts
+      // Group receipts by customer first
+      const customerReceipts = new Map<string, typeof receiptsWithDynamicBalance>();
+      
+      receiptsWithDynamicBalance.forEach(receipt => {
+        if (receipt.customerName) {
+          if (!customerReceipts.has(receipt.customerName)) {
+            customerReceipts.set(receipt.customerName, []);
+          }
+          customerReceipts.get(receipt.customerName)!.push(receipt);
+        }
+      });
+      
+      // Calculate total balance for each customer
+      customerReceipts.forEach((receipts, customerName) => {
+        const totalBalance = receipts.reduce((sum, receipt) => {
+          // Each receipt's outstanding balance is: total - amountPaid
+          const receiptBalance = (receipt.total || 0) - (receipt.amountPaid || 0);
+          return sum + receiptBalance;
+        }, 0);
+        
+        // Store the total balance (even if 0) so we can show payment button
+        balances.set(customerName, totalBalance);
+      });
+      
+      setCustomerBalances(balances);
+    };
+    
+    calculateBalances();
+  }, [receiptsWithDynamicBalance]);
+  
+  // Recalculate Previous Balance dynamically for all receipts
+  const receiptsWithDynamicBalance = useMemo(() => {
+    // Sort receipts by creation date (oldest first) for accurate balance calculation
+    const sorted = [...receipts].sort((a, b) => {
+      const dateA = a.createdAt?.toDate?.() || (a.date?.toDate ? a.date.toDate() : new Date(0));
+      const dateB = b.createdAt?.toDate?.() || (b.date?.toDate ? b.date.toDate() : new Date(0));
+      return dateA.getTime() - dateB.getTime();
+    });
+    
+    // Group by customer and calculate running balances
+    const customerBalanceMap = new Map<string, number>();
+    
+    return sorted.map(receipt => {
+      const customerName = receipt.customerName || 'Walk-in Customer';
+      
+      // Get the cumulative balance before this receipt
+      const previousBalance = customerBalanceMap.get(customerName) || 0;
+      
+      // Calculate this receipt's remaining balance (total - amountPaid)
+      const receiptBalance = (receipt.total || 0) - (receipt.amountPaid || 0);
+      
+      // Update cumulative balance for this customer
+      customerBalanceMap.set(customerName, previousBalance + receiptBalance);
+      
+      // Return receipt with dynamically calculated oldBalance
+      return {
+        ...receipt,
+        oldBalance: previousBalance, // Dynamic Previous Balance
+        newBalance: previousBalance + receiptBalance, // Dynamic Balance Due
+      };
+    });
+  }, [receipts]);
+  
   // Filter and sort receipts
   const filteredAndSortedReceipts = useMemo(() => {
-    let filtered = receipts;
+    let filtered = receiptsWithDynamicBalance;
 
     // Apply search filter
     if (searchQuery.trim()) {
@@ -394,6 +472,9 @@ const ReceiptsScreen: React.FC = () => {
     const isSelected = selectedReceipts.has(item.id);
     const isPendingDeletion = pendingDeletions.has(item.id);
     
+    // Get customer's total balance across all unpaid receipts
+    const customerTotalBalance = item.customerName ? customerBalances.get(item.customerName) : undefined;
+    
     return (
       <ReceiptItem
         item={item}
@@ -403,6 +484,7 @@ const ReceiptsScreen: React.FC = () => {
         formatReceiptDate={formatReceiptDate}
         getStatusColor={getStatusColor}
         getStatusIcon={getStatusIcon}
+        customerTotalBalance={customerTotalBalance}
         onLongPress={() => {
           if (!isSelectionMode && !isPendingDeletion) {
             setIsSelectionMode(true);
@@ -418,6 +500,10 @@ const ReceiptsScreen: React.FC = () => {
         onViewReceipt={setSelectedReceipt}
         onDeleteReceipt={handleDeleteSingle}
         onSavePDF={handleSavePDF}
+        onPayClick={(receipt) => {
+          setReceiptForPayment(receipt);
+          setShowPaymentModal(true);
+        }}
       />
     );
   };
@@ -515,10 +601,33 @@ const ReceiptsScreen: React.FC = () => {
             onClose={() => setSelectedReceipt(null)} 
           />
         )}
+        
+        {/* Payment Modal */}
+        <RecordPaymentModal
+          visible={showPaymentModal}
+          receipt={receiptForPayment}
+          onClose={() => {
+            setShowPaymentModal(false);
+            setReceiptForPayment(null);
+          }}
+          onPaymentRecorded={(transaction) => {
+            console.log('Payment recorded:', transaction);
+            // Real-time listener will automatically update the receipt
+            Alert.alert(
+              'Payment Recorded',
+              `Payment of ${formatCurrency(transaction.amount)} recorded successfully!`,
+              [{ text: 'OK' }]
+            );
+          }}
+        />
       </SafeAreaView>
     </View>
   );
 };
+
+function formatCurrency(amount: number): string {
+  return `₹${amount.toFixed(2)}`;
+}
 
 
 const styles = StyleSheet.create({

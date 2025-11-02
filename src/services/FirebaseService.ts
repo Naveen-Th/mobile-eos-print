@@ -11,7 +11,7 @@ import {
   enableNetwork,
   Unsubscribe
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { getFirebaseDb } from '../config/firebase';
 
 class FirebaseService {
   private static instance: FirebaseService;
@@ -47,7 +47,7 @@ class FirebaseService {
    * Get Firestore instance
    */
   public getFirestore() {
-    return db;
+    return getFirebaseDb();
   }
 
   /**
@@ -62,6 +62,12 @@ class FirebaseService {
    */
   public async testConnection(): Promise<boolean> {
     try {
+      const db = getFirebaseDb();
+      if (!db) {
+        console.error('Firestore not initialized');
+        return false;
+      }
+      
       // Try to enable network (this will fail gracefully if already enabled)
       await enableNetwork(db);
       
@@ -86,6 +92,8 @@ class FirebaseService {
     data: any
   ): Promise<void> {
     try {
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
       const docRef = doc(db, collectionName, documentId);
       await setDoc(docRef, data);
       console.log(`Document created in ${collectionName}/${documentId}`);
@@ -103,6 +111,8 @@ class FirebaseService {
     documentId: string
   ): Promise<any> {
     try {
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
       const docRef = doc(db, collectionName, documentId);
       const docSnap = await getDoc(docRef);
       
@@ -126,6 +136,8 @@ class FirebaseService {
     data: any
   ): Promise<void> {
     try {
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
       const docRef = doc(db, collectionName, documentId);
       await updateDoc(docRef, data);
       console.log(`Document updated in ${collectionName}/${documentId}`);
@@ -143,6 +155,8 @@ class FirebaseService {
     documentId: string
   ): Promise<void> {
     try {
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
       const docRef = doc(db, collectionName, documentId);
       await deleteDoc(docRef);
       console.log(`Document deleted from ${collectionName}/${documentId}`);
@@ -157,6 +171,8 @@ class FirebaseService {
    */
   public async getCollection(collectionName: string): Promise<any[]> {
     try {
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
       const colRef = collection(db, collectionName);
       const snapshot = await getDocs(colRef);
       
@@ -181,6 +197,11 @@ class FirebaseService {
     errorCallback?: (error: Error) => void
   ): Unsubscribe {
     try {
+      const db = getFirebaseDb();
+      if (!db) {
+        console.error('Firestore not initialized');
+        return () => {};
+      }
       const colRef = collection(db, collectionName);
       
       const unsubscribe = onSnapshot(

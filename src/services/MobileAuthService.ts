@@ -1,4 +1,4 @@
-import { auth, db } from '../config/firebase';
+import { auth, db, initializeFirebase as initFirebaseConfig, getFirebaseAuth, getFirebaseDb } from '../config/firebase';
 import { 
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -34,6 +34,7 @@ class MobileAuthService {
   private readonly USERS_COLLECTION = 'users';
   private readonly LAST_USER_KEY = 'lastUser';
   private readonly SESSION_KEY = 'authSession'; // Full session data for restore
+  private readonly CREDENTIALS_KEY = 'savedCredentials'; // Saved email and password for auto-login
   private currentUser: MobileUser | null = null;
 
   public static getInstance(): MobileAuthService {
@@ -44,9 +45,34 @@ class MobileAuthService {
   }
 
   /**
+   * Initialize Firebase (call only when online)
+   */
+  public initializeFirebase(): boolean {
+    try {
+      console.log('🔥 MobileAuthService: Initializing Firebase...');
+      const success = initFirebaseConfig();
+      if (success) {
+        console.log('✅ Firebase initialized successfully');
+      } else {
+        console.log('⚠️ Firebase initialization returned false');
+      }
+      return success;
+    } catch (error) {
+      console.error('❌ Failed to initialize Firebase:', error);
+      return false;
+    }
+  }
+
+  /**
    * Initialize the auth service and set up auth state listener
    */
   public initialize(): void {
+    // Check if Firebase is initialized before setting up listener
+    if (!auth) {
+      console.log('📴 Firebase auth not initialized - skipping auth state listener setup');
+      return;
+    }
+    
     this.onAuthStateChanged((user) => {
       this.currentUser = user;
       console.log('Mobile auth state changed:', user ? `Logged in as ${user.email}` : 'Logged out');
@@ -116,6 +142,13 @@ class MobileAuthService {
           createdAt: mobileUser.createdAt,
         }));
         console.log('✅ Session persisted to AsyncStorage');
+
+        // Store credentials for auto-login
+        await AsyncStorage.setItem(this.CREDENTIALS_KEY, JSON.stringify({
+          email: email.trim(),
+          password: password,
+        }));
+        console.log('✅ Credentials saved for auto-login');
       } catch (storageError) {
         console.warn('Failed to persist session:', storageError);
       }
@@ -235,31 +268,59 @@ class MobileAuthService {
    */
   public async signOut(): Promise<void> {
     try {
+      console.log('🚪 Starting sign out process...');
+      
       // Clear current user state
       this.currentUser = null;
       
       // Sign out from Firebase
       await firebaseSignOut(auth);
       
-      // Clear stored session data
+      // Clear ALL AsyncStorage keys and values
       try {
-        await AsyncStorage.removeItem(this.SESSION_KEY);
-        await AsyncStorage.removeItem(this.LAST_USER_KEY);
+        console.log('🗑️ Clearing all AsyncStorage data...');
+        
+        // Get all keys
+        const allKeys = await AsyncStorage.getAllKeys();
+        console.log(`📋 Found ${allKeys.length} keys in AsyncStorage:`, allKeys);
+        
+        // Clear all keys
+        await AsyncStorage.multiRemove(allKeys);
+        console.log('✅ All AsyncStorage data cleared');
+        
+        // Alternative: Clear specific keys if you want to preserve some data
+        // Auth-related keys
+        // await AsyncStorage.removeItem(this.SESSION_KEY);
+        // await AsyncStorage.removeItem(this.LAST_USER_KEY);
+        // await AsyncStorage.removeItem(this.CREDENTIALS_KEY);
+        // 
+        // // App data keys
+        // await AsyncStorage.removeItem('stored_receipts');
+        // await AsyncStorage.removeItem('receipt_counter');
+        // await AsyncStorage.removeItem('lastAutoSyncTime');
+        // await AsyncStorage.removeItem('autoSyncMetrics');
+        // await AsyncStorage.removeItem('@payment_reminder_settings');
+        // await AsyncStorage.removeItem('@app_language');
+        // await AsyncStorage.removeItem('receipt_templates');
+        // await AsyncStorage.removeItem('default_template_id');
+        // await AsyncStorage.removeItem('app_tax_rate');
+        
       } catch (storageError) {
-        console.warn('Failed to clear AsyncStorage on signout:', storageError);
+        console.error('❌ Failed to clear AsyncStorage on signout:', storageError);
       }
       
-      console.log('Mobile sign out successful');
+      console.log('✅ Mobile sign out successful');
     } catch (error: any) {
-      console.error('Mobile sign out error:', error);
+      console.error('❌ Mobile sign out error:', error);
       
-      // Even if Firebase signout fails, clear local state
+      // Even if Firebase signout fails, clear local state and storage
       this.currentUser = null;
       try {
-        await AsyncStorage.removeItem(this.SESSION_KEY);
-        await AsyncStorage.removeItem(this.LAST_USER_KEY);
+        const allKeys = await AsyncStorage.getAllKeys();
+        await AsyncStorage.multiRemove(allKeys);
+        console.log('✅ AsyncStorage cleared despite error');
       } catch (storageError) {
-        console.warn('Failed to clear AsyncStorage on signout error:', storageError);
+        console.error('❌ Failed to clear AsyncStorage on signout error:', storageError);
       }
       
       throw error;
@@ -297,6 +358,13 @@ class MobileAuthService {
    * Listen to authentication state changes
    */
   public onAuthStateChanged(callback: (user: MobileUser | null) => void): () => void {
+    // Check if Firebase auth is initialized
+    if (!auth) {
+      console.log('📴 Firebase auth not initialized - skipping auth state listener');
+      // Return a no-op unsubscribe function
+      return () => {};
+    }
+    
     return onFirebaseAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         const userProfile = await this.getUserProfile(firebaseUser.uid);
@@ -355,6 +423,50 @@ class MobileAuthService {
       return user;
     } catch (error) {
       console.error('Error loading stored session from AsyncStorage:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get saved credentials from AsyncStorage
+   */
+  public async getSavedCredentials(): Promise<{ email: string; password: string } | null> {
+    try {
+      const credentialsData = await AsyncStorage.getItem(this.CREDENTIALS_KEY);
+      if (!credentialsData) return null;
+
+      const credentials = JSON.parse(credentialsData);
+      console.log('✅ Found saved credentials for:', credentials.email);
+      return credentials;
+    } catch (error) {
+      console.error('Error loading saved credentials:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Attempt auto-login with saved credentials
+   */
+  public async attemptAutoLogin(): Promise<MobileUser | null> {
+    try {
+      const credentials = await this.getSavedCredentials();
+      if (!credentials) {
+        console.log('No saved credentials found for auto-login');
+        return null;
+      }
+
+      console.log('🔄 Attempting auto-login with saved credentials...');
+      const user = await this.signIn(credentials.email, credentials.password);
+      console.log('✅ Auto-login successful');
+      return user;
+    } catch (error) {
+      console.error('❌ Auto-login failed:', error);
+      // Clear invalid credentials
+      try {
+        await AsyncStorage.removeItem(this.CREDENTIALS_KEY);
+      } catch (clearError) {
+        console.warn('Failed to clear invalid credentials:', clearError);
+      }
       return null;
     }
   }

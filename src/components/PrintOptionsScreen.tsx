@@ -18,6 +18,7 @@ import { StorageService } from '../services/StorageService';
 import { DirectFileSystemService } from '../services/DirectFileSystemService';
 import ReceiptFirebaseService from '../services/ReceiptFirebaseService';
 import StockService from '../services/StockService';
+import ThermalPrinterService from '../services/ThermalPrinterService';
 import { Alert as RNAlert } from 'react-native';
 import { Alert, ReceiptAlerts } from './common';
 import {
@@ -36,6 +37,9 @@ interface PrintOptionsScreenProps {
   cartItems?: any[];
   customerName?: string;
   onPrintComplete?: () => void;
+  subtotal?: number;
+  tax?: number;
+  total?: number;
 }
 
 export const PrintOptionsScreen: React.FC<PrintOptionsScreenProps> = ({
@@ -43,6 +47,9 @@ export const PrintOptionsScreen: React.FC<PrintOptionsScreenProps> = ({
   cartItems,
   customerName,
   onPrintComplete,
+  subtotal: providedSubtotal,
+  tax: providedTax,
+  total: providedTotal,
 }) => {
   const navigation = useNavigation();
   const { state: cartState, clearCart } = useCart();
@@ -50,20 +57,28 @@ export const PrintOptionsScreen: React.FC<PrintOptionsScreenProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [taxRate, setTaxRate] = useState<number>(8);
+  const printerService = ThermalPrinterService.getInstance();
 
   // Use provided cart items or fall back to cart state
   const items = cartItems || cartState.items;
   const customer = customerName || cartState.customerName;
   
-  // Calculate totals for provided items or use cart state with precise arithmetic
-  const totals = cartItems 
-    ? calculateTotals(cartItems, taxRate) // Use dynamic tax rate
-    : {
-        subtotal: cartState.subtotal,
-        tax: cartState.tax,
-        total: cartState.total,
-        discount: cartState.discount
-      };
+  // Use provided totals if available (from ReceiptCreationScreen), otherwise calculate or use cart state
+  const totals = (providedSubtotal !== undefined && providedTax !== undefined && providedTotal !== undefined)
+    ? {
+        subtotal: providedSubtotal,
+        tax: providedTax,
+        total: providedTotal,
+        discount: 0
+      }
+    : cartItems 
+      ? calculateTotals(cartItems, taxRate) // Use dynamic tax rate
+      : {
+          subtotal: cartState.subtotal,
+          tax: cartState.tax,
+          total: cartState.total,
+          discount: cartState.discount
+        };
   
 const { subtotal, tax, total, discount } = totals;
 
@@ -332,6 +347,95 @@ const { subtotal, tax, total, discount } = totals;
     } catch (error) {
       console.error('Direct file system print error:', error);
       ReceiptAlerts.receiptSaveError('An error occurred while saving the PDF');
+    } finally {
+      setIsLoading(false);
+      setLoadingMessage('');
+    }
+  };
+
+  const handleThermalPrint = async () => {
+    if (!validateData()) return;
+
+    // Check if printer is connected
+    if (!printerService.isConnected()) {
+      RNAlert.alert(
+        'No Printer Connected',
+        'Please connect to a thermal printer first.\n\nGo to Settings → Printer Setup',
+        [
+          { text: 'OK', style: 'cancel' },
+        ]
+      );
+      return;
+    }
+
+    setIsLoading(true);
+    setLoadingMessage('Printing to thermal printer...');
+
+    try {
+      const receipt = createReceipt();
+      
+      // Convert receipt to printer format
+      const receiptData = {
+        storeInfo: {
+          name: receipt.companyName,
+          address: receipt.companyAddress || '',
+          phone: companySettings.phone || '',
+        },
+        customerInfo: {
+          name: receipt.customerName || undefined,
+          phone: undefined, // Add if available in receipt
+        },
+        items: receipt.items.map(item => ({
+          name: item.name,
+          price: Number(item.price) || 0,
+          quantity: Number(item.quantity) || 0,
+          total: (Number(item.price) || 0) * (Number(item.quantity) || 0),
+        })),
+        subtotal: Number(receipt.subtotal) || 0,
+        tax: Number(receipt.tax) || 0,
+        total: Number(receipt.total) || 0,
+        paymentMethod: 'Cash', // Default
+        receiptNumber: receipt.receiptNumber,
+        timestamp: receipt.date,
+        isPaid: true, // Default to paid for new receipts
+      };
+
+      // Print directly to thermal printer
+      await printerService.printReceipt(receiptData);
+      
+      // Save receipt to Firebase (primary storage)
+      const firebaseResult = await ReceiptFirebaseService.saveReceipt(
+        receipt, 
+        'thermal',
+        undefined
+      );
+      
+      if (firebaseResult.success) {
+        console.log('Receipt saved to Firebase successfully:', firebaseResult.documentId);
+      } else {
+        console.error('Failed to save receipt to Firebase:', firebaseResult.error);
+      }
+
+      // Subtract stock for all items
+      const stockResult = await subtractStockForItems(receipt.items);
+      
+      const stockMsg = stockResult.success ? '\n\n📦 Stock levels updated automatically.' : '\n\n⚠️ Note: There was an issue updating stock levels.';
+      ReceiptAlerts.receiptPrintSuccess('✓ Receipt printed successfully!' + stockMsg);
+
+      // Clear cart after successful print
+      clearCart();
+      
+      // Notify parent component
+      if (onPrintComplete) {
+        onPrintComplete();
+      }
+      
+      onClose();
+    } catch (error: any) {
+      console.error('Thermal print error:', error);
+      ReceiptAlerts.receiptSaveError(
+        error.message || 'Failed to print receipt. Check printer connection.'
+      );
     } finally {
       setIsLoading(false);
       setLoadingMessage('');
@@ -664,7 +768,7 @@ const { subtotal, tax, total, discount } = totals;
             <TouchableOpacity
               onPress={async () => {
                 setShowReceiptPreview(false);
-                await handleDirectPrint('thermal');
+                await handleThermalPrint();
               }}
               style={{
                 flex: 1,
@@ -807,7 +911,7 @@ className="bg-gradient-to-r from-orange-50 to-red-50 border border-orange-200 ro
 
             {/* Thermal Printer Option */}
             <TouchableOpacity
-              onPress={() => handleDirectPrint('thermal')}
+              onPress={handleThermalPrint}
 className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl p-4 shadow-sm"
               activeOpacity={0.7}
             >

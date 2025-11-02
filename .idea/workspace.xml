@@ -7,6 +7,48 @@
     <list default="true" id="0584559d-6515-4de5-8967-61fa3aa61661" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/../../App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/../../App.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../eas.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/caches/deviceStreaming.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/caches/deviceStreaming.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/android/gradle.properties" beforeDir="false" afterPath="$PROJECT_DIR$/android/gradle.properties" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/package-lock.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/MobileApp.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/MobileApp.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/app/(tabs)/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/index.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/app/(tabs)/receipts.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/receipts.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/app/(tabs)/settings.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/settings.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/PrintOptionsScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/PrintOptionsScreen.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/ReceiptCreationScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/ReceiptCreationScreen.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/Receipts/ReceiptDetailModal.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/Receipts/ReceiptDetailModal.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/Receipts/ReceiptItem.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/Receipts/ReceiptItem.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/Receipts/ReceiptsHeader.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/Receipts/ReceiptsHeader.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/ReceiptsScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/ReceiptsScreen.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/SignInForm.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/SignInForm.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/ui/Card.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/ui/Card.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/config/firebase.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/config/firebase.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/hooks/usePrinterStatus.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/hooks/usePrinterStatus.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/hooks/useSyncManager.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/hooks/useSyncManager.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/layout/AppLayout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/layout/AppLayout.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/locales/en.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/locales/en.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/locales/hi.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/locales/hi.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/locales/kn.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/locales/kn.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/screens/AnalyticsScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/screens/AnalyticsScreen.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/screens/PendingBillsScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/screens/PendingBillsScreen.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/screens/PrinterSetupScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/screens/PrinterSetupScreen.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/AnalyticsService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/AnalyticsService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/CategoryService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/CategoryService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/CustomerService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/CustomerService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/FirebaseService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/FirebaseService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/ItemService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ItemService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/LowStockAlertService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/LowStockAlertService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/MobileAuthService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/MobileAuthService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/PendingBillsService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/PendingBillsService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/PersonDetailsService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/PersonDetailsService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/README-PDFStorage.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/ReceiptFirebaseService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ReceiptFirebaseService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/StockService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/StockService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/ThermalPrinterService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ThermalPrinterService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/stores/receiptStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/stores/receiptStore.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/sync/SyncEngine.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/sync/SyncEngine.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../../package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/../../package-lock.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../../package.json" beforeDir="false" afterPath="$PROJECT_DIR$/../../package.json" afterDir="false" />
     </list>

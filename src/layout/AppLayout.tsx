@@ -10,6 +10,7 @@ import MobileAuthService, { MobileUser } from '../services/MobileAuthService';
 import { useSyncStore } from '../store/syncStore';
 import AnalyticsScreen from '../screens/AnalyticsScreen';
 import PendingBillsScreen from '../screens/PendingBillsScreen';
+import PaymentRemindersScreen from '../screens/PaymentRemindersScreen';
 
 // Enable Immer MapSet plugin for Map and Set support
 enableMapSet();
@@ -31,6 +32,14 @@ const AppLayout: React.FC<AppLayoutProps> = ({ user: propUser, onLogout }) => {
   useEffect(() => {
     console.log('AppLayout: Initializing auth service...');
     
+    // If user is provided from props, we're already authenticated (possibly offline)
+    if (propUser) {
+      console.log('✅ AppLayout: User provided from props, skipping auth initialization');
+      setCurrentUser(propUser);
+      setIsLoading(false);
+      return;
+    }
+    
     const initializeAuth = async () => {
       try {
         // Try to restore stored session from AsyncStorage first (for instant app access)
@@ -46,9 +55,11 @@ const AppLayout: React.FC<AppLayoutProps> = ({ user: propUser, onLogout }) => {
         }
 
         // Initialize the auth service (will sync with Firebase in background)
+        // This is safe to call even if Firebase isn't initialized - it will just skip setup
         MobileAuthService.initialize();
 
         // Set up auth state change listener
+        // This returns a no-op function if Firebase isn't initialized
         const unsubscribe = MobileAuthService.onAuthStateChanged((user) => {
           console.log('AppLayout: Auth state changed:', user ? `User ${user.email}` : 'No user');
           setCurrentUser(user);
@@ -64,7 +75,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ user: propUser, onLogout }) => {
         return unsubscribe;
       } catch (error) {
         console.error('AppLayout: Failed to initialize auth:', error);
-        setAuthError(error instanceof Error ? error.message : 'Failed to initialize authentication');
+        // Don't set error if we have a stored session
+        if (!currentUser) {
+          setAuthError(error instanceof Error ? error.message : 'Failed to initialize authentication');
+        }
         setIsLoading(false);
       }
     };
@@ -161,6 +175,13 @@ const AppLayout: React.FC<AppLayoutProps> = ({ user: propUser, onLogout }) => {
                 title: 'Pending Bills',
                 headerStyle: { backgroundColor: '#fff' },
                 headerTitleStyle: { fontWeight: 'bold' },
+              }}
+            />
+            <Stack.Screen 
+              name="PaymentRemindersScreen" 
+              component={PaymentRemindersScreen}
+              options={{
+                headerShown: false,
               }}
             />
           </Stack.Navigator>

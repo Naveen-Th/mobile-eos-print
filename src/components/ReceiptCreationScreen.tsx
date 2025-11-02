@@ -8,7 +8,9 @@ import {
   TextInput,
   ActivityIndicator,
   StatusBar,
+  Animated,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Alert, ReceiptAlerts } from './common';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,6 +25,7 @@ import CustomerService, { UniqueCustomer } from '../services/CustomerService';
 import { useReceiptStore } from '../stores/receiptStore';
 import { useReceiptIntegration } from '../hooks/useReceiptIntegration';
 import ReceiptFirebaseService from '../services/ReceiptFirebaseService';
+import BalanceTrackingService from '../services/BalanceTrackingService';
 import {
   formatCurrency,
   validateCustomerInfo,
@@ -33,17 +36,15 @@ interface ReceiptCreationScreenProps {
   visible: boolean;
 }
 
+type Step = 'customer' | 'items' | 'review';
+
 const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
   onClose,
   visible,
 }) => {
-  // Use integration hook for better organization
   const { store, cartCompatibility } = useReceiptIntegration(visible);
-  
-  // Safe area insets to fine-tune top spacing on devices with notches/status bar
   const insets = useSafeAreaInsets();
-
-  // Destructure store values for easier access
+  
   const {
     formItems,
     customer,
@@ -71,6 +72,8 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     loadTaxRate
   } = store;
   
+  // Step management
+  const [currentStep, setCurrentStep] = useState<Step>('customer');
   const [showPrintOptions, setShowPrintOptions] = useState(false);
   const [showPartyManagement, setShowPartyManagement] = useState(false);
   const [showTaxSettings, setShowTaxSettings] = useState(false);
@@ -80,21 +83,30 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
   const [isSearchingCustomers, setIsSearchingCustomers] = useState(false);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
 
-  // Note: Totals are automatically calculated by the useReceiptIntegration hook
-  // No need to duplicate the calculation here
-  
+  // Animation for step transitions
+  const fadeAnim = useState(new Animated.Value(1))[0];
 
-  // Items subscription is now handled by the integration hook
+  const transitionToStep = (nextStep: Step) => {
+    Animated.sequence([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    setCurrentStep(nextStep);
+  };
 
-  // Form item functions are now handled by the store
   const addNewItemForm = addFormItem;
   const removeItemForm = removeFormItem;
 
-  // Form item update is now handled by the store with better validation
   const handleUpdateFormItem = (id: string, field: string, value: string) => {
-    // Remove leading zeros for numeric fields like kg, gms, and pricePerKg
     if (field === 'kg' || field === 'gms' || field === 'pricePerKg') {
-      // Remove leading zeros but keep single zero and decimal values
       if (value && value !== '0' && !value.includes('.')) {
         value = value.replace(/^0+/, '') || '0';
       }
@@ -102,49 +114,39 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     updateFormItem(id, field as any, value);
   };
 
-  // Item selection is now handled by the store with better error handling
   const handleItemSelect = async (formId: string, itemId: string) => {
-    console.log('handleItemSelect called with:', formId, itemId);
     await selectItem(formId, itemId);
   };
 
-  // Clear form function now handled by store
   const handleClearForm = () => {
     clearForm();
     setCustomerSearchResults([]);
     setShowCustomerDropdown(false);
+    setCurrentStep('customer');
   };
-
-  // Quantity changes are handled through the store now
 
   const handleCustomerNameChange = async (text: string) => {
     updateCustomerInfo({ customerName: text });
-    clearError('customer'); // Clear error when typing
+    clearError('customer');
     
-    // If user clears the name, reset balance
     if (!text.trim()) {
-      updateBalanceInfo({ oldBalance: 0, isPaid: false, amountPaid: 0 });
+      // Reset balance when customer name is cleared
+      // isPaid will be calculated automatically
+      updateBalanceInfo({ oldBalance: 0, amountPaid: 0 });
       return;
     }
     
-    // Debounce balance fetch to avoid too many queries
-    // Only fetch if customer name is at least 3 characters
     if (text.trim().length >= 3) {
       try {
-        const oldBalance = await ReceiptFirebaseService.getCustomerLatestBalance(text);
-        if (oldBalance > 0) {
-          updateBalanceInfo({ oldBalance });
-          console.log(`Auto-loaded balance for ${text}: ${oldBalance}`);
-        }
+        const oldBalance = await BalanceTrackingService.getCustomerBalance(text);
+        updateBalanceInfo({ oldBalance });
       } catch (error) {
-        console.error('Error fetching customer balance on name change:', error);
+        console.error('Error fetching customer balance:', error);
       }
     }
   };
 
   const handleCustomerSearch = async (query: string) => {
-    console.log('Searching for customers with query:', query);
-    
     if (!query.trim()) {
       setIsSearchingCustomers(true);
       try {
@@ -152,7 +154,6 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
         setCustomerSearchResults(Array.isArray(recentCustomers) ? recentCustomers : []);
         updateCustomerInfo({ isNewCustomer: false });
       } catch (error) {
-        console.error('Error loading recent customers:', error);
         setCustomerSearchResults([]);
         updateCustomerInfo({ isNewCustomer: false });
       } finally {
@@ -163,7 +164,6 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
 
     setIsSearchingCustomers(true);
     try {
-      // Use immediate search for short queries (1-3 characters) for better responsiveness
       let results;
       if (query.trim().length <= 3) {
         results = await CustomerService.searchCustomersImmediate(query);
@@ -172,17 +172,14 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
       }
       
       const safeResults = Array.isArray(results) ? results : [];
-      console.log(`Search returned ${safeResults.length} results for query: '${query}'`);
       setCustomerSearchResults(safeResults);
       
-      // Check if this is a new customer (case-insensitive comparison)
       const trimmedQuery = query.trim().toLowerCase();
       const existingCustomer = safeResults.find(
         (customer: UniqueCustomer) => customer.customerName.toLowerCase().trim() === trimmedQuery
       );
       updateCustomerInfo({ isNewCustomer: !existingCustomer });
     } catch (error) {
-      console.error('Error searching customers:', error);
       setCustomerSearchResults([]);
       updateCustomerInfo({ isNewCustomer: !!query.trim() });
     } finally {
@@ -191,42 +188,32 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
   };
 
   const handleCustomerSelect = async (customer: UniqueCustomer) => {
-    // Set customer information
     updateCustomerInfo({
       customerName: customer.customerName,
       isNewCustomer: false
     });
     
-    // Clear any errors
     clearError('customer');
-    
-    // Hide dropdown
     setShowCustomerDropdown(false);
     
-    // Fetch and set old balance for this customer
     try {
-      const oldBalance = await ReceiptFirebaseService.getCustomerLatestBalance(customer.customerName);
+      const oldBalance = await BalanceTrackingService.getCustomerBalance(customer.customerName);
       updateBalanceInfo({ oldBalance });
-      console.log(`Auto-loaded balance for ${customer.customerName}: ${oldBalance}`);
     } catch (error) {
-      console.error('Error fetching customer balance:', error);
+      updateBalanceInfo({ oldBalance: 0 });
     }
   };
 
   const handleCustomerFocus = async () => {
     setShowCustomerDropdown(true);
-    // Don't clear auto-filled flags here - only clear when manually typing
-    
-    // Force refresh customer data when focused to ensure we have latest data
     try {
       await CustomerService.forceRefresh();
     } catch (error) {
-      console.error('Error refreshing customer data on focus:', error);
+      console.error('Error refreshing customer data:', error);
     }
   };
 
   const handleCustomerBlur = () => {
-    // Delay hiding to allow for selection
     setTimeout(() => {
       setShowCustomerDropdown(false);
     }, 200);
@@ -237,20 +224,6 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     setShowCustomerDropdown(false);
   };
 
-  // Validation is now handled by the store
-
-  // Form validation is now handled by the store
-
-  // Totals calculation is now handled by the store
-
-  // Cleanup function for when component unmounts
-  useEffect(() => {
-    return () => {
-      // Keep real-time listener active for better UX across screen transitions
-      // CustomerService.stopRealtimeListener(); // Uncomment if you want to stop on unmount
-    };
-  }, []);
-
   const handleCreateReceipt = async () => {
     try {
       const result = await createReceipt();
@@ -258,13 +231,12 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
       if (result.success && result.receipt) {
         if (customer.isNewCustomer) {
           ReceiptAlerts.receiptCreatedSuccessfully(
-            `Receipt ${result.receipt.receiptNumber} created successfully!\n\n✨ New customer "${customer.customerName}" has been added to your customer database.\n📦 Stock levels updated automatically.`
+            `Receipt ${result.receipt.receiptNumber} created successfully!\n\n✨ New customer "${customer.customerName}" has been added.\n📦 Stock levels updated.`
           );
-          // Clear customer cache to include the new customer in future searches
           CustomerService.clearCache();
         } else {
           ReceiptAlerts.receiptCreatedSuccessfully(
-            `Receipt ${result.receipt.receiptNumber} created successfully!\n\n📦 Stock levels updated automatically.`
+            `Receipt ${result.receipt.receiptNumber} created successfully!\n\n📦 Stock levels updated.`
           );
         }
         
@@ -274,13 +246,11 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
         ReceiptAlerts.receiptSaveError(result.error || 'Failed to create receipt');
       }
     } catch (error) {
-      console.error('Error creating receipt:', error);
       ReceiptAlerts.receiptSaveError('Failed to create receipt. Please try again.');
     }
   };
 
   const handlePrint = async () => {
-    // Validate form first
     const isValid = await validateForm();
     if (!isValid) {
       return;
@@ -305,259 +275,1165 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
     onClose();
   };
 
-  // Return PrintOptionsScreen if showing print options
-  if (showPrintOptions) {
+  // Step validation
+  const canProceedFromCustomer = () => {
+    return customer.customerName && customer.customerName.trim().length > 0;
+  };
+
+  const canProceedFromItems = () => {
     const validItems = formItems.filter(item => 
       item.selectedItemId && 
-      parseFloat(item.price) > 0 && 
-      parseInt(item.quantity) > 0
+      parseFloat(item.price) > 0
     );
-    
-    const cartItems = validItems.map(formItem => {
-      const selectedItem = availableItems.find(item => item.id === formItem.selectedItemId);
-      return {
-        id: formItem.id,
-        name: selectedItem?.item_name || '',
-        price: parseFloat(formItem.price),
-        quantity: parseInt(formItem.quantity),
-      };
-    });
+    return validItems.length > 0;
+  };
 
+  // Print options
+  if (showPrintOptions) {
     return (
       <PrintOptionsScreen
         onClose={() => setShowPrintOptions(false)}
         cartItems={cartCompatibility.items}
         customerName={cartCompatibility.customerName}
+        subtotal={cartCompatibility.subtotal}
+        tax={cartCompatibility.tax}
+        total={cartCompatibility.total}
         onPrintComplete={handlePrintComplete}
       />
     );
   }
 
-  const renderItemForm = (formItem: any, index: number) => (
-    <View key={formItem.id} className="mb-3">
-      <View className="flex-row items-center justify-between mb-3">
-        <Text className="text-lg font-semibold text-gray-900">Item {index + 1}</Text>
-        {formItems.length > 1 && (
-          <TouchableOpacity
-            onPress={() => {
-              removeItemForm(formItem.id);
-            }}
-            className="p-1"
-          >
-            <Ionicons name="close" size={20} color="#ef4444" />
-          </TouchableOpacity>
-        )}
-      </View>
-      
-      {/* Single row layout for Item Name, Per Kg, Kg, Gms */}
-      <View className="flex-row items-start">
-        {/* Item Name Dropdown - Using react-native-element-dropdown */}
-        <View className="flex-1 mr-2">
-          <Text className="text-sm font-medium text-gray-700 mb-2">
-            Item Name <Text className="text-red-500">*</Text>
-          </Text>
-          <Dropdown
-            style={{
-              borderWidth: 1,
-              borderColor: '#d1d5db',
-              borderRadius: 8,
-              paddingHorizontal: 12,
-              paddingVertical: 12,
-              backgroundColor: 'white',
-              minHeight: 44
-            }}
-            placeholderStyle={{
-              fontSize: 16,
-              color: '#9ca3af'
-            }}
-            selectedTextStyle={{
-              fontSize: 16,
-              color: '#1f2937',
-              fontWeight: '500'
-            }}
-            inputSearchStyle={{
-              height: 40,
-              fontSize: 16,
-              borderRadius: 0,
-              paddingHorizontal: 12,
-              borderWidth: 0,
-              backgroundColor: '#f9fafb',
-              color: '#374151'
-            }}
-            iconStyle={{
-              width: 20,
-              height: 20
-            }}
-            data={availableItems.map(item => ({
-              label: item.item_name,
-              value: item.id,
-              price: item.price,
-              stocks: item.stocks || 0,
-              disabled: (item.stocks || 0) <= 0
-            }))}
-            search
-            maxHeight={300}
-            searchPlaceholder="Search items"
-            containerStyle={{
-              borderRadius: 12,
-              backgroundColor: 'white',
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.1,
-              shadowRadius: 8,
-              elevation: 3
-            }}
-            labelField="label"
-            valueField="value"
-            placeholder="Select an item"
-            value={formItem.selectedItemId}
-            onChange={(item) => {
-              console.log('Item selected:', item.label, 'for form:', formItem.id);
-              handleItemSelect(formItem.id, item.value);
-            }}
-            renderRightIcon={() => (
-              <Ionicons
-                name="chevron-down"
-                size={20}
-                color="#9ca3af"
-              />
-            )}
-            renderItem={(item) => (
-              <View style={{
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                backgroundColor: item.disabled ? '#fef2f2' : 'white',
-                opacity: item.disabled ? 0.6 : 1
-              }}>
-                <Text style={{
-                  fontSize: 16,
-                  fontWeight: '600',
-                  color: item.disabled ? '#9ca3af' : '#1f2937',
-                  marginBottom: 6
-                }}>
-                  {item.label}
-                </Text>
+  // Step progress indicator
+  const renderStepIndicator = () => {
+    const steps = [
+      { key: 'customer' as Step, label: 'Customer', icon: 'person' },
+      { key: 'items' as Step, label: 'Items', icon: 'cube' },
+      { key: 'review' as Step, label: 'Review', icon: 'checkmark-circle' },
+    ];
+
+    return (
+      <View style={{
+        backgroundColor: 'white',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#e5e7eb',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 2,
+      }}>
+        {steps.map((step, index) => {
+          const isActive = currentStep === step.key;
+          const isCompleted = 
+            (step.key === 'customer' && canProceedFromCustomer()) ||
+            (step.key === 'items' && canProceedFromItems());
+          
+          return (
+            <View key={step.key} style={{ flex: 1, alignItems: 'center', position: 'relative' }}>
+              {isActive ? (
                 <View style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: '#111827',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginBottom: 6,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.15,
+                  shadowRadius: 4,
+                  elevation: 4,
                 }}>
-                  <Text style={{
-                    fontSize: 14,
-                    color: '#10b981',
-                    fontWeight: '600'
-                  }}>
-                    {formatCurrency(item.price || 0)}
-                  </Text>
-                  <View style={{
-                    paddingHorizontal: 8,
-                    paddingVertical: 3,
-                    borderRadius: 12,
-                    backgroundColor: item.stocks <= 10 ? '#fee2e2' : item.stocks <= 50 ? '#fef3c7' : '#ecfdf5'
-                  }}>
-                    <Text style={{
-                      fontSize: 12,
-                      color: item.stocks <= 10 ? '#dc2626' : item.stocks <= 50 ? '#d97706' : '#059669',
-                      fontWeight: '600'
-                    }}>
-                      Stock: {item.stocks}
+                  <Ionicons name={step.icon as any} size={20} color="white" />
+                </View>
+              ) : isCompleted ? (
+                <View style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  backgroundColor: '#10b981',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginBottom: 6,
+                }}>
+                  <Ionicons name="checkmark" size={18} color="white" />
+                </View>
+              ) : (
+                <View style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  backgroundColor: '#f3f4f6',
+                  borderWidth: 1.5,
+                  borderColor: '#e5e7eb',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginBottom: 6,
+                }}>
+                  <Ionicons name={step.icon as any} size={18} color="#9ca3af" />
+                </View>
+              )}
+              {index < steps.length - 1 && (
+                <View style={{
+                  position: 'absolute',
+                  top: 18,
+                  left: '60%',
+                  width: '80%',
+                  height: 2,
+                  backgroundColor: isCompleted ? '#10b981' : '#e5e7eb',
+                  zIndex: -1,
+                }} />
+              )}
+              <Text style={{
+                fontSize: 11,
+                fontWeight: isActive ? '700' : '500',
+                color: isActive ? '#111827' : isCompleted ? '#10b981' : '#6b7280',
+                letterSpacing: 0.2,
+              }}>
+                {step.label}
+              </Text>
+              {index < steps.length - 1 && (
+                <View style={{
+                  position: 'absolute',
+                  top: 20,
+                  left: '50%',
+                  width: '100%',
+                  height: 2,
+                  backgroundColor: '#e5e7eb',
+                  zIndex: -1,
+                }} />
+              )}
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
+
+  // Step 1: Customer Information
+  const renderCustomerStep = () => (
+    <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
+      <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
+        <ScrollView 
+          contentContainerStyle={{ padding: 16 }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={{
+            backgroundColor: 'white',
+            borderRadius: 16,
+            padding: 20,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.08,
+            shadowRadius: 12,
+            elevation: 3,
+            borderWidth: 1,
+            borderColor: '#e5e7eb',
+          }}>
+          <View style={{ alignItems: 'center', marginBottom: 20 }}>
+            <View style={{
+              width: 56,
+              height: 56,
+              borderRadius: 16,
+              backgroundColor: '#111827',
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginBottom: 12,
+            }}>
+              <Ionicons name="person-add" size={28} color="white" />
+            </View>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827', marginBottom: 6, letterSpacing: -0.5 }}>
+              Customer Information
+            </Text>
+            <Text style={{ fontSize: 13, color: '#6b7280', textAlign: 'center', lineHeight: 18 }}>
+              Search for an existing customer or create a new one
+            </Text>
+          </View>
+
+          {/* Customer Name with Search */}
+          <View style={{ zIndex: showCustomerDropdown ? 20000 : 1000, position: 'relative', marginBottom: showCustomerDropdown ? 200 : 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151' }}>
+                Customer Name <Text style={{ color: '#ef4444' }}>*</Text>
+              </Text>
+              {customer.isNewCustomer && (
+                <View style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#dbeafe', borderRadius: 12, borderWidth: 1, borderColor: '#93c5fd' }}>
+                  <Text style={{ fontSize: 11, color: '#1e40af', fontWeight: '600' }}>NEW CUSTOMER</Text>
+                </View>
+              )}
+            </View>
+            <SearchableDropdown
+              value={customer.customerName || ''}
+              onChangeText={handleCustomerNameChange}
+              onSelectCustomer={handleCustomerSelect}
+              placeholder="Search or enter customer name"
+              error={errors.customer}
+              searchResults={customerSearchResults}
+              isSearching={isSearchingCustomers}
+              showDropdown={showCustomerDropdown}
+              onFocus={handleCustomerFocus}
+              onBlur={handleCustomerBlur}
+              onSearch={handleCustomerSearch}
+              onAddParty={handleAddParty}
+            />
+          </View>
+
+          {/* Previous Balance Information - Display only when customer has outstanding balance */}
+          {customer.customerName && balance.oldBalance > 0 && (
+            <View style={{
+              marginTop: 16,
+            }}>
+              <View style={{
+                padding: 14,
+                backgroundColor: '#fef2f2',
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: '#fecaca',
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#991b1b', marginBottom: 3, letterSpacing: 0.5 }}>
+                      PREVIOUS BALANCE
                     </Text>
+                    <Text style={{ fontSize: 20, fontWeight: '700', color: '#dc2626' }}>
+                      {formatCurrency(balance.oldBalance)}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: '#991b1b', marginTop: 3 }}>
+                      💰 Outstanding from previous transactions
+                    </Text>
+                  </View>
+                  <View style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    backgroundColor: '#dc2626',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}>
+                    <Ionicons name="wallet" size={20} color="white" />
                   </View>
                 </View>
               </View>
-            )}
-          />
+            </View>
+          )}
         </View>
+        </ScrollView>
+      </View>
 
-        {/* Per Kg Price Field - Editable */}
-        <View style={{ width: 80 }} className="mr-2">
-          <Text className="text-sm font-medium text-gray-700 mb-2">
-            Per Kg
-          </Text>
-          <TextInput
-            value={formItem.pricePerKg || '0.00'}
-            onChangeText={(value) => handleUpdateFormItem(formItem.id, 'pricePerKg', value)}
-            placeholder="0.00"
-            keyboardType="numeric"
-            className="border border-gray-300 rounded-lg px-3 py-3 text-base text-center"
-          />
-        </View>
-
-        {/* Kg Field */}
-        <View style={{ width: 60 }} className="mr-2">
-          <Text className="text-sm font-medium text-gray-700 mb-2">
-            Kg <Text className="text-red-500">*</Text>
-          </Text>
-          <TextInput
-            value={formItem.kg || '0'}
-            onChangeText={(value) => handleUpdateFormItem(formItem.id, 'kg', value)}
-            placeholder="0"
-            keyboardType="numeric"
-            className="border border-gray-300 rounded-lg px-3 py-3 text-base text-center"
-          />
-        </View>
-
-        {/* Gms Field - Dropdown with fixed options */}
-        <View style={{ width: 80 }}>
-          <Text className="text-sm font-medium text-gray-700 mb-2">
-            Gms
-          </Text>
-          <Dropdown
+      {/* Action Buttons */}
+      <View style={{
+        backgroundColor: 'white',
+        borderTopWidth: 1,
+        borderTopColor: '#e5e7eb',
+        padding: 16,
+      }}>
+        {canProceedFromCustomer() ? (
+          <TouchableOpacity
+            onPress={() => transitionToStep('items')}
+            activeOpacity={0.9}
             style={{
-              borderWidth: 1,
-              borderColor: '#d1d5db',
-              borderRadius: 8,
-              paddingHorizontal: 8,
-              paddingVertical: 12,
-              backgroundColor: 'white',
-              minHeight: 44
+              backgroundColor: '#111827',
+              borderRadius: 12,
+              paddingVertical: 14,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.15,
+              shadowRadius: 4,
+              elevation: 3,
             }}
-            placeholderStyle={{
-              fontSize: 16,
-              color: '#1f2937',
-              textAlign: 'center'
-            }}
-            selectedTextStyle={{
-              fontSize: 16,
-              color: '#1f2937',
-              fontWeight: '500',
-              textAlign: 'center'
-            }}
-            iconStyle={{
-              width: 16,
-              height: 16
-            }}
-            data={[50, 100, 150, 200].map(v => ({ label: String(v), value: String(v) }))}
-            labelField="label"
-            valueField="value"
-            placeholder="0"
-            value={['50','100','150','200'].includes(formItem.gms) ? formItem.gms : null}
-            onChange={(item) => handleUpdateFormItem(formItem.id, 'gms', item.value)}
-            renderRightIcon={() => (
-              <Ionicons
-                name="chevron-down"
-                size={16}
-                color="#9ca3af"
+          >
+            <Text style={{
+              color: 'white',
+              fontWeight: '600',
+              fontSize: 15,
+              marginRight: 6,
+              letterSpacing: 0.5,
+            }}>
+              Continue to Items
+            </Text>
+            <Ionicons name="arrow-forward" size={18} color="white" />
+          </TouchableOpacity>
+        ) : (
+          <View style={{
+            backgroundColor: '#f3f4f6',
+            borderRadius: 12,
+            paddingVertical: 14,
+            alignItems: 'center',
+            borderWidth: 1,
+            borderColor: '#e5e7eb',
+          }}>
+            <Text style={{ color: '#9ca3af', fontWeight: '500', fontSize: 14 }}>
+              Enter customer name to continue
+            </Text>
+          </View>
+        )}
+      </View>
+    </Animated.View>
+  );
+
+  // Step 2: Items Selection
+  const renderItemsStep = () => (
+    <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
+      <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
+        <ScrollView 
+          contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header with customer name */}
+          <View style={{
+            backgroundColor: 'white',
+            padding: 14,
+            borderRadius: 12,
+            marginBottom: 16,
+            borderWidth: 1,
+            borderColor: '#e5e7eb',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.05,
+            shadowRadius: 3,
+            elevation: 2,
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+              <View style={{
+                width: 40,
+                height: 40,
+                borderRadius: 12,
+                backgroundColor: '#111827',
+                justifyContent: 'center',
+                alignItems: 'center',
+                marginRight: 12,
+              }}>
+                <Ionicons name="person" size={18} color="white" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 10, color: '#6b7280', fontWeight: '600', marginBottom: 3, letterSpacing: 0.5 }}>CUSTOMER</Text>
+                <Text style={{ fontSize: 14, color: '#111827', fontWeight: '600' }}>{customer.customerName}</Text>
+              </View>
+            </View>
+            
+            {/* Paid Receipt Button */}
+            <TouchableOpacity
+              onPress={() => {
+                // Check if current receipt is already paid (amountPaid covers at least the current receipt total)
+                const currentReceiptPaid = balance.amountPaid >= receiptTotals.total;
+                
+                if (currentReceiptPaid) {
+                  // If currently paid, unpay the current receipt
+                  // Reset amountPaid to 0 (no payment for current receipt)
+                  updateBalanceInfo({ 
+                    amountPaid: 0
+                  });
+                } else {
+                  // Mark only current receipt as paid (NOT including previous balance)
+                  // isPaid will be calculated automatically based on newBalance
+                  updateBalanceInfo({ 
+                    amountPaid: receiptTotals.total 
+                  });
+                }
+              }}
+              activeOpacity={0.8}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                borderRadius: 10,
+                backgroundColor: balance.amountPaid >= receiptTotals.total ? '#10b981' : '#fef3c7',
+                borderWidth: 1,
+                borderColor: balance.amountPaid >= receiptTotals.total ? '#10b981' : '#fcd34d',
+              }}
+            >
+              <Ionicons 
+                name={balance.amountPaid >= receiptTotals.total ? 'checkmark-circle' : 'alert-circle'} 
+                size={16} 
+                color={balance.amountPaid >= receiptTotals.total ? 'white' : '#92400e'} 
+                style={{ marginRight: 6 }} 
               />
-            )}
-          />
+              <Text style={{
+                fontSize: 12,
+                fontWeight: '700',
+                color: balance.amountPaid >= receiptTotals.total ? 'white' : '#92400e',
+              }}>
+                {balance.amountPaid >= receiptTotals.total ? '✓ PAID RECEIPT' : 'UNPAID RECEIPT'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {isLoadingItems ? (
+            <View style={{
+              backgroundColor: 'white',
+              borderRadius: 16,
+              padding: 48,
+              alignItems: 'center',
+              borderWidth: 1,
+              borderColor: '#e5e7eb',
+            }}>
+              <ActivityIndicator size="large" color="#111827" />
+              <Text style={{ color: '#6b7280', marginTop: 12, fontWeight: '500' }}>Loading items...</Text>
+            </View>
+          ) : itemsError ? (
+            <View style={{
+              backgroundColor: '#fef2f2',
+              borderWidth: 1,
+              borderColor: '#fecaca',
+              borderRadius: 12,
+              padding: 40,
+              alignItems: 'center',
+            }}>
+              <Ionicons name="alert-circle" size={48} color="#dc2626" />
+              <Text style={{ color: '#991b1b', textAlign: 'center', marginTop: 12, fontWeight: '500' }}>{itemsError}</Text>
+              <TouchableOpacity 
+                onPress={() => setItemsLoading(true)}
+                activeOpacity={0.9}
+                style={{
+                  marginTop: 16,
+                  backgroundColor: '#dc2626',
+                  paddingHorizontal: 20,
+                  paddingVertical: 10,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ color: 'white', fontWeight: '600' }}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              {formItems.map((formItem, index) => (
+                <View key={formItem.id} style={{
+                  backgroundColor: 'white',
+                  borderRadius: 12,
+                  padding: 16,
+                  marginBottom: 14,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.05,
+                  shadowRadius: 3,
+                  elevation: 2,
+                  borderWidth: 1,
+                  borderColor: '#e5e7eb',
+                }}>
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 14,
+                    paddingBottom: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: '#f3f4f6',
+                  }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#6b7280', letterSpacing: 1 }}>
+                      ITEM {index + 1}
+                    </Text>
+                    {formItems.length > 1 && (
+                      <TouchableOpacity
+                        onPress={() => removeItemForm(formItem.id)}
+                        activeOpacity={0.7}
+                        style={{
+                          padding: 5,
+                          backgroundColor: '#fef2f2',
+                          borderRadius: 6,
+                          borderWidth: 1,
+                          borderColor: '#fecaca',
+                        }}
+                      >
+                        <Ionicons name="trash-outline" size={16} color="#dc2626" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                {/* Item Name Dropdown - Full Width */}
+                <View style={{ marginBottom: 10 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '500', color: '#374151', marginBottom: 6 }}>
+                    Item Name <Text style={{ color: '#ef4444' }}>*</Text>
+                  </Text>
+                  <Dropdown
+                    style={{
+                      borderWidth: 1,
+                      borderColor: '#d1d5db',
+                      borderRadius: 8,
+                      paddingHorizontal: 12,
+                      paddingVertical: 14,
+                      backgroundColor: 'white',
+                    }}
+                    placeholderStyle={{
+                      fontSize: 16,
+                      color: '#9ca3af'
+                    }}
+                    selectedTextStyle={{
+                      fontSize: 16,
+                      color: '#1f2937',
+                      fontWeight: '500'
+                    }}
+                    inputSearchStyle={{
+                      height: 40,
+                      fontSize: 16,
+                      borderRadius: 0,
+                      paddingHorizontal: 12,
+                      borderWidth: 0,
+                      backgroundColor: '#f9fafb',
+                      color: '#374151'
+                    }}
+                    iconStyle={{
+                      width: 20,
+                      height: 20
+                    }}
+                    data={availableItems.map(item => ({
+                      label: item.item_name,
+                      value: item.id,
+                      price: item.price,
+                      stocks: item.stocks || 0,
+                      disabled: (item.stocks || 0) <= 0
+                    }))}
+                    search
+                    maxHeight={300}
+                    searchPlaceholder="Search items"
+                    containerStyle={{
+                      borderRadius: 12,
+                      backgroundColor: 'white',
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.1,
+                      shadowRadius: 8,
+                      elevation: 3
+                    }}
+                    labelField="label"
+                    valueField="value"
+                    placeholder="Select an item"
+                    value={formItem.selectedItemId}
+                    onChange={(item) => handleItemSelect(formItem.id, item.value)}
+                    renderRightIcon={() => (
+                      <Ionicons name="chevron-down" size={20} color="#9ca3af" />
+                    )}
+                    renderItem={(item) => (
+                      <View style={{
+                        paddingHorizontal: 16,
+                        paddingVertical: 14,
+                        backgroundColor: item.disabled ? '#fef2f2' : 'white',
+                        opacity: item.disabled ? 0.6 : 1
+                      }}>
+                        <Text style={{
+                          fontSize: 16,
+                          fontWeight: '600',
+                          color: item.disabled ? '#9ca3af' : '#1f2937',
+                          marginBottom: 6
+                        }}>
+                          {item.label}
+                        </Text>
+                        <View style={{
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}>
+                          <Text style={{
+                            fontSize: 14,
+                            color: '#10b981',
+                            fontWeight: '600'
+                          }}>
+                            {formatCurrency(item.price || 0)}
+                          </Text>
+                          <View style={{
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                            borderRadius: 12,
+                            backgroundColor: item.stocks <= 10 ? '#fee2e2' : item.stocks <= 50 ? '#fef3c7' : '#ecfdf5'
+                          }}>
+                            <Text style={{
+                              fontSize: 12,
+                              color: item.stocks <= 10 ? '#dc2626' : item.stocks <= 50 ? '#d97706' : '#059669',
+                              fontWeight: '600'
+                            }}>
+                              Stock: {item.stocks}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    )}
+                  />
+                </View>
+
+                {/* Quantity Fields - Grid Layout */}
+                <View style={{ flexDirection: 'row', marginBottom: 12 }}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '500', color: '#374151', marginBottom: 8 }}>
+                      Per Kg
+                    </Text>
+                    <TextInput
+                      value={formItem.pricePerKg || '0.00'}
+                      onChangeText={(value) => handleUpdateFormItem(formItem.id, 'pricePerKg', value)}
+                      placeholder="0.00"
+                      keyboardType="numeric"
+                      style={{
+                        borderWidth: 1,
+                        borderColor: '#d1d5db',
+                        borderRadius: 8,
+                        paddingHorizontal: 12,
+                        paddingVertical: 12,
+                        fontSize: 16,
+                        textAlign: 'center',
+                        backgroundColor: 'white',
+                      }}
+                    />
+                  </View>
+
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '500', color: '#374151', marginBottom: 8 }}>
+                      Kg <Text style={{ color: '#ef4444' }}>*</Text>
+                    </Text>
+                    <TextInput
+                      value={formItem.kg || '0'}
+                      onChangeText={(value) => handleUpdateFormItem(formItem.id, 'kg', value)}
+                      placeholder="0"
+                      keyboardType="numeric"
+                      style={{
+                        borderWidth: 1,
+                        borderColor: '#d1d5db',
+                        borderRadius: 8,
+                        paddingHorizontal: 12,
+                        paddingVertical: 12,
+                        fontSize: 16,
+                        textAlign: 'center',
+                        backgroundColor: 'white',
+                      }}
+                    />
+                  </View>
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '500', color: '#374151', marginBottom: 8 }}>
+                      Gms
+                    </Text>
+                    <Dropdown
+                      style={{
+                        borderWidth: 1,
+                        borderColor: '#d1d5db',
+                        borderRadius: 8,
+                        paddingHorizontal: 8,
+                        paddingVertical: 12,
+                        backgroundColor: 'white',
+                      }}
+                      placeholderStyle={{
+                        fontSize: 16,
+                        color: '#1f2937',
+                        textAlign: 'center'
+                      }}
+                      selectedTextStyle={{
+                        fontSize: 16,
+                        color: '#1f2937',
+                        fontWeight: '500',
+                        textAlign: 'center'
+                      }}
+                      iconStyle={{
+                        width: 16,
+                        height: 16
+                      }}
+                      data={[50, 100, 150, 200].map(v => ({ label: String(v), value: String(v) }))}
+                      labelField="label"
+                      valueField="value"
+                      placeholder="0"
+                      value={['50','100','150','200'].includes(formItem.gms) ? formItem.gms : null}
+                      onChange={(item) => handleUpdateFormItem(formItem.id, 'gms', item.value)}
+                      renderRightIcon={() => (
+                        <Ionicons name="chevron-down" size={16} color="#9ca3af" />
+                      )}
+                    />
+                  </View>
+                </View>
+
+                  {/* Item Total */}
+                  <View style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: 16,
+                    backgroundColor: '#f9fafb',
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: '#e5e7eb',
+                    marginTop: 4,
+                  }}>
+                    <Text style={{ fontSize: 14, color: '#6b7280', fontWeight: '500' }}>Item Total</Text>
+                    <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827' }}>
+                      {formatCurrency(parseFloat(formItem.calculatedPrice || formItem.price || '0') || 0)}
+                    </Text>
+                  </View>
+
+                  {formItem.stockError && (
+                    <Text style={{ color: '#ef4444', fontSize: 12, marginTop: 8, fontWeight: '600' }}>
+                      {formItem.stockError}
+                    </Text>
+                  )}
+                </View>
+              ))}
+
+              {/* Add Item Button */}
+              <TouchableOpacity
+                onPress={addNewItemForm}
+                activeOpacity={0.9}
+                style={{
+                  borderRadius: 12,
+                  padding: 14,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: 'white',
+                  borderWidth: 2,
+                  borderColor: '#111827',
+                  borderStyle: 'dashed',
+                }}
+              >
+                <Ionicons name="add-circle-outline" size={20} color="#111827" style={{ marginRight: 6 }} />
+                <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827' }}>
+                  Add Another Item
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </ScrollView>
+      </View>
+
+      {/* Action Buttons */}
+      <View style={{
+        backgroundColor: 'white',
+        borderTopWidth: 1,
+        borderTopColor: '#e5e7eb',
+        padding: 16,
+      }}>
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          <TouchableOpacity
+            onPress={() => transitionToStep('customer')}
+            activeOpacity={0.9}
+            style={{
+              paddingVertical: 14,
+              paddingHorizontal: 18,
+              backgroundColor: 'white',
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: '#e5e7eb',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Ionicons name="arrow-back" size={18} color="#111827" style={{ marginRight: 6 }} />
+            <Text style={{ color: '#111827', fontWeight: '600', fontSize: 14 }}>
+              Back
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              if (!canProceedFromItems()) {
+                setError('form', 'Please add at least one valid item');
+                return;
+              }
+              transitionToStep('review');
+            }}
+            disabled={!canProceedFromItems()}
+            activeOpacity={0.9}
+            style={{
+              flex: 1,
+              backgroundColor: canProceedFromItems() ? '#111827' : '#f3f4f6',
+              borderRadius: 12,
+              paddingVertical: 14,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: canProceedFromItems() ? 0.15 : 0,
+              shadowRadius: 4,
+              elevation: canProceedFromItems() ? 3 : 0,
+              borderWidth: canProceedFromItems() ? 0 : 1,
+              borderColor: '#e5e7eb',
+            }}
+          >
+            <Text style={{
+              color: canProceedFromItems() ? 'white' : '#9ca3af',
+              fontWeight: '600',
+              fontSize: 15,
+              marginRight: 6,
+              letterSpacing: 0.5,
+            }}>
+              Review & Total
+            </Text>
+            <Ionicons name="arrow-forward" size={18} color={canProceedFromItems() ? 'white' : '#9ca3af'} />
+          </TouchableOpacity>
         </View>
       </View>
-
-      {/* Per-line total */}
-      <View className="mt-1 flex-row justify-between items-center">
-        <Text className="text-sm text-gray-600">Item Total:</Text>
-        <Text className="text-sm font-semibold text-gray-900">
-{formatCurrency(parseFloat(formItem.calculatedPrice || formItem.price || '0') || 0)}
-        </Text>
-      </View>
-
-      {/* Show stock error for this form item - below all fields */}
-      {formItem.stockError && (
-        <Text className="text-red-500 text-sm mt-2">{formItem.stockError}</Text>
-      )}
-    </View>
+    </Animated.View>
   );
+
+  // Step 3: Review & Total
+  const renderReviewStep = () => {
+    const validItems = formItems.filter(item => 
+      item.selectedItemId && 
+      parseFloat(item.price) > 0
+    );
+
+    return (
+      <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
+        <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
+          <ScrollView 
+            contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Customer Summary */}
+            <View style={{
+              backgroundColor: 'white',
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 14,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.05,
+              shadowRadius: 3,
+              elevation: 2,
+              borderWidth: 1,
+              borderColor: '#e5e7eb',
+            }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#6b7280', marginBottom: 12, letterSpacing: 1 }}>
+                CUSTOMER DETAILS
+              </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+              <Text style={{ fontSize: 13, color: '#6b7280' }}>Name:</Text>
+              <Text style={{ fontSize: 13, fontWeight: '500', color: '#1f2937' }}>
+                {customer.customerName}
+              </Text>
+            </View>
+            {balance.oldBalance > 0 && (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                <Text style={{ fontSize: 13, color: '#6b7280' }}>Old Balance:</Text>
+                <Text style={{ fontSize: 13, fontWeight: '500', color: '#dc2626' }}>
+                  {formatCurrency(balance.oldBalance)}
+                </Text>
+              </View>
+            )}
+            {balance.isPaid && balance.amountPaid > 0 && (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 13, color: '#6b7280' }}>Amount Paid:</Text>
+                <Text style={{ fontSize: 13, fontWeight: '500', color: '#10b981' }}>
+                  {formatCurrency(balance.amountPaid)}
+                </Text>
+              </View>
+            )}
+          </View>
+          
+          {/* Payment Status Badge - Prominent */}
+          <TouchableOpacity
+            onPress={() => transitionToStep('items')}
+            activeOpacity={0.8}
+            style={{
+              backgroundColor: 'white',
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 14,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.05,
+              shadowRadius: 3,
+              elevation: 2,
+              borderWidth: 2,
+              borderColor: balance.amountPaid >= receiptTotals.total ? '#10b981' : '#fbbf24',
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                <View style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  backgroundColor: balance.amountPaid >= receiptTotals.total ? '#10b981' : '#fbbf24',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginRight: 12,
+                }}>
+                  <Ionicons 
+                    name={balance.amountPaid >= receiptTotals.total ? 'checkmark-circle' : 'alert-circle'} 
+                    size={24} 
+                    color="white" 
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ 
+                    fontSize: 10, 
+                    color: '#6b7280', 
+                    fontWeight: '600', 
+                    marginBottom: 3,
+                    letterSpacing: 0.5 
+                  }}>
+                    PAYMENT STATUS
+                  </Text>
+                  <Text style={{ 
+                    fontSize: 16, 
+                    fontWeight: '700', 
+                    color: balance.amountPaid >= receiptTotals.total ? '#10b981' : '#d97706',
+                    letterSpacing: 0.3
+                  }}>
+                    {balance.amountPaid >= receiptTotals.total ? '✓ PAID RECEIPT' : '⚠ UNPAID RECEIPT'}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                    {balance.amountPaid >= receiptTotals.total 
+                      ? `Payment: ${formatCurrency(balance.amountPaid)}`
+                      : 'Tap to mark as paid'}
+                  </Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+            </View>
+          </TouchableOpacity>
+
+            {/* Items Summary */}
+            <View style={{
+              backgroundColor: 'white',
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 14,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.05,
+              shadowRadius: 3,
+              elevation: 2,
+              borderWidth: 1,
+              borderColor: '#e5e7eb',
+            }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#6b7280', marginBottom: 12, letterSpacing: 1 }}>
+                ITEMS ({validItems.length})
+              </Text>
+            {validItems.map((formItem, index) => {
+              const selectedItem = availableItems.find(item => item.id === formItem.selectedItemId);
+              return (
+                <View key={formItem.id} style={{
+                  paddingVertical: 10,
+                  borderBottomWidth: index < validItems.length - 1 ? 1 : 0,
+                  borderBottomColor: '#f3f4f6',
+                }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '500', color: '#1f2937', flex: 1 }}>
+                      {selectedItem?.item_name || 'Unknown Item'}
+                    </Text>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#1f2937' }}>
+                      {formatCurrency(parseFloat(formItem.calculatedPrice || formItem.price || '0') || 0)}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 11, color: '#9ca3af' }}>
+                    {formItem.kg}kg {formItem.gms ? `${formItem.gms}g` : ''} @ {formatCurrency(parseFloat(formItem.pricePerKg || '0'))}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+
+            {/* Total Breakdown */}
+            <View style={{
+              backgroundColor: 'white',
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 14,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.05,
+              shadowRadius: 3,
+              elevation: 2,
+              borderWidth: 1,
+              borderColor: '#e5e7eb',
+            }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#6b7280', marginBottom: 12, letterSpacing: 1 }}>
+                TOTAL BREAKDOWN
+              </Text>
+            
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+              <Text style={{ fontSize: 13, color: '#6b7280' }}>Subtotal:</Text>
+              <Text style={{ fontSize: 13, fontWeight: '500', color: '#1f2937' }}>
+                {formatCurrency(receiptTotals.subtotal)}
+              </Text>
+            </View>
+            
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={{ fontSize: 13, color: '#6b7280' }}>Tax ({taxRate}%):</Text>
+                <TouchableOpacity
+                  onPress={() => setShowTaxSettings(true)}
+                  style={{ marginLeft: 6, padding: 3 }}
+                >
+                  <Ionicons name="pencil" size={13} color="#2563eb" />
+                </TouchableOpacity>
+              </View>
+              <Text style={{ fontSize: 13, fontWeight: '500', color: '#1f2937' }}>
+                {formatCurrency(receiptTotals.tax)}
+              </Text>
+            </View>
+            
+              <View style={{
+                paddingVertical: 14,
+                paddingHorizontal: 16,
+                borderRadius: 12,
+                backgroundColor: '#111827',
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginTop: 4,
+              }}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: 'white' }}>Total:</Text>
+                <Text style={{ fontSize: 20, fontWeight: '700', color: 'white' }}>
+                  {formatCurrency(receiptTotals.total)}
+                </Text>
+              </View>
+
+              {balance.newBalance !== receiptTotals.total && (
+                <View style={{
+                  marginTop: 12,
+                  paddingVertical: 14,
+                  paddingHorizontal: 16,
+                  borderRadius: 12,
+                  backgroundColor: balance.newBalance > 0 ? '#fef2f2' : '#ecfdf5',
+                  borderWidth: 1,
+                  borderColor: balance.newBalance > 0 ? '#fecaca' : '#a7f3d0',
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: balance.newBalance > 0 ? '#991b1b' : '#065f46' }}>New Balance:</Text>
+                  <Text style={{ fontSize: 17, fontWeight: '700', color: balance.newBalance > 0 ? '#dc2626' : '#10b981' }}>
+                    {formatCurrency(balance.newBalance)}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </ScrollView>
+        </View>
+
+        {/* Action Buttons */}
+        <View style={{
+          backgroundColor: 'white',
+          borderTopWidth: 1,
+          borderTopColor: '#e5e7eb',
+          padding: 16,
+        }}>
+          <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
+            <TouchableOpacity
+              onPress={() => transitionToStep('items')}
+              activeOpacity={0.9}
+              style={{
+                paddingVertical: 12,
+                paddingHorizontal: 16,
+                backgroundColor: 'white',
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: '#e5e7eb',
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Ionicons name="arrow-back" size={16} color="#111827" style={{ marginRight: 6 }} />
+              <Text style={{ color: '#111827', fontWeight: '600', fontSize: 13 }}>
+                Back
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleClearForm}
+              activeOpacity={0.9}
+              style={{
+                paddingVertical: 12,
+                paddingHorizontal: 16,
+                backgroundColor: 'white',
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: '#e5e7eb',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={{ color: '#111827', fontWeight: '600', fontSize: 13 }}>
+                Clear
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <TouchableOpacity
+              onPress={handleCreateReceipt}
+              disabled={isProcessing}
+              activeOpacity={0.9}
+              style={{
+                flex: 1,
+                backgroundColor: '#10b981',
+                borderRadius: 12,
+                paddingVertical: 14,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: isProcessing ? 0.7 : 1,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.1,
+                shadowRadius: 4,
+                elevation: 3,
+              }}
+            >
+              {isProcessing && (
+                <ActivityIndicator size="small" color="white" style={{ marginRight: 6 }} />
+              )}
+              <Ionicons name="save-outline" size={18} color="white" style={{ marginRight: 6 }} />
+              <Text style={{
+                color: 'white',
+                fontWeight: '600',
+                fontSize: 14,
+                letterSpacing: 0.5,
+              }}>
+                Save
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handlePrint}
+              disabled={isProcessing}
+              activeOpacity={0.9}
+              style={{
+                flex: 1,
+                backgroundColor: '#111827',
+                borderRadius: 12,
+                paddingVertical: 14,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: isProcessing ? 0.7 : 1,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.15,
+                shadowRadius: 4,
+                elevation: 3,
+              }}
+            >
+              {isProcessing && (
+                <ActivityIndicator size="small" color="white" style={{ marginRight: 6 }} />
+              )}
+              <Ionicons name="print-outline" size={18} color="white" style={{ marginRight: 6 }} />
+              <Text style={{
+                color: 'white',
+                fontWeight: '600',
+                fontSize: 14,
+                letterSpacing: 0.5,
+              }}>
+                Print
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Animated.View>
+    );
+  };
 
   if (!visible) {
     return null;
@@ -574,350 +1450,60 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
       zIndex: 9999,
     }}>
       <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
+      
       {/* Header */}
-      <View
-        // Reduce top space while staying safely below the status bar / notch
-        style={{
-          backgroundColor: 'white',
-          paddingTop: Math.max((insets?.top || 0) - 20, 0),
-        }}
-      >
-        <View style={{
-          backgroundColor: 'white',
-          paddingHorizontal: 16,
-          paddingTop: 2,
-          paddingBottom: 4,
-        }}>
-        <View className="flex-row items-center justify-between">
-          <TouchableOpacity onPress={onClose} style={{
-            padding: 8,
-            backgroundColor: 'rgba(0, 0, 0, 0.1)',
-            borderRadius: 8,
-          }}>
-            <Ionicons name="arrow-back" size={24} color="#374151" />
-          </TouchableOpacity>
-          <Text style={{
-            color: '#374151',
-            fontSize: 20,
-            fontWeight: 'bold',
-          }}>Create Receipt</Text>
-          <TouchableOpacity 
-            onPress={addNewItemForm}
-            style={{
-              padding: 8,
-              backgroundColor: 'rgba(0, 0, 0, 0.1)',
-              borderRadius: 8,
-            }}
-          >
-            <Ionicons name="add" size={20} color="#374151" />
-          </TouchableOpacity>
-        </View>
-        </View>
-      </View>
-
-          <ScrollView 
-            className="flex-1"
-            keyboardShouldPersistTaps="handled"
-            nestedScrollEnabled={true}
-            contentContainerStyle={{ paddingBottom: 100, paddingHorizontal: 16, paddingTop: 4 }}
-            showsVerticalScrollIndicator={false}
-            style={{ zIndex: 1 }}
-          >
-            {/* Customer Information Section */}
-            <View className="mb-6" style={{ zIndex: showCustomerDropdown ? 20000 : 1000 }}>
-              <Text className="text-lg font-semibold text-gray-900 mb-3">Customer Information</Text>
-              
-              {/* Customer Name with Search */}
-              <View style={{ zIndex: showCustomerDropdown ? 20001 : 1001, position: 'relative', marginBottom: showCustomerDropdown ? 200 : 0 }}>
-                  <View className="flex-row items-center justify-between mb-2">
-                    <Text className="text-sm font-medium text-gray-700">
-                      Customer Name <Text className="text-red-500">*</Text>
-                    </Text>
-                    {customer.isNewCustomer && (
-                      <View className="px-2 py-1 bg-blue-100 rounded-full">
-                        <Text className="text-xs text-blue-600 font-medium">✨ New Customer</Text>
-                      </View>
-                    )}
-                  </View>
-                  <SearchableDropdown
-                    value={customer.customerName || ''}
-                    onChangeText={handleCustomerNameChange}
-                    onSelectCustomer={handleCustomerSelect}
-                    placeholder="Enter customer name"
-                    error={errors.customer}
-                    searchResults={customerSearchResults}
-                    isSearching={isSearchingCustomers}
-                    showDropdown={showCustomerDropdown}
-                    onFocus={handleCustomerFocus}
-                    onBlur={handleCustomerBlur}
-                    onSearch={handleCustomerSearch}
-                    onAddParty={handleAddParty}
-                  />
-                </View>
-                
-                {/* Balance Information */}
-                <View className="mt-4">
-                  <View className="flex-row items-center justify-between mb-2">
-                    <Text className="text-sm font-medium text-gray-700">Old Balance</Text>
-                    <View className="flex-row items-center">
-                      <Text className="text-xs text-gray-600 mr-2">{balance.isPaid ? 'Paid' : 'Not Paid'}</Text>
-                      <TouchableOpacity
-                        onPress={() => updateBalanceInfo({ isPaid: !balance.isPaid })}
-                        style={{
-                          width: 50,
-                          height: 28,
-                          borderRadius: 14,
-                          backgroundColor: balance.isPaid ? '#10b981' : '#d1d5db',
-                          justifyContent: 'center',
-                          paddingHorizontal: 3,
-                        }}
-                      >
-                        <View
-                          style={{
-                            width: 22,
-                            height: 22,
-                            borderRadius: 11,
-                            backgroundColor: 'white',
-                            transform: [{ translateX: balance.isPaid ? 22 : 0 }],
-                          }}
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                  <TextInput
-                    value={balance.oldBalance === 0 ? '' : balance.oldBalance.toString()}
-                    onChangeText={(value) => {
-                      // Allow empty string to show placeholder
-                      if (!value) {
-                        updateBalanceInfo({ oldBalance: 0 });
-                        return;
-                      }
-                      // Parse the number, removing any non-numeric characters except decimal point
-                      const cleanValue = value.replace(/[^0-9.]/g, '');
-                      const numValue = parseFloat(cleanValue) || 0;
-                      updateBalanceInfo({ oldBalance: numValue });
-                    }}
-                    placeholder="0.00"
-                    keyboardType="decimal-pad"
-                    className="border border-gray-300 rounded-lg px-3 py-3 text-base bg-white"
-                  />
-                  
-                  {/* Amount Paid - Only show when isPaid is true */}
-                  {balance.isPaid && (
-                    <View className="mt-3">
-                      <Text className="text-sm font-medium text-gray-700 mb-2">Amount Paid</Text>
-                      <TextInput
-                        value={balance.amountPaid === 0 ? '' : balance.amountPaid.toString()}
-                        onChangeText={(value) => {
-                          // Allow empty string to show placeholder
-                          if (!value) {
-                            updateBalanceInfo({ amountPaid: 0 });
-                            return;
-                          }
-                          // Parse the number, removing any non-numeric characters except decimal point
-                          const cleanValue = value.replace(/[^0-9.]/g, '');
-                          const numValue = parseFloat(cleanValue) || 0;
-                          updateBalanceInfo({ amountPaid: numValue });
-                        }}
-                        placeholder="0.00"
-                        keyboardType="decimal-pad"
-                        className="border border-gray-300 rounded-lg px-3 py-3 text-base bg-white"
-                      />
-                    </View>
-                  )}
-                  
-                  {/* New Balance Display */}
-                  <View className="mt-3 flex-row justify-between items-center bg-gray-50 rounded-lg p-3">
-                    <Text className="text-sm font-medium text-gray-700">New Balance:</Text>
-                    <Text className="text-base font-bold text-blue-600">
-{formatCurrency(balance.newBalance)}
-                    </Text>
-                  </View>
-                </View>
-            </View>
-
-            {/* Items Form Section */}
-            <View className="mb-3">
-              {/* Form-level errors */}
-              {errors.form && (
-                <View className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
-                  <Text className="text-red-700 text-sm font-medium">{errors.form}</Text>
-                </View>
-              )}
-              
-              {isLoadingItems ? (
-                <View className="bg-white rounded-lg p-8 items-center">
-                  <ActivityIndicator size="large" color="#3b82f6" />
-                  <Text className="text-gray-500 mt-2">Loading items...</Text>
-                </View>
-              ) : itemsError ? (
-                <View className="bg-red-50 border border-red-200 rounded-lg p-8 items-center">
-                  <Text className="text-red-600 text-center">{itemsError}</Text>
-                  <TouchableOpacity 
-                    onPress={() => setItemsLoading(true)}
-                    className="mt-4 px-4 py-2 bg-red-100 rounded-lg"
-                  >
-                    <Text className="text-red-600 font-medium">Retry</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                formItems.map((formItem, index) => renderItemForm(formItem, index))
-              )}
-            </View>
-
-            {/* Total Section */}
-            <View className="mb-3">
-              <View>
-                <Text className="text-lg font-semibold text-gray-900 mb-2">Total</Text>
-                
-                {/* Subtotal */}
-                <View className="flex-row justify-between items-center mb-1">
-                  <Text className="text-base text-gray-700">Subtotal:</Text>
-                  <Text className="text-base font-medium text-gray-900">
-{formatCurrency(receiptTotals.subtotal)}
-                  </Text>
-                </View>
-                
-                {/* Tax */}
-                <View className="flex-row justify-between items-center mb-1">
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Text className="text-base text-gray-700">Tax ({taxRate}%):</Text>
-                    <TouchableOpacity
-                      onPress={() => setShowTaxSettings(true)}
-                      style={{ marginLeft: 6, padding: 4 }}
-                      accessibilityLabel="Edit tax rate"
-                    >
-                      <Ionicons name="pencil" size={14} color="#2563eb" />
-                    </TouchableOpacity>
-                  </View>
-                  <Text className="text-base font-medium text-gray-900">
-{formatCurrency(receiptTotals.tax)}
-                  </Text>
-                </View>
-                
-                {/* Divider */}
-                <View className="border-t border-gray-200 my-2" />
-                
-                {/* Total */}
-                <View className="flex-row justify-between items-center">
-                  <Text className="text-lg font-bold text-gray-900">Total:</Text>
-                  <Text className="text-lg font-bold text-blue-600">
-{formatCurrency(receiptTotals.total)}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </ScrollView>
-
-      {/* Bottom Actions */}
       <View style={{
         backgroundColor: 'white',
-        borderTopWidth: 1,
-        borderTopColor: '#e5e7eb',
-        padding: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#e5e7eb',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 2,
       }}>
         <View style={{
+          paddingHorizontal: 16,
+          paddingVertical: 8,
           flexDirection: 'row',
-          gap: 8,
+          alignItems: 'center',
+          justifyContent: 'space-between',
         }}>
-          <TouchableOpacity
-            onPress={handleClearForm}
+          <TouchableOpacity 
+            onPress={onClose}
+            activeOpacity={0.7}
             style={{
-              backgroundColor: '#f3f4f6',
-              borderRadius: 8,
-              paddingVertical: 12,
-              paddingHorizontal: 16,
-              alignItems: 'center',
-            }}
-          >
-            <Text style={{
-              color: '#374151',
-              fontWeight: '600',
-              fontSize: 14,
-            }}>Clear</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            onPress={() => Alert.dialog(
-              'Are you sure you want to cancel?',
-              '❓ Confirm Cancel',
-              [
-                { text: 'No', style: 'cancel' },
-                { text: 'Yes', onPress: onClose, style: 'destructive' }
-              ]
-            )}
-            style={{
-              backgroundColor: '#d1d5db',
-              borderRadius: 8,
-              paddingVertical: 12,
-              paddingHorizontal: 16,
-              alignItems: 'center',
-            }}
-          >
-            <Text style={{
-              color: '#374151',
-              fontWeight: '600',
-              fontSize: 14,
-            }}>Cancel</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            onPress={handleCreateReceipt}
-            disabled={isProcessing}
-            style={{
-              flex: 1,
-              backgroundColor: '#10b981',
-              borderRadius: 8,
-              paddingVertical: 12,
-              flexDirection: 'row',
+              width: 36,
+              height: 36,
+              backgroundColor: '#f9fafb',
+              borderRadius: 10,
               alignItems: 'center',
               justifyContent: 'center',
-              opacity: isProcessing ? 0.7 : 1,
             }}
           >
-            {isProcessing && (
-              <ActivityIndicator size="small" color="white" style={{ marginRight: 8 }} />
-            )}
-            <Ionicons name="save-outline" size={16} color="white" style={{ marginRight: 4 }} />
-            <Text style={{
-              color: 'white',
-              fontWeight: '600',
-              fontSize: 14,
-            }}>
-              Create Receipt
-            </Text>
+            <Ionicons name="close" size={20} color="#111827" />
           </TouchableOpacity>
-          
-          <TouchableOpacity
-            onPress={handlePrint}
-            disabled={isProcessing}
-            style={{
-              flex: 1,
-              backgroundColor: '#3b82f6',
-              borderRadius: 8,
-              paddingVertical: 12,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: isProcessing ? 0.7 : 1,
-            }}
-          >
-            {isProcessing && (
-              <ActivityIndicator size="small" color="white" style={{ marginRight: 8 }} />
-            )}
-            <Ionicons name="print-outline" size={16} color="white" style={{ marginRight: 4 }} />
-            <Text style={{
-              color: 'white',
-              fontWeight: '600',
-              fontSize: 14,
-            }}>
-              Print
-            </Text>
-          </TouchableOpacity>
+          <Text style={{
+            fontSize: 16,
+            fontWeight: '700',
+            color: '#111827',
+            letterSpacing: -0.3,
+          }}>
+            Create Receipt
+          </Text>
+          <View style={{ width: 36, height: 36 }} />
         </View>
       </View>
-      
-      {/* Party Management Modal */}
+
+      {/* Step Indicator */}
+      {renderStepIndicator()}
+
+      {/* Step Content */}
+      {currentStep === 'customer' && renderCustomerStep()}
+      {currentStep === 'items' && renderItemsStep()}
+      {currentStep === 'review' && renderReviewStep()}
+
+      {/* Modals */}
       <Modal
         visible={showPartyManagement}
         animationType="slide"
@@ -927,7 +1513,6 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
         <PartyManagementScreen onBack={() => setShowPartyManagement(false)} />
       </Modal>
 
-      {/* Quick Tax Settings Modal */}
       <TaxSettingsModal
         visible={showTaxSettings}
         onClose={() => setShowTaxSettings(false)}
@@ -935,7 +1520,7 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({
           try {
             await loadTaxRate();
           } catch (e) {
-            console.log('Failed to refresh tax rate after update', e);
+            console.log('Failed to refresh tax rate', e);
           } finally {
             setShowTaxSettings(false);
           }

@@ -12,7 +12,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { parsePhoneNumber, isValidPhoneNumber } from 'libphonenumber-js';
-import { db } from '../config/firebase';
+import { getFirebaseDb, isFirebaseInitialized } from '../config/firebase';
 
 export interface PersonDetail {
   id: string;
@@ -46,6 +46,16 @@ class PersonDetailsService {
    */
   async createPersonDetail(data: CreatePersonDetailData): Promise<{ success: boolean; id?: string; error?: string }> {
     try {
+      const db = getFirebaseDb();
+      // Check if Firebase is initialized
+      if (!isFirebaseInitialized() || !db) {
+        console.log('📴 Firebase not initialized - cannot create person detail');
+        return {
+          success: false,
+          error: 'Cannot create party while offline. Please connect to internet.'
+        };
+      }
+      
       // Validate input data
       const validation = this.validatePersonDetail(data);
       if (!validation.isValid) {
@@ -104,6 +114,13 @@ class PersonDetailsService {
    */
   async getPersonDetails(): Promise<PersonDetail[]> {
     try {
+      const db = getFirebaseDb();
+      // Check if Firebase is initialized
+      if (!isFirebaseInitialized() || !db) {
+        console.log('📴 Firebase not initialized - cannot get person details');
+        return [];
+      }
+      
       const q = query(collection(db, this.collectionName), orderBy('createdAt', 'desc'));
       const querySnapshot = await getDocs(q);
       
@@ -128,13 +145,23 @@ class PersonDetailsService {
    */
   async updatePersonDetail(id: string, data: UpdatePersonDetailData): Promise<{ success: boolean; error?: string }> {
     try {
+      const db = getFirebaseDb();
+      // Check if Firebase is initialized
+      if (!isFirebaseInitialized() || !db) {
+        console.log('📴 Firebase not initialized - cannot update person detail');
+        return {
+          success: false,
+          error: 'Cannot update party while offline. Please connect to internet.'
+        };
+      }
+      
       // Validate ID
       if (!id || typeof id !== 'string') {
         return { success: false, error: 'Valid person ID is required' };
       }
       
       // Validate input data has at least one field to update
-      const hasData = data.personName || data.businessName || data.phoneNumber;
+      const hasData = data.personName || data.businessName || data.phoneNumber || data.balanceDue !== undefined;
       if (!hasData) {
         return { success: false, error: 'At least one field must be provided for update' };
       }
@@ -195,6 +222,16 @@ class PersonDetailsService {
    */
   async deletePersonDetail(id: string): Promise<{ success: boolean; error?: string }> {
     try {
+      const db = getFirebaseDb();
+      // Check if Firebase is initialized
+      if (!isFirebaseInitialized() || !db) {
+        console.log('📴 Firebase not initialized - cannot delete person detail');
+        return {
+          success: false,
+          error: 'Cannot delete party while offline. Please connect to internet.'
+        };
+      }
+      
       const docRef = doc(db, this.collectionName, id);
       await deleteDoc(docRef);
 
@@ -213,6 +250,15 @@ class PersonDetailsService {
     onUpdate: (persons: PersonDetail[]) => void,
     onError?: (error: Error) => void
   ): () => void {
+    const db = getFirebaseDb();
+    // Check if Firebase is initialized
+    if (!isFirebaseInitialized() || !db) {
+      console.log('📴 Firebase not initialized - skipping person details subscription');
+      // Return empty list and a no-op unsubscribe
+      onUpdate([]);
+      return () => {};
+    }
+    
     try {
       const q = query(collection(db, this.collectionName), orderBy('createdAt', 'desc'));
       

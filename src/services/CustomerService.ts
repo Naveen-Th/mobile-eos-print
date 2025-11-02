@@ -12,7 +12,7 @@ import {
   updateDoc,
   serverTimestamp
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { getFirebaseDb } from '../config/firebase';
 import FirebaseService from './FirebaseService';
 import { debounce } from '../utils';
 import PersonDetailsService, { PersonDetail, CreatePersonDetailData, UpdatePersonDetailData } from './PersonDetailsService';
@@ -187,6 +187,9 @@ class CustomerService {
     try {
       await this.firebaseService.initialize();
       
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
+      
       // Get all person details
       const personDetailsRef = collection(db, this.COLLECTION_NAME);
       const q = query(personDetailsRef, orderBy('updatedAt', 'desc'));
@@ -281,6 +284,13 @@ class CustomerService {
     }
 
     try {
+      const db = getFirebaseDb();
+      if (!db) {
+        console.error('Firestore not initialized');
+        this.isListeningToRealtime = false;
+        return;
+      }
+      
       const personDetailsRef = collection(db, this.COLLECTION_NAME);
       const q = query(personDetailsRef, orderBy('updatedAt', 'desc'));
 

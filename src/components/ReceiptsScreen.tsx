@@ -11,6 +11,7 @@ import {
 import { FirebaseReceipt } from '../services/ReceiptFirebaseService';
 import { useReceipts } from '../hooks/useSyncManager';
 import { formatCurrency, formatReceiptDate } from '../utils';
+import RecordPaymentModal from './RecordPaymentModal';
 
 interface ReceiptsScreenProps {
   // Add any props if needed
@@ -19,9 +20,10 @@ interface ReceiptsScreenProps {
 interface ReceiptDetailModalProps {
   receipt: FirebaseReceipt;
   onClose: () => void;
+  onPayClick?: (receipt: FirebaseReceipt) => void;
 }
 
-const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClose }) => {
+const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClose, onPayClick }) => {
   const getStatusStyle = (status: string) => {
     switch (status) {
       case 'printed':
@@ -271,12 +273,27 @@ const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ receipt, onClos
         
         {/* Action Footer */}
         <div className="bg-gray-50 border-t border-gray-100 px-8 py-6">
-          <button
-            onClick={onClose}
-            className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-4 px-6 rounded-2xl font-bold text-lg hover:from-blue-700 hover:to-blue-800 transition-all shadow-lg"
-          >
-            ✓ Close Details
-          </button>
+          <div className="flex gap-4">
+            {/* Show Pay button if receipt has pending balance */}
+            {receipt.newBalance !== undefined && receipt.newBalance > 0 && onPayClick && (
+              <button
+                onClick={() => {
+                  onPayClick(receipt);
+                  onClose();
+                }}
+                className="flex-1 bg-gradient-to-r from-green-600 to-green-700 text-white py-4 px-6 rounded-2xl font-bold text-lg hover:from-green-700 hover:to-green-800 transition-all shadow-lg"
+              >
+                💰 Record Payment ({formatCurrency(receipt.newBalance)} pending)
+              </button>
+            )}
+            
+            <button
+              onClick={onClose}
+              className={`${receipt.newBalance > 0 ? 'flex-1' : 'w-full'} bg-gradient-to-r from-blue-600 to-blue-700 text-white py-4 px-6 rounded-2xl font-bold text-lg hover:from-blue-700 hover:to-blue-800 transition-all shadow-lg`}
+            >
+              ✓ Close Details
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -304,6 +321,10 @@ export const ReceiptsScreen: React.FC<ReceiptsScreenProps> = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'printed' | 'exported'>('all');
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Payment modal state
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [receiptForPayment, setReceiptForPayment] = useState<FirebaseReceipt | null>(null);
 
   const loadReceipts = async () => {
     try {
@@ -520,6 +541,7 @@ export const ReceiptsScreen: React.FC<ReceiptsScreenProps> = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Balance</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Method</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
@@ -546,6 +568,24 @@ export const ReceiptsScreen: React.FC<ReceiptsScreenProps> = () => {
                       <div className="text-sm font-medium text-gray-900">{formatCurrency(receipt.total)}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
+                      {receipt.newBalance !== undefined ? (
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">{formatCurrency(receipt.newBalance)}</div>
+                          {receipt.newBalance > 0 ? (
+                            <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-800">
+                              Pending
+                            </span>
+                          ) : (
+                            <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                              Paid
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-gray-400">-</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900 capitalize">
                         {receipt.printMethod === 'pdf' ? 'PDF Export' : 'Thermal Print'}
                       </div>
@@ -561,12 +601,28 @@ export const ReceiptsScreen: React.FC<ReceiptsScreenProps> = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => setSelectedReceipt(receipt)}
-                        className="text-blue-600 hover:text-blue-900 transition-colors"
-                      >
-                        View Details
-                      </button>
+                      <div className="flex items-center justify-end space-x-2">
+                        {/* Pay Button - show if receipt has pending balance */}
+                        {receipt.newBalance !== undefined && receipt.newBalance > 0 && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReceiptForPayment(receipt);
+                              setShowPaymentModal(true);
+                            }}
+                            className="px-3 py-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-xs font-semibold"
+                          >
+                            💰 Pay
+                          </button>
+                        )}
+                        
+                        <button
+                          onClick={() => setSelectedReceipt(receipt)}
+                          className="text-blue-600 hover:text-blue-900 transition-colors"
+                        >
+                          View Details
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -580,7 +636,28 @@ export const ReceiptsScreen: React.FC<ReceiptsScreenProps> = () => {
       {selectedReceipt && (
         <ReceiptDetailModal 
           receipt={selectedReceipt} 
-          onClose={() => setSelectedReceipt(null)} 
+          onClose={() => setSelectedReceipt(null)}
+          onPayClick={(receipt) => {
+            setReceiptForPayment(receipt);
+            setShowPaymentModal(true);
+          }}
+        />
+      )}
+      
+      {/* Payment Modal */}
+      {showPaymentModal && receiptForPayment && (
+        <RecordPaymentModal
+          visible={showPaymentModal}
+          receipt={receiptForPayment}
+          onClose={() => {
+            setShowPaymentModal(false);
+            setReceiptForPayment(null);
+          }}
+          onPaymentRecorded={(transaction) => {
+            console.log('Payment recorded:', transaction);
+            // Refresh receipts to show updated balance
+            loadReceipts();
+          }}
         />
       )}
     </div>

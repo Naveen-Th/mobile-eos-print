@@ -7,7 +7,8 @@ import {
   Timestamp,
   limit,
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { db, isFirebaseInitialized } from '../config/firebase';
+import { database } from '../database';
 import FirebaseService from './FirebaseService';
 
 export interface SalesAnalytics {
@@ -70,6 +71,12 @@ class AnalyticsService {
    */
   async getSalesAnalytics(dateRange: DateRange): Promise<SalesAnalytics> {
     try {
+      // Check if Firebase is initialized (offline check)
+      if (!isFirebaseInitialized() || !db) {
+        console.log('📴 Firebase not initialized - using offline data for analytics');
+        return this.getSalesAnalyticsOffline(dateRange);
+      }
+      
       await this.firebaseService.initialize();
 
       const receiptsRef = collection(db, 'receipts');
@@ -283,6 +290,128 @@ class AnalyticsService {
       endDate: today,
     });
   }
+
+  /**
+   * Get sales analytics from local SQLite (offline mode)
+   */
+  private async getSalesAnalyticsOffline(dateRange: DateRange): Promise<SalesAnalytics> {
+    try {
+      if (!database) {
+        console.log('⚠️ Database not initialized');
+        return this.getEmptyAnalytics();
+      }
+
+      console.log('💾 Loading analytics from SQLite...');
+      
+      // Query receipts within date range
+      const startMs = dateRange.startDate.getTime();
+      const endMs = dateRange.endDate.getTime();
+      
+      const receipts = database.getAllSync(
+        `SELECT r.*, ri.item_id, ri.item_name, ri.quantity, ri.price, ri.total as item_total
+         FROM receipts r
+         LEFT JOIN receipt_items ri ON r.id = ri.receipt_id
+         WHERE r.date >= ? AND r.date <= ?
+         ORDER BY r.date DESC`,
+        [startMs, endMs]
+      );
+      
+      console.log(`Found ${receipts.length} receipt items in SQLite`);
+      
+      // Group by receipt ID to reconstruct receipts with items
+      const receiptsMap = new Map<string, any>();
+      receipts.forEach(row => {
+        const receiptId = row.id;
+        if (!receiptsMap.has(receiptId)) {
+          receiptsMap.set(receiptId, {
+            id: receiptId,
+            receipt_number: row.receipt_number,
+            customer_name: row.customer_name,
+            subtotal: row.subtotal,
+            tax: row.tax,
+            total: row.total,
+            date: new Date(row.date),
+            items: [],
+          });
+        }
+        
+        // Add item if exists
+        if (row.item_id) {
+          receiptsMap.get(receiptId).items.push({
+            id: row.item_id,
+            name: row.item_name,
+            quantity: row.quantity,
+            price: row.price,
+            total: row.item_total,
+          });
+        }
+      });
+      
+      const receiptsList = Array.from(receiptsMap.values());
+      
+      // Calculate metrics
+      const totalSales = receiptsList.reduce((sum, r) => sum + (r.total || 0), 0);
+      const totalTransactions = receiptsList.length;
+      const totalItems = receiptsList.reduce(
+        (sum, r) => sum + (r.items?.reduce((s: number, i: any) => s + (i.quantity || 0), 0) || 0),
+        0
+      );
+      const averageOrderValue = totalTransactions > 0 ? totalSales / totalTransactions : 0;
+
+      // Top selling items
+      const topSellingItems = this.calculateTopSellingItems(receiptsList);
+
+      // Sales by day
+      const salesByDay = this.calculateSalesByDay(receiptsList, dateRange);
+
+      // Sales by category (empty for SQLite as we don't have categories in receipt_items)
+      const salesByCategory: CategorySales[] = [];
+
+      // Customer stats
+      const customerStats = await this.calculateCustomerStats(receiptsList, dateRange);
+
+      console.log(`💾 Loaded analytics: ${totalTransactions} transactions, ${formatCurrency(totalSales)} revenue`);
+      
+      return {
+        totalSales,
+        totalTransactions,
+        totalItems,
+        averageOrderValue,
+        topSellingItems,
+        salesByDay,
+        salesByCategory,
+        customerStats,
+      };
+    } catch (error) {
+      console.error('❌ Error getting offline analytics:', error);
+      return this.getEmptyAnalytics();
+    }
+  }
+
+  /**
+   * Get empty analytics structure
+   */
+  private getEmptyAnalytics(): SalesAnalytics {
+    return {
+      totalSales: 0,
+      totalTransactions: 0,
+      totalItems: 0,
+      averageOrderValue: 0,
+      topSellingItems: [],
+      salesByDay: [],
+      salesByCategory: [],
+      customerStats: {
+        totalCustomers: 0,
+        repeatCustomers: 0,
+        newCustomers: 0,
+      },
+    };
+  }
+}
+
+// Helper function for formatting currency in logs
+function formatCurrency(amount: number): string {
+  return `₹${amount.toFixed(2)}`;
 }
 
 export default AnalyticsService;

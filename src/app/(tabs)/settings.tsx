@@ -23,6 +23,9 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { Language } from '../../locales';
 import CategoryManagementModal from '../../components/CategoryManagementModal';
 import { useNavigation } from '@react-navigation/native';
+import viewDatabase from '../../../view-database';
+import { checkFirebaseCollections, triggerManualSync } from '../../../trigger-sync';
+import BalanceSyncUtility from '../../services/BalanceSyncUtility';
 
 interface SettingItem {
   id: string;
@@ -53,6 +56,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
   const [userInitial, setUserInitial] = useState<string>('U');
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [currentTaxRate, setCurrentTaxRate] = useState<number>(8);
+  const [isSyncingBalances, setIsSyncingBalances] = useState(false);
   
   useEffect(() => {
     // Use passed user prop first, then fallback to auth service
@@ -78,6 +82,74 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
 
   const handleTaxRateUpdated = (newRate: number) => {
     setCurrentTaxRate(newRate);
+  };
+
+  const handleSyncAllBalances = async () => {
+    Alert.alert(
+      'Sync Customer Balances',
+      'This will recalculate all customer balances from receipts and update person_details. This may take a moment. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sync',
+          onPress: async () => {
+            setIsSyncingBalances(true);
+            try {
+              const result = await BalanceSyncUtility.syncAllCustomerBalances();
+              
+              if (result.success) {
+                Alert.alert(
+                  'Sync Complete',
+                  `Successfully synced ${result.syncedCount} customers.\n\nAll balances are now up to date.`,
+                  [{ text: 'OK' }]
+                );
+              } else {
+                Alert.alert(
+                  'Sync Completed with Errors',
+                  `Synced: ${result.syncedCount}\nFailed: ${result.failedCount}\n\nCheck console for details.`,
+                  [{ text: 'OK' }]
+                );
+              }
+            } catch (error) {
+              Alert.alert(
+                'Sync Failed',
+                `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                [{ text: 'OK' }]
+              );
+            } finally {
+              setIsSyncingBalances(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleBalanceReport = async () => {
+    setIsSyncingBalances(true);
+    try {
+      const report = await BalanceSyncUtility.generateBalanceReport();
+      
+      const discrepancyCount = report.customers.filter(c => c.hasDiscrepancy).length;
+      
+      Alert.alert(
+        'Balance Report',
+        `Total Customers: ${report.customers.length}\n` +
+        `Total Balance (Receipts): ₹${report.totalReceiptsBalance.toFixed(2)}\n` +
+        `Total Balance (Person Details): ₹${report.totalPersonDetailsBalance.toFixed(2)}\n` +
+        `Discrepancies: ${discrepancyCount} customers\n\n` +
+        `${discrepancyCount > 0 ? 'Run "Sync All Balances" to fix discrepancies.' : '✅ All balances are in sync!'}`,
+        [{ text: 'OK' }]
+      );
+    } catch (error) {
+      Alert.alert(
+        'Report Failed',
+        `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsSyncingBalances(false);
+    }
   };
   
   const settingsData: SettingItem[] = [
@@ -150,6 +222,20 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
       },
     },
     {
+      id: '4d',
+      title: 'Payment Reminders',
+      subtitle: 'Automate payment collection',
+      type: 'navigation',
+      icon: 'notifications-outline',
+      onPress: () => {
+        try {
+          navigation.navigate('PaymentRemindersScreen');
+        } catch (e) {
+          console.warn('Navigation failed:', e);
+        }
+      },
+    },
+    {
       id: '5',
       title: t('settings.receiptTemplate'),
       subtitle: t('settings.receiptTemplateSubtitle'),
@@ -188,6 +274,73 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
       type: 'navigation',
       icon: 'sync-outline',
       onPress: () => setShowSyncStatus(true),
+    },
+    {
+      id: '9a',
+      title: 'View Database',
+      subtitle: 'View SQLite database contents',
+      type: 'navigation',
+      icon: 'server-outline',
+      onPress: async () => {
+        try {
+          console.log('📊 Opening database viewer...');
+          await viewDatabase();
+          Alert.alert('Success', 'Database contents logged to console. Check Metro bundler logs.');
+        } catch (error) {
+          console.error('Error viewing database:', error);
+          Alert.alert('Error', 'Failed to view database. Check console for details.');
+        }
+      },
+    },
+    {
+      id: '9b',
+      title: 'Check Firebase',
+      subtitle: 'See what data exists in Firebase',
+      type: 'navigation',
+      icon: 'cloud-outline',
+      onPress: async () => {
+        try {
+          console.log('🔍 Checking Firebase collections...');
+          await checkFirebaseCollections();
+          Alert.alert('Success', 'Firebase collections checked. See console for details.');
+        } catch (error) {
+          console.error('Error checking Firebase:', error);
+          Alert.alert('Error', 'Failed to check Firebase. Check console for details.');
+        }
+      },
+    },
+    {
+      id: '9c',
+      title: 'Force Sync Now',
+      subtitle: 'Manually sync Firebase → SQLite',
+      type: 'navigation',
+      icon: 'refresh-outline',
+      onPress: async () => {
+        try {
+          console.log('🔄 Triggering manual sync...');
+          await triggerManualSync();
+          Alert.alert('Success', 'Sync completed! Run "View Database" to see updated data.');
+        } catch (error) {
+          console.error('Error during sync:', error);
+          Alert.alert('Error', 'Failed to sync. Check console for details.');
+        }
+      },
+    },
+    {
+      id: '9d',
+      title: '🔄 Sync All Balances',
+      subtitle: 'Fix customer balance discrepancies',
+      type: 'navigation',
+      icon: 'sync-circle-outline',
+      onPress: handleSyncAllBalances,
+    },
+    {
+      id: '9e',
+      title: '📊 Balance Report',
+      subtitle: 'Check for balance discrepancies',
+      type: 'navigation',
+      icon: 'analytics-outline',
+      onPress: handleBalanceReport,
     },
     {
       id: '10',

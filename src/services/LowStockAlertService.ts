@@ -6,7 +6,7 @@ import {
   doc,
   updateDoc,
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { getFirebaseDb, isFirebaseInitialized } from '../config/firebase';
 import FirebaseService from './FirebaseService';
 import { ItemDetails } from '../types';
 
@@ -50,6 +50,13 @@ class LowStockAlertService {
    */
   async getLowStockItems(): Promise<LowStockItem[]> {
     try {
+      const db = getFirebaseDb();
+      // Check if Firebase is initialized
+      if (!isFirebaseInitialized() || !db) {
+        console.log('📴 Firebase not initialized - cannot get low stock items');
+        return [];
+      }
+      
       await this.firebaseService.initialize();
 
       const itemsRef = collection(db, this.ITEMS_COLLECTION);

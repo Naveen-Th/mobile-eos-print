@@ -11,7 +11,7 @@ import {
   getDocs,
   serverTimestamp
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { db, isFirebaseInitialized } from '../config/firebase';
 import { useSyncStore, OptimisticUpdate } from '../store/syncStore';
 import { getCache, setCache } from '../utils/offlineStorage';
 
@@ -66,6 +66,12 @@ export function useRealtimeCollection<T = any>(
     
     if (!enabled) {
       console.log(`⏸️ Real-time listener for ${collectionName} is disabled`);
+      return;
+    }
+    
+    // Check if Firebase is initialized (offline check)
+    if (!isFirebaseInitialized() || !db) {
+      console.log(`📴 Firebase not initialized - skipping real-time listener for ${collectionName}`);
       return;
     }
     
@@ -234,6 +240,14 @@ export function useRealtimeCollection<T = any>(
     queryFn: async () => {
       // Fallback query function to fetch data when real-time listener hasn't loaded data yet
       console.log(`🔄 Fallback queryFn called for ${collectionName}`);
+      
+      // Check if Firebase is initialized
+      if (!isFirebaseInitialized() || !db) {
+        console.log(`📴 Firebase not initialized - serving from cache for ${collectionName}`);
+        const cached = await getCache<T[]>(`collection:${collectionName}`);
+        return cached || [];
+      }
+      
       try {
         const colRef = collection(db, collectionName);
         const snapshot = await getDocs(colRef);

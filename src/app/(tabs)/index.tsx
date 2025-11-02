@@ -112,6 +112,16 @@ const HomeScreen: React.FC = () => {
     Alert.alert('Backup', 'Backup sales data and settings');
   };
 
+  const handlePaymentReminders = () => {
+    console.log('=== handlePaymentReminders called ===');
+    try {
+      navigation.navigate('PaymentRemindersScreen');
+    } catch (e) {
+      console.warn('Navigation to payment reminders failed:', e);
+      Alert.alert('Payment Reminders', 'Navigate to payment reminders');
+    }
+  };
+
   const quickActions: QuickAction[] = [
     {
       id: '1',
@@ -160,6 +170,14 @@ const HomeScreen: React.FC = () => {
       icon: 'cloud-upload',
       gradientColors: ['#06b6d4', '#0891b2'],
       onPress: handleBackup,
+    },
+    {
+      id: '7',
+      title: 'Payment Reminders',
+      subtitle: 'Automate payment collection',
+      icon: 'notifications',
+      gradientColors: ['#ec4899', '#db2777'],
+      onPress: handlePaymentReminders,
     },
   ];
 

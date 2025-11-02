@@ -190,7 +190,7 @@ export const usePrinterStatus = (checkInterval: number = 5000) => {
       case 'offline':
         return 'cloud-offline';
       default:
-        return 'help-circle';
+        return 'help-circle'
     }
   }, []);
 

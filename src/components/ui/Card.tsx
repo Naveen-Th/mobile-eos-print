@@ -24,7 +24,7 @@ const Card: React.FC<CardProps> = ({ children, className = '', style, accent = '
   return (
     <View
       {...rest}
-      className={`bg-white rounded-2xl p-4 shadow-sm ${accentRing} ${className}`}
+      className={`bg-white rounded-2xl p-2 shadow-sm ${accentRing} ${className}`}
       style={style}
     >
       {children}

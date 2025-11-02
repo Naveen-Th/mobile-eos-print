@@ -6,6 +6,7 @@ import { generateId, generateReceiptNumber } from '../utils';
 import StockService from '../services/StockService';
 import ReceiptFirebaseService from '../services/ReceiptFirebaseService';
 import { getTaxRate } from '../services/TaxSettings';
+import BalanceTrackingService from '../services/BalanceTrackingService';
 
 // Form item interface for the receipt creation form
 interface FormItem {
@@ -324,21 +325,19 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
       
       calculateNewBalance: () => {
         const state = get();
-        const { oldBalance, isPaid, amountPaid } = state.balance;
+        const { oldBalance, amountPaid } = state.balance;
         const { total } = state.receiptTotals;
         
-        // Calculate new balance:
-        // If paid: oldBalance + total - amountPaid
-        // If not paid: oldBalance + total (no payment made)
-        let newBalance: number;
-        if (isPaid) {
-          newBalance = oldBalance + total - amountPaid;
-        } else {
-          newBalance = oldBalance + total;
-        }
+        // Calculate new balance: oldBalance + current receipt total - amount paid
+        // Payment priority: first covers old balance, then current receipt
+        const newBalance = oldBalance + total - amountPaid;
+        
+        // A receipt is only "paid" when the new balance is 0 or negative (fully settled)
+        const isPaid = newBalance <= 0.01; // Allow small rounding errors
         
         set((state) => {
-          state.balance.newBalance = newBalance;
+          state.balance.newBalance = Math.max(0, newBalance); // Never negative
+          state.balance.isPaid = isPaid;
         });
       },
 
@@ -555,6 +554,28 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
 
           const totals = state.calculateTotals();
 
+          // Validate payment amount
+          const totalDue = state.balance.oldBalance + totals.total;
+          if (state.balance.amountPaid > totalDue) {
+            console.warn(`⚠️ Payment (₹${state.balance.amountPaid}) exceeds total due (₹${totalDue}). Excess will be recorded as credit.`);
+            // You could choose to:
+            // 1. Auto-adjust: state.balance.amountPaid = totalDue;
+            // 2. Show warning and continue (current behavior)
+            // 3. Block and show error
+          }
+          
+          // Log payment breakdown for transparency
+          if (state.balance.amountPaid > 0) {
+            const paymentBreakdown = {
+              totalDue,
+              amountPaid: state.balance.amountPaid,
+              toOldBalance: Math.min(state.balance.amountPaid, state.balance.oldBalance),
+              toCurrentReceipt: Math.max(0, state.balance.amountPaid - state.balance.oldBalance),
+              excess: Math.max(0, state.balance.amountPaid - totalDue)
+            };
+            console.log('💰 Payment breakdown:', paymentBreakdown);
+          }
+
           // Fetch business details from person_details collection
           let businessName = '';
           let businessPhone = '';
@@ -610,6 +631,111 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
           
           if (!result.success) {
             return { success: false, error: result.error || 'Failed to create receipt' };
+          }
+
+          // PAYMENT LOGIC FIX:
+          // Only apply payment to old receipts if the payment EXCEEDS the current receipt total
+          // This ensures that marking current receipt as "PAID" doesn't accidentally pay old receipts
+          const paymentExcess = state.balance.amountPaid - totals.total;
+          
+          if (state.balance.oldBalance > 0 && paymentExcess > 0) {
+            try {
+              console.log(`🔄 Payment exceeds current receipt. Applying excess (₹${paymentExcess}) to old receipts...`);
+              
+              // Import Firebase services
+              const { getFirebaseDb } = await import('../config/firebase');
+              const { collection, query, where, getDocs, updateDoc, doc } = await import('firebase/firestore');
+              
+              const db = getFirebaseDb();
+              if (db && state.customer.customerName) {
+                // Get all unpaid receipts for this customer (excluding the current one)
+                const receiptsRef = collection(db, 'receipts');
+                const q = query(
+                  receiptsRef,
+                  where('customerName', '==', state.customer.customerName.trim())
+                );
+                const querySnapshot = await getDocs(q);
+                
+                // Calculate how much we can apply to old receipts (only the excess)
+                const amountForOldReceipts = Math.min(paymentExcess, state.balance.oldBalance);
+                let remainingPayment = amountForOldReceipts;
+                
+                console.log(`💰 Amount allocated for old receipts: ₹${amountForOldReceipts}`);
+                
+                // Process old receipts in order (oldest first)
+                const oldReceipts: any[] = [];
+                querySnapshot.forEach(docSnap => {
+                  const receiptData = docSnap.data();
+                  // Skip the current receipt we just created
+                  if (docSnap.id !== receipt.id) {
+                    const remainingBalance = receiptData.newBalance || (receiptData.oldBalance + receiptData.total - (receiptData.amountPaid || 0));
+                    if (remainingBalance > 0) {
+                      oldReceipts.push({ id: docSnap.id, ...receiptData, remainingBalance });
+                    }
+                  }
+                });
+                
+                // Sort by date (oldest first)
+                oldReceipts.sort((a, b) => {
+                  const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
+                  const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
+                  return dateA.getTime() - dateB.getTime();
+                });
+                
+                // Apply payment to old receipts
+                for (const oldReceipt of oldReceipts) {
+                  if (remainingPayment <= 0) break;
+                  
+                  const paymentToApply = Math.min(remainingPayment, oldReceipt.remainingBalance);
+                  const newAmountPaid = (oldReceipt.amountPaid || 0) + paymentToApply;
+                  const newBalance = oldReceipt.oldBalance + oldReceipt.total - newAmountPaid;
+                  const isPaid = newBalance <= 0.01; // Allow small rounding
+                  
+                  console.log(`  ✅ Updating receipt ${oldReceipt.receiptNumber}: paying ₹${paymentToApply}, new balance: ₹${newBalance}`);
+                  
+                  // Update the receipt
+                  const receiptRef = doc(db, 'receipts', oldReceipt.id);
+                  await updateDoc(receiptRef, {
+                    amountPaid: newAmountPaid,
+                    newBalance: newBalance,
+                    isPaid: isPaid,
+                    updatedAt: new Date()
+                  });
+                  
+                  remainingPayment -= paymentToApply;
+                }
+                
+                console.log(`✅ Successfully updated ${oldReceipts.length} old receipt(s)`);
+              }
+            } catch (updateError) {
+              console.error('Error updating old receipts:', updateError);
+              // Don't fail receipt creation if old receipt update fails
+            }
+          } else if (paymentExcess > 0) {
+            console.log(`ℹ️ No old balance to pay. Payment is only for current receipt.`);
+          } else {
+            console.log(`ℹ️ Payment (₹${state.balance.amountPaid}) covers only current receipt (₹${totals.total}). No excess to apply to old receipts.`);
+          }
+
+          // Sync customer balance in person_details from all receipts
+          // This calculates total balance from all unpaid receipts (source of truth)
+          try {
+            const balanceSyncResult = await BalanceTrackingService.syncCustomerBalance(
+              state.customer.customerName,
+              businessName || undefined,
+              businessPhone || undefined
+            );
+            
+            if (!balanceSyncResult.success) {
+              console.warn('Balance sync warning:', balanceSyncResult.error);
+              // Don't fail the receipt creation if balance sync fails
+              // The balance is still tracked in the receipt
+            } else {
+              console.log(`✅ Customer balance synced successfully in person_details: ₹${balanceSyncResult.totalBalance}`);
+            }
+          } catch (balanceError) {
+            console.error('Error syncing customer balance:', balanceError);
+            // Don't fail the receipt creation if balance sync fails
           }
 
           // Update stock levels ONLY after successful receipt creation

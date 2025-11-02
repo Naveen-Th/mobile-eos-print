@@ -43,6 +43,10 @@ interface ReceiptData {
     address: string;
     phone: string;
   };
+  customerInfo?: {
+    name?: string;
+    phone?: string;
+  };
   items: Array<{
     name: string;
     price: number;
@@ -55,6 +59,7 @@ interface ReceiptData {
   paymentMethod: string;
   receiptNumber: string;
   timestamp: Date;
+  isPaid?: boolean;
 }
 
 class ThermalPrinterService {
@@ -370,6 +375,50 @@ class ThermalPrinterService {
   }
 
   /**
+   * Simple test print to check if printer can print text
+   */
+  async simpleTestPrint(): Promise<void> {
+    if (!this.connectedPrinter) {
+      throw new Error('No printer connected');
+    }
+
+    if (!BluetoothEscposPrinter) {
+      throw new Error('Bluetooth printer module not available');
+    }
+
+    try {
+      console.log('Starting simple test print...');
+      
+      // Build test text
+      const testText = '\n' +
+        '=== TEST PRINT ===\n' +
+        '\n' +
+        'If you can read this,\n' +
+        'your printer is working!\n' +
+        '\n' +
+        'Test characters: ABC 123\n' +
+        'Special chars: @ # $ %\n' +
+        '==================\n' +
+        '\n\n\n';
+      
+      console.log('Test text:', testText);
+      
+      // Initialize and print
+      console.log('Initializing printer...');
+      await BluetoothEscposPrinter.printerInit();
+      
+      console.log('Sending text to printer...');
+      await BluetoothEscposPrinter.printText(testText, {});
+      
+      console.log('✓ Simple test print completed');
+    } catch (error) {
+      console.error('❌ Simple test print failed:', error);
+      console.error('Error details:', JSON.stringify(error));
+      throw error;
+    }
+  }
+
+  /**
    * Print a test receipt
    */
   async testPrint(): Promise<void> {
@@ -415,94 +464,94 @@ class ThermalPrinterService {
     }
 
     try {
-      const { storeInfo, items, subtotal, tax, total, paymentMethod, receiptNumber, timestamp } = receiptData;
+      const { storeInfo, customerInfo, items, subtotal, tax, total, paymentMethod, receiptNumber, timestamp, isPaid } = receiptData;
       
-      // Initialize printer
+      console.log('Starting print job...');
+      console.log('Receipt data:', { receiptNumber, items: items.length, total });
+      
+      // Build the entire receipt as a single string first
+      let receiptText = '';
+      
+      // Header
+      receiptText += '\n';
+      receiptText += '      ' + (storeInfo.name || 'Store') + '\n';
+      receiptText += '\n';
+      if (storeInfo.address) {
+        receiptText += '    ' + storeInfo.address + '\n';
+      }
+      if (storeInfo.phone) {
+        receiptText += '    ' + storeInfo.phone + '\n';
+      }
+      receiptText += '\n';
+      receiptText += '================================\n';
+      
+      // Receipt info
+      receiptText += 'Receipt #: ' + receiptNumber + '\n';
+      receiptText += 'Date: ' + timestamp.toLocaleDateString() + '\n';
+      receiptText += 'Time: ' + timestamp.toLocaleTimeString() + '\n';
+      
+      // Customer info
+      if (customerInfo?.name) {
+        receiptText += 'Customer: ' + customerInfo.name + '\n';
+      }
+      if (customerInfo?.phone) {
+        receiptText += 'Phone: ' + customerInfo.phone + '\n';
+      }
+      
+      // Paid status
+      if (isPaid !== undefined) {
+        receiptText += 'Status: ' + (isPaid ? 'PAID' : 'UNPAID') + '\n';
+      }
+      
+      receiptText += '================================\n';
+      receiptText += '\n';
+      
+      // Items
+      for (const item of items) {
+        receiptText += (item.name || 'Item') + '\n';
+        receiptText += '  ' + item.quantity + ' x Rs.' + item.price.toFixed(2);
+        receiptText += ' = Rs.' + item.total.toFixed(2) + '\n';
+      }
+      
+      receiptText += '\n';
+      receiptText += '--------------------------------\n';
+      
+      // Totals
+      receiptText += 'Subtotal:      Rs.' + subtotal.toFixed(2) + '\n';
+      receiptText += 'Tax:           Rs.' + tax.toFixed(2) + '\n';
+      receiptText += 'TOTAL:         Rs.' + total.toFixed(2) + '\n';
+      
+      receiptText += '================================\n';
+      receiptText += 'Payment: ' + paymentMethod + '\n';
+      receiptText += '================================\n';
+      receiptText += '\n';
+      receiptText += '  Thank you for your business!\n';
+      receiptText += '\n\n\n';
+      
+      console.log('Receipt text prepared, length:', receiptText.length);
+      console.log('Receipt preview:', receiptText.substring(0, 200));
+      
+      // Now print the entire receipt at once
+      console.log('Initializing printer...');
       await BluetoothEscposPrinter.printerInit();
       
-      // Set alignment to center
-      await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.CENTER);
+      console.log('Printing text...');
+      await BluetoothEscposPrinter.printText(receiptText, {});
       
-      // Print store name (large, bold)
-      await BluetoothEscposPrinter.printText(storeInfo.name + '\n', {
-        widthtimes: 2,
-        heigthtimes: 2,
-      });
-      
-      // Print store details
-      await BluetoothEscposPrinter.setBlob(0);
-      await BluetoothEscposPrinter.printText(storeInfo.address + '\n', {});
-      await BluetoothEscposPrinter.printText(storeInfo.phone + '\n', {});
-      
-      // Print separator
-      await BluetoothEscposPrinter.printText('================================\n', {});
-      
-      // Print receipt info
-      await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.LEFT);
-      await BluetoothEscposPrinter.printText(`Receipt #: ${receiptNumber}\n`, {});
-      await BluetoothEscposPrinter.printText(
-        `Date: ${timestamp.toLocaleDateString()} ${timestamp.toLocaleTimeString()}\n`,
-        {}
-      );
-      
-      await BluetoothEscposPrinter.printText('================================\n', {});
-      
-      // Print items
-      for (const item of items) {
-        // Item name
-        await BluetoothEscposPrinter.printText(item.name + '\n', {});
-        
-        // Item details (quantity, price, total)
-        const itemLine = `  ${item.quantity} x $${item.price.toFixed(2)} = $${item.total.toFixed(2)}`;
-        await BluetoothEscposPrinter.printText(itemLine + '\n', {});
-      }
-      
-      // Print separator
-      await BluetoothEscposPrinter.printText('--------------------------------\n', {});
-      
-      // Print totals
-      await BluetoothEscposPrinter.printColumn(
-        [18, 10],
-        [BluetoothEscposPrinter.ALIGN.LEFT, BluetoothEscposPrinter.ALIGN.RIGHT],
-        ['Subtotal:', `$${subtotal.toFixed(2)}`],
-        {}
-      );
-      
-      await BluetoothEscposPrinter.printColumn(
-        [18, 10],
-        [BluetoothEscposPrinter.ALIGN.LEFT, BluetoothEscposPrinter.ALIGN.RIGHT],
-        ['Tax:', `$${tax.toFixed(2)}`],
-        {}
-      );
-      
-      await BluetoothEscposPrinter.printColumn(
-        [18, 10],
-        [BluetoothEscposPrinter.ALIGN.LEFT, BluetoothEscposPrinter.ALIGN.RIGHT],
-        ['Total:', `$${total.toFixed(2)}`],
-        { widthtimes: 1, heigthtimes: 1 }
-      );
-      
-      await BluetoothEscposPrinter.printText('================================\n', {});
-      
-      // Payment method
-      await BluetoothEscposPrinter.printText(`Payment: ${paymentMethod}\n`, {});
-      
-      await BluetoothEscposPrinter.printText('================================\n', {});
-      
-      // Thank you message
-      await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.CENTER);
-      await BluetoothEscposPrinter.printText('Thank you for your business!\n', {});
-      
-      // Feed paper and cut
-      await BluetoothEscposPrinter.printText('\n\n\n', {});
-      
+      // Cut paper if enabled
       if (this.config.autoCutEnabled) {
-        await BluetoothEscposPrinter.cutOnePoint();
+        try {
+          console.log('Cutting paper...');
+          await BluetoothEscposPrinter.cutOnePoint();
+        } catch (cutError) {
+          console.warn('Could not cut paper:', cutError);
+        }
       }
       
-      console.log('Receipt printed successfully');
+      console.log('✓ Receipt printed successfully');
     } catch (error) {
-      console.error('Failed to print receipt:', error);
+      console.error('❌ Failed to print receipt:', error);
+      console.error('Error details:', JSON.stringify(error));
       throw error;
     }
   }
@@ -511,7 +560,7 @@ class ThermalPrinterService {
    * Format receipt content for thermal printing
    */
   private formatReceiptContent(receiptData: ReceiptData): string {
-    const { storeInfo, items, subtotal, tax, total, paymentMethod, receiptNumber, timestamp } = receiptData;
+    const { storeInfo, customerInfo, items, subtotal, tax, total, paymentMethod, receiptNumber, timestamp, isPaid } = receiptData;
     
     let content = '';
     
@@ -523,18 +572,32 @@ class ThermalPrinterService {
     content += `Receipt #: ${receiptNumber}\n`;
     content += `Date: ${timestamp.toLocaleDateString()}\n`;
     content += `Time: ${timestamp.toLocaleTimeString()}\n`;
+    
+    // Customer info
+    if (customerInfo?.name) {
+      content += `Customer: ${customerInfo.name}\n`;
+    }
+    if (customerInfo?.phone) {
+      content += `Phone: ${customerInfo.phone}\n`;
+    }
+    
+    // Paid status
+    if (isPaid !== undefined) {
+      content += `Status: ${isPaid ? 'PAID' : 'UNPAID'}\n`;
+    }
+    
     content += '================================\n';
     
-    // Items
+    // Items - Using Rs. instead of ₹ for compatibility
     items.forEach((item) => {
       content += `${item.name}\n`;
-      content += `  ${item.quantity} x $${item.price.toFixed(2)} = $${item.total.toFixed(2)}\n`;
+      content += `  ${item.quantity} x Rs.${item.price.toFixed(2)} = Rs.${item.total.toFixed(2)}\n`;
     });
     
     content += '--------------------------------\n';
-    content += `Subtotal:     $${subtotal.toFixed(2)}\n`;
-    content += `Tax:          $${tax.toFixed(2)}\n`;
-    content += `Total:        $${total.toFixed(2)}\n`;
+    content += `Subtotal:     Rs.${subtotal.toFixed(2)}\n`;
+    content += `Tax:          Rs.${tax.toFixed(2)}\n`;
+    content += `Total:        Rs.${total.toFixed(2)}\n`;
     content += '================================\n';
     content += `Payment: ${paymentMethod}\n`;
     content += '================================\n';
@@ -650,6 +713,46 @@ class ThermalPrinterService {
       console.error('Connection verification failed:', error);
       return false;
     }
+  }
+
+  /**
+   * Clear all stored Bluetooth devices from AsyncStorage
+   */
+  async clearStoredDevices(): Promise<void> {
+    try {
+      await AsyncStorage.removeItem('connectedPrinter');
+      this.connectedPrinter = null;
+      console.log('Cleared stored Bluetooth devices');
+    } catch (error) {
+      console.error('Failed to clear stored devices:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Start real-time connection monitoring
+   */
+  startConnectionMonitoring(callback: (isConnected: boolean) => void): NodeJS.Timeout {
+    const interval = setInterval(async () => {
+      const isConnected = await this.verifyConnection();
+      callback(isConnected);
+      
+      // If connection lost, clear connected printer
+      if (!isConnected && this.connectedPrinter) {
+        console.log('Connection lost, clearing connected printer');
+        this.connectedPrinter = null;
+        await AsyncStorage.removeItem('connectedPrinter');
+      }
+    }, 5000); // Check every 5 seconds
+    
+    return interval;
+  }
+
+  /**
+   * Stop connection monitoring
+   */
+  stopConnectionMonitoring(interval: NodeJS.Timeout): void {
+    clearInterval(interval);
   }
 }
 

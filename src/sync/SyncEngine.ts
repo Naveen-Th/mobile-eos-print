@@ -1,5 +1,5 @@
 import { collection, doc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, Timestamp } from 'firebase/firestore';
-import { db as firebaseDb } from '../config/firebase';
+import { db as firebaseDb, isFirebaseInitialized } from '../config/firebase';
 import {
   database,
   itemsCollection,
@@ -58,6 +58,17 @@ class SyncEngine {
   public async pullFromFirebase(): Promise<SyncResult> {
     console.log('🔄 Pulling data from Firebase...');
     const result: SyncResult = { success: true, synced: 0, failed: 0, errors: [] };
+
+    // Check if Firebase is initialized (offline check)
+    if (!isFirebaseInitialized() || !firebaseDb) {
+      console.log('📴 Firebase not initialized - skipping pull (offline mode)');
+      return {
+        success: false,
+        synced: 0,
+        failed: 0,
+        errors: ['Firebase not initialized - app is offline'],
+      };
+    }
 
     try {
       // Pull items
@@ -324,6 +335,17 @@ class SyncEngine {
   public async pushToFirebase(): Promise<SyncResult> {
     console.log('🔄 Starting push to Firebase...');
     const result: SyncResult = { success: true, synced: 0, failed: 0, errors: [] };
+
+    // Check if Firebase is initialized (offline check)
+    if (!isFirebaseInitialized() || !firebaseDb) {
+      console.log('📴 Firebase not initialized - skipping push (offline mode)');
+      return {
+        success: false,
+        synced: 0,
+        failed: 0,
+        errors: ['Firebase not initialized - app is offline'],
+      };
+    }
 
     try {
       if (!database) {

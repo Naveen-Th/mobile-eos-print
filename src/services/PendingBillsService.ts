@@ -13,7 +13,8 @@ import {
   increment,
   writeBatch,
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { getFirebaseDb, isFirebaseInitialized } from '../config/firebase';
+import { database } from '../database';
 import FirebaseService from './FirebaseService';
 import PersonDetailsService from './PersonDetailsService';
 import ReceiptFirebaseService, { FirebaseReceipt } from './ReceiptFirebaseService';
@@ -25,6 +26,7 @@ export interface PendingBill {
   businessName?: string;
   businessPhone?: string;
   amount: number;
+  oldBalance?: number; // Previous balance from earlier transactions
   paidAmount: number;
   remainingBalance: number;
   receiptId?: string;
@@ -93,6 +95,9 @@ class PendingBillsService {
     try {
       await this.firebaseService.initialize();
 
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
+      
       const paidAmount = billData.paidAmount || 0;
       const remainingBalance = billData.amount - paidAmount;
       const status = this.calculateBillStatus(billData.amount, paidAmount);
@@ -142,6 +147,9 @@ class PendingBillsService {
     try {
       await this.firebaseService.initialize();
 
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
+      
       // Check if this is a receipt-based bill (has receiptId or no customerId)
       const billRef = doc(db, this.BILLS_COLLECTION, paymentData.billId);
       const billDoc = await getDoc(billRef);
@@ -224,9 +232,17 @@ class PendingBillsService {
 
       await batch.commit();
 
-      // Update customer balance
-      if (bill.customerId) {
-        await this.updateCustomerBalance(bill.customerId, -paymentData.amount);
+      // Sync customer balance from all receipts after payment
+      if (bill.customerId || bill.customerName) {
+        try {
+          const { default: BalanceTrackingService } = await import('./BalanceTrackingService');
+          const syncResult = await BalanceTrackingService.syncCustomerBalance(bill.customerName);
+          if (syncResult.success) {
+            console.log(`✅ Balance synced for ${bill.customerName}: ₹${syncResult.totalBalance}`);
+          }
+        } catch (error) {
+          console.error('Error syncing balance after payment:', error);
+        }
       }
     } catch (error) {
       console.error('Error recording payment:', error);
@@ -240,6 +256,13 @@ class PendingBillsService {
    */
   async getAllPendingBills(): Promise<PendingBill[]> {
     try {
+      // Check if Firebase is initialized (offline check)
+      const db = getFirebaseDb();
+      if (!isFirebaseInitialized() || !db) {
+        console.log('📴 Firebase not initialized - using offline data for pending bills');
+        return this.getAllPendingBillsOffline();
+      }
+      
       await this.firebaseService.initialize();
 
       const bills: PendingBill[] = [];
@@ -346,6 +369,16 @@ class PendingBillsService {
         if (remainingBalance > 0) {
           console.log('✅ ADDING TO PENDING BILLS');
           addedCount++;
+          
+          // Determine status: partial if some payment made but not full, pending if no payment
+          let status: 'pending' | 'partial' | 'paid' | 'overdue' = 'pending';
+          if (amountPaid > 0 && remainingBalance > 0) {
+            status = 'partial'; // Some payment made, but still owed
+          } else if (amountPaid === 0) {
+            status = 'pending'; // No payment made
+          }
+          // Note: remainingBalance <= 0 means fully paid, but those are filtered out above
+          
           bills.push({
             id: doc.id,
             customerId: '', // Receipts don't have customerId, use name for grouping
@@ -353,13 +386,14 @@ class PendingBillsService {
             businessName: receipt.businessName,
             businessPhone: receipt.businessPhone,
             amount: total,
+            oldBalance: oldBalance, // Include previous balance
             paidAmount: amountPaid,
             remainingBalance: remainingBalance,
             receiptId: receipt.id,
             receiptNumber: receipt.receiptNumber,
             notes: undefined,
             dueDate: undefined,
-            status: amountPaid > 0 ? 'partial' : 'pending',
+            status: status,
             createdAt: receipt.createdAt?.toDate() || receipt.date.toDate(),
             updatedAt: receipt.updatedAt?.toDate() || receipt.date.toDate(),
           });
@@ -392,6 +426,9 @@ class PendingBillsService {
   async getCustomerBills(customerId: string): Promise<PendingBill[]> {
     try {
       await this.firebaseService.initialize();
+
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
 
       const billsRef = collection(db, this.BILLS_COLLECTION);
       const q = query(
@@ -452,6 +489,9 @@ class PendingBillsService {
     try {
       await this.firebaseService.initialize();
 
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
+
       const billsRef = collection(db, this.BILLS_COLLECTION);
       const q = query(
         billsRef,
@@ -479,6 +519,9 @@ class PendingBillsService {
   async getBillPayments(billId: string): Promise<Payment[]> {
     try {
       await this.firebaseService.initialize();
+
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
 
       const paymentsRef = collection(db, this.PAYMENTS_COLLECTION);
       const q = query(
@@ -516,6 +559,9 @@ class PendingBillsService {
   async deleteBill(billId: string): Promise<void> {
     try {
       await this.firebaseService.initialize();
+
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
 
       // Get bill first to update customer balance
       const billRef = doc(db, this.BILLS_COLLECTION, billId);
@@ -561,6 +607,9 @@ class PendingBillsService {
    */
   private async updateCustomerBalance(customerId: string, amountChange: number): Promise<void> {
     try {
+      const db = getFirebaseDb();
+      if (!db) return; // Skip if Firebase not initialized
+
       const personDetailsService = PersonDetailsService.getInstance();
       const customerRef = doc(db, 'person_details', customerId);
       const customerDoc = await getDoc(customerRef);
@@ -623,6 +672,72 @@ class PendingBillsService {
         overdueCount: 0,
         partialPaymentCount: 0,
       };
+    }
+  }
+
+  /**
+   * Get pending bills from local SQLite (offline mode)
+   */
+  private async getAllPendingBillsOffline(): Promise<PendingBill[]> {
+    try {
+      if (!database) {
+        console.log('⚠️ Database not initialized');
+        return [];
+      }
+
+      console.log('💾 Loading pending bills from SQLite...');
+      
+      // Query receipts that have a remaining balance (newBalance > 0 or not fully paid)
+      // This includes:
+      // 1. Receipts where printed = 0 or 1 (any receipt)
+      // 2. Filter by status or check balance
+      const receipts = database.getAllSync(
+        `SELECT * FROM receipts 
+         WHERE status != 'paid' OR status IS NULL
+         ORDER BY date DESC`
+      );
+      
+      console.log(`Found ${receipts.length} receipts in SQLite`);
+      
+      const bills: PendingBill[] = [];
+      
+      for (const receipt of receipts) {
+        // Calculate balance
+        const subtotal = receipt.subtotal || 0;
+        const tax = receipt.tax || 0;
+        const total = receipt.total || (subtotal + tax);
+        
+        // For SQLite, we don't have oldBalance/newBalance/amountPaid easily
+        // So we assume if status is not 'paid', the full amount is pending
+        const remainingBalance = total;
+        
+        // Skip if no balance
+        if (remainingBalance <= 0) continue;
+        
+        bills.push({
+          id: receipt.id || receipt.firebase_id || String(receipt.receipt_number),
+          customerId: '',
+          customerName: receipt.customer_name || 'Walk-in Customer',
+          businessName: undefined,
+          businessPhone: undefined,
+          amount: total,
+          paidAmount: 0, // We don't track partial payments in SQLite receipts table
+          remainingBalance: remainingBalance,
+          receiptId: receipt.id,
+          receiptNumber: receipt.receipt_number,
+          notes: receipt.notes,
+          dueDate: undefined,
+          status: 'pending',
+          createdAt: new Date(receipt.date || Date.now()),
+          updatedAt: new Date(receipt.updated_at || receipt.date || Date.now()),
+        });
+      }
+      
+      console.log(`💾 Loaded ${bills.length} pending bills from SQLite`);
+      return bills;
+    } catch (error) {
+      console.error('❌ Error getting offline pending bills:', error);
+      return [];
     }
   }
 }

@@ -10,7 +10,7 @@ import {
   orderBy,
   where,
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { getFirebaseDb } from '../config/firebase';
 import FirebaseService from './FirebaseService';
 
 export interface Category {
@@ -68,6 +68,8 @@ class CategoryService {
 
       await this.firebaseService.initialize();
 
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
       const categoriesRef = collection(db, this.COLLECTION_NAME);
       const q = query(categoriesRef, orderBy('name', 'asc'));
       const querySnapshot = await getDocs(q);
@@ -110,6 +112,8 @@ class CategoryService {
         throw new Error('Category with this name already exists');
       }
 
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
       const categoriesRef = collection(db, this.COLLECTION_NAME);
       const docRef = await addDoc(categoriesRef, {
         ...categoryData,
@@ -143,6 +147,8 @@ class CategoryService {
     try {
       await this.firebaseService.initialize();
 
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
       const categoryRef = doc(db, this.COLLECTION_NAME, categoryId);
       await updateDoc(categoryRef, {
         ...updates,
@@ -172,6 +178,8 @@ class CategoryService {
         );
       }
 
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
       const categoryRef = doc(db, this.COLLECTION_NAME, categoryId);
       await deleteDoc(categoryRef);
 
@@ -190,6 +198,8 @@ class CategoryService {
     try {
       await this.firebaseService.initialize();
 
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
       const categoriesRef = collection(db, this.COLLECTION_NAME);
       const q = query(categoriesRef, where('name', '==', name));
       const querySnapshot = await getDocs(q);

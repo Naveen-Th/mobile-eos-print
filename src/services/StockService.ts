@@ -10,7 +10,7 @@ import {
   writeBatch,
   serverTimestamp
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { getFirebaseDb } from '../config/firebase';
 import { ItemDetails } from '../types';
 
 interface StockUpdateData {
@@ -47,6 +47,9 @@ class StockService {
         throw new Error('Quantity too large. Maximum allowed is 999,999');
       }
 
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
+      
       const docRef = doc(db, this.collectionName, itemId);
       
       // Use Firebase transaction for atomic operation
@@ -110,6 +113,8 @@ class StockService {
         throw new Error('Stock level cannot be negative');
       }
 
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
       const docRef = doc(db, this.collectionName, itemId);
       await updateDoc(docRef, {
         stocks: newStockLevel,
@@ -140,6 +145,9 @@ class StockService {
         throw new Error('Quantity too large. Maximum allowed per transaction is 9,999');
       }
 
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
+      
       const docRef = doc(db, this.collectionName, itemId);
       
       // Use Firebase transaction for atomic operation
@@ -201,6 +209,9 @@ class StockService {
    */
   public async getItemStock(itemId: string): Promise<number> {
     try {
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
+      
       const docRef = doc(db, this.collectionName, itemId);
       const docSnap = await getDoc(docRef);
       
@@ -299,6 +310,9 @@ class StockService {
    */
   public async getLowStockItems(threshold: number = 50): Promise<ItemDetails[]> {
     try {
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
+      
       const colRef = collection(db, this.collectionName);
       
       return new Promise((resolve, reject) => {
@@ -343,6 +357,13 @@ class StockService {
     errorCallback?: (error: Error) => void
   ): Unsubscribe {
     try {
+      const db = getFirebaseDb();
+      if (!db) {
+        console.error('Firestore not initialized');
+        if (errorCallback) errorCallback(new Error('Firestore not initialized'));
+        return () => {};
+      }
+      
       const docRef = doc(db, this.collectionName, itemId);
       
       const unsubscribe = onSnapshot(

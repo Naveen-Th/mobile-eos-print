@@ -135,73 +135,82 @@ const ReceiptsHeader: React.FC<ReceiptsHeaderProps> = ({
 
       {/* Filters Modal/Panel */}
       <Modal visible={showFilters} onClose={onToggleFilters}>
-        <View className="-mx-1">
-          <View className="mb-3 flex-row items-center justify-between">
-            <Text className="text-lg font-extrabold text-secondary-900">Sort & Filter</Text>
-            <TouchableOpacity onPress={onToggleFilters} className="rounded-lg p-1">
-              <Ionicons name="close" size={22} color="#374151" />
+          {/* Header */}
+          <View className="flex-row items-center justify-between pb-5 mb-6 border-b border-secondary-200">
+            <Text className="text-xl font-extrabold text-secondary-900">Sort & Filter</Text>
+            <TouchableOpacity onPress={onToggleFilters} className="rounded-full p-2 bg-secondary-100">
+              <Ionicons name="close" size={20} color="#374151" />
             </TouchableOpacity>
           </View>
 
-          <View>
-            {/* Status Filter */}
-            <Text className="mb-2 text-sm font-semibold text-secondary-700">Status</Text>
-            <View className="flex-row flex-wrap gap-2">
-              {['all', 'printed', 'exported', 'draft'].map((status) => (
-                <TouchableOpacity
-                  key={status}
-                  onPress={() => onStatusFilterChange(status)}
-                  className={`rounded-full px-4 py-2 ${
-                    statusFilter === status ? 'bg-primary-600' : 'bg-secondary-100'
-                  }`}
-                >
-                  <Text
-                    className={`${
-                      statusFilter === status ? 'text-white font-semibold' : 'text-secondary-700'
-                    }`}
-                  >
-                    {status.charAt(0).toUpperCase() + status.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Sort By */}
-            <Text className="mt-5 mb-2 text-sm font-semibold text-secondary-700">Sort By</Text>
-            <View className="gap-2">
-              {[{ key: 'date', label: 'Date' }, { key: 'customer', label: 'Customer' }, { key: 'total', label: 'Total' }].map(
-                (option) => (
+          <View className="gap-8">
+            {/* Status Filter Section */}
+            <View>
+              <Text className="mb-3 text-sm font-bold text-secondary-700 uppercase tracking-wide">Status</Text>
+              <View className="flex-row flex-wrap" style={{ gap: 10 }}>
+                {['all', 'printed', 'exported', 'draft'].map((status) => (
                   <TouchableOpacity
-                    key={option.key}
-                    onPress={() => onSortByChange(option.key)}
-                    className={`flex-row items-center justify-between rounded-xl border px-4 py-3 ${
-                      sortBy === option.key ? 'border-primary-300 bg-primary-50' : 'border-secondary-200'
+                    key={status}
+                    onPress={() => onStatusFilterChange(status)}
+                    className={`rounded-full px-5 py-2.5 ${
+                      statusFilter === status ? 'bg-primary-600' : 'bg-secondary-100'
                     }`}
                   >
-                    <Text className={`text-base ${sortBy === option.key ? 'text-primary-700 font-semibold' : 'text-secondary-800'}`}>
-                      {option.label}
+                    <Text
+                      className={`text-sm ${
+                        statusFilter === status ? 'text-white font-bold' : 'text-secondary-700 font-medium'
+                      }`}
+                    >
+                      {status.charAt(0).toUpperCase() + status.slice(1)}
                     </Text>
-                    <Ionicons
-                      name={getSortIcon(option.key)}
-                      size={18}
-                      color={sortBy === option.key ? '#2563eb' : '#6b7280'}
-                    />
                   </TouchableOpacity>
-                )
-              )}
+                ))}
+              </View>
             </View>
 
-            <TouchableOpacity onPress={onSortOrderToggle} className="mt-3 flex-row items-center justify-between rounded-xl bg-primary-50 px-4 py-3">
-              <Text className="text-primary-700">Order: {sortOrder === 'asc' ? 'Ascending' : 'Descending'}</Text>
-              <Ionicons name={sortOrder === 'asc' ? 'arrow-up' : 'arrow-down'} size={18} color="#2563eb" />
-            </TouchableOpacity>
+            {/* Sort By Section */}
+            <View>
+              <Text className="mb-3 text-sm font-bold text-secondary-700 uppercase tracking-wide">Sort By</Text>
+              <View style={{ gap: 12 }}>
+                {[{ key: 'date', label: 'Date' }, { key: 'customer', label: 'Customer' }, { key: 'total', label: 'Total' }].map(
+                  (option) => (
+                    <TouchableOpacity
+                      key={option.key}
+                      onPress={() => onSortByChange(option.key)}
+                      className={`flex-row items-center justify-between rounded-xl border px-5 py-4 ${
+                        sortBy === option.key ? 'border-primary-400 bg-primary-50' : 'border-secondary-200 bg-white'
+                      }`}
+                    >
+                      <Text className={`text-base ${sortBy === option.key ? 'text-primary-700 font-bold' : 'text-secondary-800 font-medium'}`}>
+                        {option.label}
+                      </Text>
+                      <Ionicons
+                        name={getSortIcon(option.key)}
+                        size={20}
+                        color={sortBy === option.key ? '#2563eb' : '#9ca3af'}
+                      />
+                    </TouchableOpacity>
+                  )
+                )}
+              </View>
+            </View>
 
-            <TouchableOpacity onPress={onDeleteAll} className="mt-4 flex-row items-center gap-2 rounded-xl border border-danger-200 bg-danger-50 px-4 py-3">
-              <Ionicons name="trash-outline" size={18} color="#ef4444" />
-              <Text className="font-semibold text-danger-600">Delete All Receipts</Text>
-            </TouchableOpacity>
+            {/* Sort Order */}
+            <View>
+              <TouchableOpacity onPress={onSortOrderToggle} className="flex-row items-center justify-between rounded-xl bg-primary-50 border border-primary-200 px-5 py-4">
+                <Text className="text-base text-primary-700 font-bold">Order: {sortOrder === 'asc' ? 'Ascending' : 'Descending'}</Text>
+                <Ionicons name={sortOrder === 'asc' ? 'arrow-up' : 'arrow-down'} size={20} color="#2563eb" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Delete All */}
+            <View className="pt-2">
+              <TouchableOpacity onPress={onDeleteAll} className="flex-row items-center justify-center gap-2 rounded-xl border-2 border-danger-200 bg-danger-50 px-5 py-4">
+                <Ionicons name="trash-outline" size={20} color="#ef4444" />
+                <Text className="text-base font-bold text-danger-600">Delete All Receipts</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
       </Modal>
     </>
   );

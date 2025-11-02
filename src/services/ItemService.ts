@@ -8,7 +8,7 @@ import {
   onSnapshot,
   Unsubscribe 
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { getFirebaseDb } from '../config/firebase';
 import { ItemDetails } from '../types';
 
 class ItemService {
@@ -53,6 +53,11 @@ class ItemService {
       }
       
       // Otherwise, fetch from Firestore and update cache
+      const db = getFirebaseDb();
+      if (!db) {
+        console.warn('Firestore not initialized, returning cached data');
+        return this.cachedItems;
+      }
       const colRef = collection(db, this.collectionName);
       const snapshot = await getDocs(colRef);
       
@@ -84,6 +89,10 @@ class ItemService {
    */
   public async createItem(itemData: Omit<ItemDetails, 'id'>): Promise<string> {
     try {
+      const db = getFirebaseDb();
+      if (!db) {
+        throw new Error('Firestore not initialized');
+      }
       const colRef = collection(db, this.collectionName);
       const docRef = await addDoc(colRef, {
         item_name: itemData.item_name,
@@ -106,6 +115,10 @@ class ItemService {
    */
   public async updateItem(itemId: string, updates: Partial<Omit<ItemDetails, 'id'>>): Promise<void> {
     try {
+      const db = getFirebaseDb();
+      if (!db) {
+        throw new Error('Firestore not initialized');
+      }
       const docRef = doc(db, this.collectionName, itemId);
       await updateDoc(docRef, {
         ...updates,
@@ -124,6 +137,10 @@ class ItemService {
    */
   public async deleteItem(itemId: string): Promise<void> {
     try {
+      const db = getFirebaseDb();
+      if (!db) {
+        throw new Error('Firestore not initialized');
+      }
       const docRef = doc(db, this.collectionName, itemId);
       await deleteDoc(docRef);
       
@@ -143,6 +160,11 @@ class ItemService {
     }
 
     try {
+      const db = getFirebaseDb();
+      if (!db) {
+        console.error('Cannot setup real-time listener: Firestore not initialized');
+        return;
+      }
       const colRef = collection(db, this.collectionName);
 
       this.realtimeListener = onSnapshot(

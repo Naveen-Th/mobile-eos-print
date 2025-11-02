@@ -9,9 +9,10 @@ import {
   query,
   orderBy,
   getDocs,
-  deleteDoc
+  deleteDoc,
+  limit
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { getFirebaseDb } from '../config/firebase';
 import { Receipt, ReceiptItem, PrintMethod } from '../types';
 import FirebaseService from './FirebaseService';
 
@@ -115,6 +116,9 @@ class ReceiptFirebaseService {
         firebaseReceipt.pdfPath = pdfPath.trim();
       }
 
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
+      
       // Use receipt ID as document ID for easier retrieval
       const docRef = doc(db, this.COLLECTION_NAME, receipt.id);
       
@@ -219,6 +223,9 @@ class ReceiptFirebaseService {
       }
       
       // Otherwise, fetch from Firestore and update cache
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
+      
       const receiptsRef = collection(db, this.COLLECTION_NAME);
       const q = query(receiptsRef, orderBy('createdAt', 'desc'));
       const querySnapshot = await getDocs(q);
@@ -262,6 +269,9 @@ class ReceiptFirebaseService {
       }
       
       // Delete the document
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
+      
       const docRef = doc(db, this.COLLECTION_NAME, trimmedId);
       await deleteDoc(docRef);
       
@@ -301,6 +311,13 @@ class ReceiptFirebaseService {
     }
 
     try {
+      const db = getFirebaseDb();
+      if (!db) {
+        console.error('Firestore not initialized');
+        this.isListeningToRealtime = false;
+        return;
+      }
+      
       const receiptsRef = collection(db, this.COLLECTION_NAME);
       const q = query(receiptsRef, orderBy('createdAt', 'desc'));
 
@@ -440,9 +457,16 @@ class ReceiptFirebaseService {
   
   /**
    * Get the latest balance for a customer
+   * 
+   * @deprecated Use BalanceTrackingService.getCustomerBalance() instead
+   * This method queries the receipts collection which is inefficient.
+   * The new method queries person_details which is the single source of truth.
+   * 
    * Returns the newBalance from the most recent receipt for this customer
    */
   public async getCustomerLatestBalance(customerName: string): Promise<number> {
+    console.warn('⚠️ getCustomerLatestBalance is deprecated. Use BalanceTrackingService.getCustomerBalance() instead');
+    
     try {
       if (!customerName?.trim()) {
         return 0;
@@ -451,6 +475,9 @@ class ReceiptFirebaseService {
       const trimmedName = customerName.trim().toLowerCase();
       
       // Query receipts for this customer, ordered by creation date (most recent first)
+      const db = getFirebaseDb();
+      if (!db) throw new Error('Firestore not initialized');
+      
       const receiptsRef = collection(db, this.COLLECTION_NAME);
       const q = query(
         receiptsRef,
