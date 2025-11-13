@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import StockService from '../services/StockService';
+import StockService from '../services/data/StockService';
 import { ItemDetails } from '../types';
 
 interface UseStocksReturn {

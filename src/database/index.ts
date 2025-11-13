@@ -2,89 +2,151 @@ import * as SQLite from 'expo-sqlite';
 
 // Use expo-sqlite for Expo Go compatibility
 let database: SQLite.SQLiteDatabase | null = null;
+let initializationAttempted = false;
+let initializationSuccessful = false;
 
-try {
-  database = SQLite.openDatabaseSync('thermalprinter.db');
+/**
+ * Initialize SQLite database with retry logic
+ */
+function initializeDatabase(): SQLite.SQLiteDatabase | null {
+  if (initializationSuccessful && database) {
+    return database;
+  }
   
-  // Create tables
-  database.execSync(`
-    CREATE TABLE IF NOT EXISTS items (
-      id TEXT PRIMARY KEY,
-      firebase_id TEXT,
-      item_name TEXT,
-      price REAL,
-      stocks INTEGER,
-      created_at INTEGER,
-      updated_at INTEGER,
-      synced_at INTEGER,
-      is_synced INTEGER
-    );
-    
-    CREATE TABLE IF NOT EXISTS receipts (
-      id TEXT PRIMARY KEY,
-      firebase_id TEXT,
-      receipt_number TEXT,
-      customer_name TEXT,
-      customer_phone TEXT,
-      customer_address TEXT,
-      subtotal REAL,
-      tax REAL,
-      total REAL,
-      date INTEGER,
-      print_method TEXT,
-      printed INTEGER,
-      printed_at INTEGER,
-      pdf_path TEXT,
-      status TEXT,
-      notes TEXT,
-      created_at INTEGER,
-      updated_at INTEGER,
-      synced_at INTEGER,
-      is_synced INTEGER
-    );
-    
-    CREATE TABLE IF NOT EXISTS receipt_items (
-      id TEXT PRIMARY KEY,
-      receipt_id TEXT,
-      item_id TEXT,
-      item_name TEXT,
-      quantity INTEGER,
-      price REAL,
-      total REAL,
-      created_at INTEGER,
-      updated_at INTEGER
-    );
-    
-    CREATE TABLE IF NOT EXISTS customers (
-      id TEXT PRIMARY KEY,
-      firebase_id TEXT,
-      name TEXT,
-      phone TEXT,
-      email TEXT,
-      address TEXT,
-      created_at INTEGER,
-      updated_at INTEGER,
-      synced_at INTEGER,
-      is_synced INTEGER
-    );
-    
-    CREATE TABLE IF NOT EXISTS sync_queue (
-      id TEXT PRIMARY KEY,
-      entity_type TEXT,
-      entity_id TEXT,
-      operation TEXT,
-      payload TEXT,
-      retry_count INTEGER,
-      status TEXT,
-      error_message TEXT,
-      created_at INTEGER,
-      updated_at INTEGER
-    );
-  `);
+  if (initializationAttempted) {
+    console.warn('⚠️ Database initialization already attempted and failed');
+    return database;
+  }
   
-  console.log('✅ SQLite database initialized successfully');
-} catch (error) {
-  console.error('❌ Failed to initialize SQLite database:', error);
+  initializationAttempted = true;
+  
+  try {
+    console.log('🔄 Initializing SQLite database...');
+    database = SQLite.openDatabaseSync('thermalprinter.db');
+    
+    if (!database) {
+      throw new Error('Failed to open database');
+    }
+    
+    // Create tables with error handling
+    database.execSync(`
+      CREATE TABLE IF NOT EXISTS items (
+        id TEXT PRIMARY KEY,
+        firebase_id TEXT,
+        item_name TEXT,
+        price REAL,
+        stocks INTEGER,
+        created_at INTEGER,
+        updated_at INTEGER,
+        synced_at INTEGER,
+        is_synced INTEGER DEFAULT 0
+      );
+      
+      CREATE TABLE IF NOT EXISTS receipts (
+        id TEXT PRIMARY KEY,
+        firebase_id TEXT,
+        receipt_number TEXT,
+        customer_name TEXT,
+        customer_phone TEXT,
+        customer_address TEXT,
+        subtotal REAL,
+        tax REAL,
+        total REAL,
+        date INTEGER,
+        print_method TEXT,
+        printed INTEGER DEFAULT 0,
+        printed_at INTEGER,
+        pdf_path TEXT,
+        status TEXT,
+        notes TEXT,
+        old_balance REAL DEFAULT 0,
+        amount_paid REAL DEFAULT 0,
+        new_balance REAL DEFAULT 0,
+        is_paid INTEGER DEFAULT 0,
+        created_at INTEGER,
+        updated_at INTEGER,
+        synced_at INTEGER,
+        is_synced INTEGER DEFAULT 0
+      );
+    
+      CREATE TABLE IF NOT EXISTS receipt_items (
+        id TEXT PRIMARY KEY,
+        receipt_id TEXT,
+        item_id TEXT,
+        item_name TEXT,
+        quantity INTEGER,
+        price REAL,
+        total REAL,
+        created_at INTEGER,
+        updated_at INTEGER
+      );
+      
+      CREATE TABLE IF NOT EXISTS customers (
+        id TEXT PRIMARY KEY,
+        firebase_id TEXT,
+        name TEXT,
+        phone TEXT,
+        email TEXT,
+        address TEXT,
+        balance_due REAL DEFAULT 0,
+        created_at INTEGER,
+        updated_at INTEGER,
+        synced_at INTEGER,
+        is_synced INTEGER DEFAULT 0
+      );
+      
+      CREATE TABLE IF NOT EXISTS sync_queue (
+        id TEXT PRIMARY KEY,
+        entity_type TEXT,
+        entity_id TEXT,
+        operation TEXT,
+        payload TEXT,
+        retry_count INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'pending',
+        error_message TEXT,
+        created_at INTEGER,
+        updated_at INTEGER
+      );
+    `);
+    
+    // Verify tables were created
+    const tables = database.getAllSync(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('items', 'receipts', 'receipt_items', 'customers', 'sync_queue')"
+    );
+    
+    if (tables.length < 5) {
+      throw new Error(`Only ${tables.length}/5 tables created`);
+    }
+    
+    console.log('✅ SQLite database initialized successfully with', tables.length, 'tables');
+    initializationSuccessful = true;
+    return database;
+  } catch (error) {
+    console.error('❌ Failed to initialize SQLite database:', error);
+    database = null;
+    initializationSuccessful = false;
+    return null;
+  }
+}
+
+// Initialize on module load
+database = initializeDatabase();
+
+/**
+ * Get database instance with lazy initialization
+ */
+export function getDatabase(): SQLite.SQLiteDatabase | null {
+  if (!database && !initializationAttempted) {
+    return initializeDatabase();
+  }
+  return database;
+}
+
+/**
+ * Check if database is ready
+ */
+export function isDatabaseReady(): boolean {
+  return initializationSuccessful && database !== null;
 }
 
 export { database };

@@ -15,17 +15,15 @@ import { Ionicons } from '@expo/vector-icons';
 import PartyManagementScreen from '../../screens/PartyManagementScreen';
 import PrinterSetupScreen from '../../screens/PrinterSetupScreen';
 import ReceiptTemplatesScreen from '../../screens/ReceiptTemplatesScreen';
-import MobileAuthService, { MobileUser } from '../../services/MobileAuthService';
+import MobileAuthService, { MobileUser } from '../../services/auth/MobileAuthService';
 import TaxSettingsModal from '../../components/TaxSettingsModal';
-import { getTaxRate } from '../../services/TaxSettings';
+import { getTaxRate } from '../../services/utilities/TaxSettings';
 import SyncStatus from '../../components/SyncStatus';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { Language } from '../../locales';
 import CategoryManagementModal from '../../components/CategoryManagementModal';
 import { useNavigation } from '@react-navigation/native';
-import viewDatabase from '../../../view-database';
-import { checkFirebaseCollections, triggerManualSync } from '../../../trigger-sync';
-import BalanceSyncUtility from '../../services/BalanceSyncUtility';
+import BalanceSyncUtility from '../../services/business/BalanceSyncUtility';
 
 interface SettingItem {
   id: string;
@@ -274,57 +272,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onLogout }) => {
       type: 'navigation',
       icon: 'sync-outline',
       onPress: () => setShowSyncStatus(true),
-    },
-    {
-      id: '9a',
-      title: 'View Database',
-      subtitle: 'View SQLite database contents',
-      type: 'navigation',
-      icon: 'server-outline',
-      onPress: async () => {
-        try {
-          console.log('📊 Opening database viewer...');
-          await viewDatabase();
-          Alert.alert('Success', 'Database contents logged to console. Check Metro bundler logs.');
-        } catch (error) {
-          console.error('Error viewing database:', error);
-          Alert.alert('Error', 'Failed to view database. Check console for details.');
-        }
-      },
-    },
-    {
-      id: '9b',
-      title: 'Check Firebase',
-      subtitle: 'See what data exists in Firebase',
-      type: 'navigation',
-      icon: 'cloud-outline',
-      onPress: async () => {
-        try {
-          console.log('🔍 Checking Firebase collections...');
-          await checkFirebaseCollections();
-          Alert.alert('Success', 'Firebase collections checked. See console for details.');
-        } catch (error) {
-          console.error('Error checking Firebase:', error);
-          Alert.alert('Error', 'Failed to check Firebase. Check console for details.');
-        }
-      },
-    },
-    {
-      id: '9c',
-      title: 'Force Sync Now',
-      subtitle: 'Manually sync Firebase → SQLite',
-      type: 'navigation',
-      icon: 'refresh-outline',
-      onPress: async () => {
-        try {
-          console.log('🔄 Triggering manual sync...');
-          await triggerManualSync();
-          Alert.alert('Success', 'Sync completed! Run "View Database" to see updated data.');
-        } catch (error) {
-          console.error('Error during sync:', error);
-          Alert.alert('Error', 'Failed to sync. Check console for details.');
-        }
-      },
     },
     {
       id: '9d',

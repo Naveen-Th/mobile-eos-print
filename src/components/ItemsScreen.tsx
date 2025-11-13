@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { ItemDetails } from '../types';
-import ItemService from '../services/ItemService';
-import StockService from '../services/StockService';
+import ItemService from '../services/data/ItemService';
+import StockService from '../services/data/StockService';
 import ItemForm from './ItemForm';
 import { useItems, useCreateItem, useUpdateItem, useDeleteItem, useUpdateStock } from '../hooks/useSyncManager';
 import { usePendingUpdates } from '../store/syncStore';

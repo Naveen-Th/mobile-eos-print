@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
-import LowStockAlertService, { LowStockItem } from '../services/LowStockAlertService';
+import LowStockAlertService, { LowStockItem } from '../services/features/LowStockAlertService';
 import { formatCurrency } from '../utils';
 
 interface LowStockAlertsPanelProps {

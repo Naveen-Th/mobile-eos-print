@@ -5,6 +5,9 @@ import { enableScreens } from 'react-native-screens';
 import MobileApp from './src/MobileApp';
 import { AlertProvider } from './src/components/common/Alert';
 import { enableMapSet } from 'immer';
+import './src/global.css';
+import ErrorBoundary from './src/components/ErrorBoundary';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // Enable react-native-screens for better performance and fix navigation issues
 enableScreens();
@@ -22,10 +25,7 @@ export default function App() {
       try {
         console.log('Starting Thermal Receipt Printer Mobile App...');
         
-        // Simulate initialization time
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Hide splash screen
+        // Hide splash screen immediately for fast perceived load time
         await SplashScreen.hideAsync();
         
         console.log('Mobile app initialized successfully');
@@ -40,9 +40,13 @@ export default function App() {
   }, []);
 
   return (
-    <AlertProvider>
-      <MobileApp />
-      <StatusBar style="auto" />
-    </AlertProvider>
+    <SafeAreaProvider>
+      <ErrorBoundary>
+        <AlertProvider>
+          <MobileApp />
+          <StatusBar style="auto" />
+        </AlertProvider>
+      </ErrorBoundary>
+    </SafeAreaProvider>
   );
 }

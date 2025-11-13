@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { getTaxRate, setTaxRate } from '../services/TaxSettings';
+import { getTaxRate, setTaxRate } from '../services/utilities/TaxSettings';
 
 interface TaxSettingsModalProps {
   visible: boolean;

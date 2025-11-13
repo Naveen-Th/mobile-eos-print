@@ -1,5 +1,5 @@
 import { Receipt } from '../types';
-import ReceiptDeliveryService from '../services/ReceiptDeliveryService';
+import ReceiptDeliveryService from '../services/features/ReceiptDeliveryService';
 import { Alert } from 'react-native';
 
 /**

@@ -9,7 +9,13 @@ import {
   addDoc,
   deleteDoc,
   getDocs,
-  serverTimestamp
+  serverTimestamp,
+  query,
+  limit,
+  orderBy,
+  startAfter,
+  QueryDocumentSnapshot,
+  DocumentData
 } from 'firebase/firestore';
 import { db, isFirebaseInitialized } from '../config/firebase';
 import { useSyncStore, OptimisticUpdate } from '../store/syncStore';
@@ -36,6 +42,9 @@ export function useRealtimeCollection<T = any>(
     onSuccess?: (data: T[]) => void;
     onError?: (error: Error) => void;
     select?: (data: T[]) => T[];
+    limitCount?: number;
+    orderByField?: string;
+    orderDirection?: 'asc' | 'desc';
   } = {}
 ) {
   const queryClient = useQueryClient();
@@ -62,18 +71,11 @@ export function useRealtimeCollection<T = any>(
   
   // Real-time listener setup - CRITICAL: Don't put store in dependencies
   useEffect(() => {
-    console.log(`🔄 Setting up real-time listener for ${collectionName}, enabled:`, enabled);
-    
-    if (!enabled) {
-      console.log(`⏸️ Real-time listener for ${collectionName} is disabled`);
-      return;
-    }
+    // ✅ Reduced verbose setup logs
+    if (!enabled) return;
     
     // Check if Firebase is initialized (offline check)
-    if (!isFirebaseInitialized() || !db) {
-      console.log(`📴 Firebase not initialized - skipping real-time listener for ${collectionName}`);
-      return;
-    }
+    if (!isFirebaseInitialized() || !db) return;
     
     const listenerId = listenerIdRef.current!;
     let isActive = true; // Flag to prevent state updates after cleanup
@@ -82,7 +84,6 @@ export function useRealtimeCollection<T = any>(
     const { addActiveListener, removeActiveListener, setConnectionState, updateMetrics } = useSyncStore.getState();
     
     addActiveListener(listenerId);
-    console.log(`✅ Added active listener: ${listenerId}`);
 
     // Prefill cache from offline storage on mount (non-blocking)
     (async () => {
@@ -90,23 +91,79 @@ export function useRealtimeCollection<T = any>(
         const cached = await getCache<T[]>(`collection:${collectionName}`);
         if (cached && cached.length > 0) {
           queryClient.setQueryData(queryKey, cached);
-          console.log(`💾 Loaded ${cached.length} cached ${collectionName} items from offline storage`);
         }
       } catch {}
     })();
     
     try {
       const colRef = collection(db, collectionName);
+      
+      // Build query with optional limit and ordering for better performance
+      let queryRef: any = colRef;
+      if (options.orderByField) {
+        queryRef = query(queryRef, orderBy(options.orderByField, options.orderDirection || 'asc'));
+      }
+      
+      // CRITICAL: Always limit queries for large collections
+      const queryLimit = options.limitCount || (collectionName === 'receipts' ? 50 : undefined);
+      if (queryLimit) {
+        queryRef = query(queryRef, limit(queryLimit));
+      }
+      
       const startTime = Date.now();
-      console.log(`🔄 Creating onSnapshot for ${collectionName}...`);
+      
+      // ✅ Track last update to prevent duplicate logs and batch operations
+      let lastUpdateTime = 0;
+      let lastDocCount = 0;
+      let updateTimeout: NodeJS.Timeout | null = null;
       
       unsubscribeRef.current = onSnapshot(
-        colRef,
+        queryRef,
         async (snapshot) => {
           if (!isActive) return; // Prevent updates after cleanup
           
           const syncTime = Date.now() - startTime;
-          console.log(`🔄 Real-time update for ${collectionName}:`, snapshot.docs.length, 'documents');
+          const docCount = snapshot.docs.length;
+          const now = Date.now();
+          
+          // ✅ Detect batch operations (rapid count changes)
+          const countChanged = Math.abs(docCount - lastDocCount) >= 1;
+          const timeSinceLastUpdate = now - lastUpdateTime;
+          const isBatchOperation = countChanged && timeSinceLastUpdate < 1000;
+          
+          // ✅ Skip duplicate updates (same count within 500ms)
+          const isDuplicate = (timeSinceLastUpdate < 500) && (docCount === lastDocCount);
+          if (isDuplicate) {
+            return;
+          }
+          
+          // ✅ Debounce batch operations (wait for them to finish)
+          if (isBatchOperation) {
+            // Clear previous timeout
+            if (updateTimeout) clearTimeout(updateTimeout);
+            
+            // Wait 800ms for batch to complete
+            updateTimeout = setTimeout(() => {
+              if (!isActive) return;
+              
+              // Process the final batch update
+              const documents = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+              } as T));
+              
+              queryClient.setQueryData(queryKey, documents);
+              setCache<T[]>(`collection:${collectionName}`, documents).catch(() => {});
+              
+              lastUpdateTime = Date.now();
+              lastDocCount = documents.length;
+            }, 800);
+            
+            return;
+          }
+          
+          lastUpdateTime = now;
+          lastDocCount = docCount;
           
           try {
             const documents = snapshot.docs.map(doc => {
@@ -117,34 +174,13 @@ export function useRealtimeCollection<T = any>(
               } as T;
             });
             
-            console.log(`📄 Documents received:`, documents.length > 0 ? `${documents.length} documents` : 'none');
-            
-            // Debug: Log actual document data for receipts
-            if (collectionName === 'receipts') {
-              console.log('🚿 [RECEIPTS DEBUG] Raw documents:', documents);
-              console.log('🚿 [RECEIPTS DEBUG] First document structure:', documents[0]);
-            }
-            
             // Update React Query cache with error handling
             try {
               queryClient.setQueryData(queryKey, documents);
-              console.log(`💾 Updated React Query cache for key:`, queryKey);
-              console.log(`📊 Cache now contains ${documents.length} items for ${collectionName}`);
               
               // Persist to offline storage
               setCache<T[]>(`collection:${collectionName}`, documents)
                 .catch(() => {});
-              
-              // Debug: Log items for debugging
-              if (collectionName === 'item_details' && documents.length > 0) {
-                console.log('🏷️ [ITEMS DEBUG] Items in cache:', documents.map(item => ({ id: item.id, name: (item as any).item_name, stocks: (item as any).stocks })));
-              }
-              
-              // Debug: Verify what got stored in cache for receipts
-              if (collectionName === 'receipts') {
-                const cachedData = queryClient.getQueryData(queryKey);
-                console.log('🚿 [RECEIPTS DEBUG] Data stored in cache:', cachedData);
-              }
             } catch (cacheError) {
               console.error('❌ Error updating React Query cache:', cacheError);
             }
@@ -204,7 +240,7 @@ export function useRealtimeCollection<T = any>(
         }
       );
       
-      console.log(`✅ onSnapshot listener created for ${collectionName}`);
+      // ✅ Listener ready
     } catch (error) {
       console.error(`❌ Failed to create listener for ${collectionName}:`, error);
       if (isActive && onErrorRef.current) {
@@ -218,7 +254,6 @@ export function useRealtimeCollection<T = any>(
     
     return () => {
       isActive = false; // Prevent any pending callbacks from executing
-      console.log(`🧹 Cleaning up listener for ${collectionName}`);
       
       if (unsubscribeRef.current) {
         try {
@@ -238,52 +273,55 @@ export function useRealtimeCollection<T = any>(
   return useQuery({
     queryKey,
     queryFn: async () => {
-      // Fallback query function to fetch data when real-time listener hasn't loaded data yet
-      console.log(`🔄 Fallback queryFn called for ${collectionName}`);
+      // Fallback query function - should RARELY run since real-time listener is primary
+      if (__DEV__) console.log(`🔄 Fallback: ${collectionName}`);
       
       // Check if Firebase is initialized
       if (!isFirebaseInitialized() || !db) {
-        console.log(`📴 Firebase not initialized - serving from cache for ${collectionName}`);
         const cached = await getCache<T[]>(`collection:${collectionName}`);
         return cached || [];
       }
       
       try {
         const colRef = collection(db, collectionName);
-        const snapshot = await getDocs(colRef);
-        const documents = snapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            ...data,
-          } as T;
-        });
-        console.log(`✅ Fallback fetch for ${collectionName} returned ${documents.length} documents`);
-        // Persist successful fetch
+        
+        // ✅ CRITICAL: Apply same limit as real-time listener
+        let queryRef: any = colRef;
+        if (options.orderByField) {
+          queryRef = query(queryRef, orderBy(options.orderByField, options.orderDirection || 'asc'));
+        }
+        
+        // ✅ Apply limit for receipts (50 docs max)
+        const queryLimit = options.limitCount || (collectionName === 'receipts' ? 50 : undefined);
+        if (queryLimit) {
+          queryRef = query(queryRef, limit(queryLimit));
+        }
+        
+        const snapshot = await getDocs(queryRef);
+        const documents = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+        } as T));
+        
+        if (__DEV__) console.log(`✅ Fallback: ${collectionName} (${documents.length} docs)`);
         setCache<T[]>(`collection:${collectionName}`, documents).catch(() => {});
         return documents;
       } catch (error) {
-        console.error(`❌ Fallback fetch failed for ${collectionName}:`, error);
-        // Attempt to serve from offline cache
+        console.error(`❌ Fallback failed for ${collectionName}:`, error);
         const cached = await getCache<T[]>(`collection:${collectionName}`);
-        if (cached) {
-          console.log(`📦 Serving ${cached.length} cached ${collectionName} items due to fetch error`);
-          return cached;
-        }
-        return [] as T[];
+        return cached || [];
       }
     },
     enabled,
-    staleTime: 5 * 60 * 1000, // allow longer staleness since we have offline cache
-    gcTime: 60 * 60 * 1000, // 1 hour
+    initialData: [], // ✅ CRITICAL: Start with empty array so fallback doesn't run
+    staleTime: Infinity, // ✅ Real-time listener keeps data fresh
+    gcTime: 60 * 60 * 1000,
     select: options.select,
-    // Allow refetch on mount as fallback when real-time isn't working
-    refetchOnMount: 'always',
+    // ✅ Never refetch - real-time listener is the ONLY source
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
-    refetchOnReconnect: true,
-    // Retry configuration
-    retry: 3,
-    retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 30000),
+    refetchOnReconnect: false,
+    retry: 0, // ✅ No retries - real-time listener handles everything
   });
 }
 
@@ -407,34 +445,17 @@ export function useItems() {
   const queryResult = useRealtimeCollection('item_details', {
     enabled: true,
     select: selectItems,
-    onSuccess: (data) => {
-      console.log('✅ Items loaded via real-time listener:', data.length);
-    },
     onError: (error) => {
       console.error('❌ Items loading error:', error);
     },
   });
-  
-  // Add debugging for the query result
-  useEffect(() => {
-    console.log('🏷️ [useItems DEBUG] Query state changed:');
-    console.log('  - Data count:', queryResult.data?.length || 0);
-    console.log('  - Is loading:', queryResult.isLoading);
-    console.log('  - Is fetching:', queryResult.isFetching);
-    console.log('  - Error:', queryResult.error?.message || 'none');
-    console.log('  - Status:', queryResult.status);
-  }, [queryResult.data, queryResult.isLoading, queryResult.error, queryResult.status, queryResult.isFetching]);
   
   return queryResult;
 }
 
 // Create a stable select function outside the component to prevent re-creation
 const selectReceipts = (data: any[]) => {
-  console.log('🚿 [SELECT RECEIPTS DEBUG] Input data:', data);
-  console.log('🚿 [SELECT RECEIPTS DEBUG] Is array:', Array.isArray(data));
-  
   if (!Array.isArray(data)) {
-    console.log('🚿 [SELECT RECEIPTS DEBUG] Not an array, returning empty array');
     return [];
   }
   
@@ -470,7 +491,6 @@ const selectReceipts = (data: any[]) => {
     }
   });
   
-  console.log('🚿 [SELECT RECEIPTS DEBUG] Sorted data:', sorted);
   return sorted;
 };
 

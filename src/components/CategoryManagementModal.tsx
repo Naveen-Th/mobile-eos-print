@@ -9,7 +9,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import CategoryService, { Category } from '../services/CategoryService';
+import CategoryService, { Category } from '../services/data/CategoryService';
 
 interface CategoryManagementModalProps {
   visible: boolean;

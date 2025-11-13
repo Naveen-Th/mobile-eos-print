@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LineChart, BarChart } from 'react-native-chart-kit';
-import AnalyticsService, { SalesAnalytics } from '../services/AnalyticsService';
+import AnalyticsService, { SalesAnalytics } from '../services/features/AnalyticsService';
 import { formatCurrency } from '../utils';
 
 const { width } = Dimensions.get('window');

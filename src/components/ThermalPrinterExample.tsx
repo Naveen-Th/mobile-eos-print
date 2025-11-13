@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
   ScrollView,
 } from 'react-native';
-import ThermalPrinterService, { ThermalPrinter } from '../services/ThermalPrinterService';
+import ThermalPrinterService, { ThermalPrinter } from '../services/printing/ThermalPrinterService';
 
 /**
  * Example component demonstrating thermal printer usage

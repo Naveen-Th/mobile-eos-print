@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ItemDetails } from '../../types';
@@ -19,7 +19,7 @@ interface ItemCardProps {
   onAddStock: (itemId: string) => void;
 }
 
-const ItemCard: React.FC<ItemCardProps> = ({
+const ItemCard: React.FC<ItemCardProps> = React.memo(({
   item,
   isSelected,
   isSelectionMode,
@@ -32,9 +32,12 @@ const ItemCard: React.FC<ItemCardProps> = ({
 }) => {
   const pendingUpdates = usePendingUpdates();
   
-  // Check if item has pending updates
-  const isItemPending = Array.from(pendingUpdates.values()).some(
-    update => update.documentId === item.id && update.collection === 'item_details'
+  // Check if item has pending updates - memoized for performance
+  const isItemPending = useMemo(
+    () => Array.from(pendingUpdates.values()).some(
+      update => update.documentId === item.id && update.collection === 'item_details'
+    ),
+    [pendingUpdates, item.id]
   );
   const getStockColor = (stock: number) => {
     if (stock > 20) return '#10b981';
@@ -103,6 +106,16 @@ const ItemCard: React.FC<ItemCardProps> = ({
       </TouchableOpacity>
     </Card>
   );
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison for React.memo optimization
+  return (
+    prevProps.item.id === nextProps.item.id &&
+    prevProps.item.item_name === nextProps.item.item_name &&
+    prevProps.item.price === nextProps.item.price &&
+    prevProps.item.stocks === nextProps.item.stocks &&
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.isSelectionMode === nextProps.isSelectionMode
+  );
+});
 
 export default ItemCard;

@@ -23,6 +23,7 @@ interface SyncResult {
 class SyncEngine {
   private static instance: SyncEngine;
   private isSyncing = false;
+  private isPushing = false; // Guard against duplicate push operations
   private syncListeners: Array<(status: SyncStatus) => void> = [];
   private realtimeUnsubscribers: Map<string, () => void> = new Map();
 
@@ -333,21 +334,31 @@ class SyncEngine {
    * Push local changes to Firebase
    */
   public async pushToFirebase(): Promise<SyncResult> {
-    console.log('🔄 Starting push to Firebase...');
-    const result: SyncResult = { success: true, synced: 0, failed: 0, errors: [] };
-
-    // Check if Firebase is initialized (offline check)
-    if (!isFirebaseInitialized() || !firebaseDb) {
-      console.log('📴 Firebase not initialized - skipping push (offline mode)');
-      return {
-        success: false,
-        synced: 0,
-        failed: 0,
-        errors: ['Firebase not initialized - app is offline'],
-      };
+    // Guard against duplicate push operations
+    if (this.isPushing) {
+      console.log('⏸️ Push already in progress, skipping...');
+      return { success: false, synced: 0, failed: 0, errors: ['Push already in progress'] };
     }
-
+    
+    this.isPushing = true;
+    
     try {
+      if (__DEV__) {
+        console.log('🔄 Starting push to Firebase...');
+      }
+      const result: SyncResult = { success: true, synced: 0, failed: 0, errors: [] };
+
+      // Check if Firebase is initialized (offline check)
+      if (!isFirebaseInitialized() || !firebaseDb) {
+        console.log('📴 Firebase not initialized - skipping push (offline mode)');
+        return {
+          success: false,
+          synced: 0,
+          failed: 0,
+          errors: ['Firebase not initialized - app is offline'],
+        };
+      }
+
       if (!database) {
         throw new Error('Database not initialized');
       }
@@ -357,7 +368,9 @@ class SyncEngine {
         "SELECT * FROM sync_queue WHERE status IN ('pending', 'failed')"
       );
 
-      console.log(`📤 Found ${pendingQueue.length} pending operations`);
+      if (__DEV__) {
+        console.log(`📤 Found ${pendingQueue.length} pending operations`);
+      }
 
       for (const queueItem of pendingQueue) {
         try {
@@ -382,7 +395,9 @@ class SyncEngine {
           );
 
           result.synced++;
-          console.log(`✅ Synced ${queueItem.entity_type} ${queueItem.operation} operation`);
+          if (__DEV__) {
+            console.log(`✅ Synced ${queueItem.entity_type} ${queueItem.operation} operation`);
+          }
         } catch (error) {
           console.error(`❌ Failed to sync queue item ${queueItem.id}:`, error);
           
@@ -400,7 +415,9 @@ class SyncEngine {
       // Clean up completed items older than 24 hours
       await this.cleanupSyncQueue();
 
-      console.log(`✅ Push complete: ${result.synced} synced, ${result.failed} failed`);
+      if (__DEV__) {
+        console.log(`✅ Push complete: ${result.synced} synced, ${result.failed} failed`);
+      }
       return result;
     } catch (error) {
       console.error('❌ Push to Firebase failed:', error);
@@ -410,6 +427,8 @@ class SyncEngine {
         failed: 0,
         errors: [error instanceof Error ? error.message : 'Unknown push error'],
       };
+    } finally {
+      this.isPushing = false;
     }
   }
 
@@ -785,3 +804,5 @@ class SyncEngine {
 }
 
 export default SyncEngine.getInstance();
+
+

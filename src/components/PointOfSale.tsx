@@ -7,7 +7,7 @@ import { ReceiptsScreen } from './ReceiptsScreen';
 import ItemsScreen from './ItemsScreen';
 import PrinterSetupModal from './PrinterSetupModal';
 import PrinterStatusIndicatorWeb from './PrinterStatusIndicatorWeb';
-import ThermalPrinterService, { ThermalPrinter } from '../services/ThermalPrinterService';
+import ThermalPrinterService, { ThermalPrinter } from '../services/printing/ThermalPrinterService';
 import { formatCurrency, validateCustomerInfo } from '../utils/index';
 
 interface PointOfSaleProps {

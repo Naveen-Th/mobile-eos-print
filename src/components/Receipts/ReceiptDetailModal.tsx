@@ -11,11 +11,11 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { FirebaseReceipt } from '../../services/ReceiptFirebaseService';
+import { FirebaseReceipt } from '../../services/business/ReceiptFirebaseService';
 import { formatCurrency, formatReceiptDate } from '../../utils';
 import ReceiptDeliveryModal from '../ReceiptDeliveryModal';
 import { Receipt } from '../../types';
-import ThermalPrinterService from '../../services/ThermalPrinterService';
+import ThermalPrinterService from '../../services/printing/ThermalPrinterService';
 
 interface ReceiptDetailModalProps {
   receipt: FirebaseReceipt;

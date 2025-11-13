@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,13 @@ import {
   ScrollView,
   ActivityIndicator,
   Dimensions,
-  Platform
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { UniqueCustomer } from '../services/CustomerService';
+import { UniqueCustomer } from '../services/data/CustomerService';
+import { useDebouncedCallback } from '../hooks/useDebounce';
+import CustomerListItem from './ui/CustomerListItem';
+import { CustomerListSkeleton } from './ui/SkeletonLoader';
 
 interface SearchableDropdownProps {
   value: string;
@@ -47,7 +50,7 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
   const containerRef = useRef<View>(null);
 
   const screenHeight = Dimensions.get('window').height;
-  const maxDropdownHeight = 320; // Increased max height
+  const maxDropdownHeight = 320;
 
   useEffect(() => {
     if (showDropdown && containerRef.current) {
@@ -58,102 +61,111 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
     }
   }, [showDropdown]);
 
-  const handleTextChange = (text: string) => {
-    onChangeText(text);
+  // Debounced search to reduce function calls
+  const debouncedSearch = useDebouncedCallback((text: string) => {
     onSearch(text);
-  };
+  }, 100);
 
-  const handleSelectCustomer = (customer: UniqueCustomer) => {
+  const handleTextChange = useCallback((text: string) => {
+    onChangeText(text);
+    debouncedSearch(text);
+  }, [onChangeText, debouncedSearch]);
+
+  const handleSelectCustomer = useCallback((customer: UniqueCustomer) => {
     onChangeText(customer.customerName);
     onSelectCustomer?.(customer);
     onBlur();
-  };
+  }, [onChangeText, onSelectCustomer, onBlur]);
 
-  const handleInputFocus = () => {
+  const handleInputFocus = useCallback(() => {
     onFocus();
-    // Load recent customers when focused
-    onSearch(value);
-  };
+    // Load all/recent customers when focused (empty search shows all)
+    onSearch('');
+  }, [onFocus, onSearch]);
 
-  const renderDropdownItem = (customer: UniqueCustomer, index: number) => (
-    <TouchableOpacity
-      key={`${customer.customerName}-${index}`}
-      onPress={() => handleSelectCustomer(customer)}
-      style={{
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        borderBottomWidth: index < searchResults.length - 1 ? 1 : 0,
-        borderBottomColor: '#f0f0f0',
-        backgroundColor: 'white',
-      }}
-      activeOpacity={0.7}
-    >
-      <View style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-      }}>
-        <View style={{ flex: 1 }}>
-          <Text style={{
-            fontSize: 16,
-            fontWeight: '500',
-            color: '#374151',
-          }}>
-            {customer.customerName}
-          </Text>
-        </View>
-        <View style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          marginLeft: 8,
-        }}>
-          {(customer.receiptCount || 0) > 1 && (
-            <View style={{
-              backgroundColor: '#e5e7eb',
-              borderRadius: 12,
-              paddingHorizontal: 6,
-              paddingVertical: 2,
-              marginRight: 8,
-            }}>
-              <Text style={{
-                fontSize: 10,
-                color: '#6b7280',
-                fontWeight: '500',
-              }}>
-                {customer.receiptCount} receipts
-              </Text>
-            </View>
-          )}
-          <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
+  // Limit results to prevent performance issues and improve UX
+  const displayedResults = useMemo(() => {
+    const maxResults = 15; // Show max 15 results - users should refine search for more
+    return searchResults.slice(0, maxResults);
+  }, [searchResults]);
 
-  // Calculate dropdown position
-  const dropdownTop = inputPosition.y;
-  const availableSpaceBelow = screenHeight - dropdownTop;
-  const estimatedItemHeight = 70; // Increased item height estimate
-  const headerHeight = 50; // Height for header section
-  const estimatedContentHeight = (searchResults ? searchResults.length : 0) * estimatedItemHeight + headerHeight;
-  
-  const dropdownHeight = Math.min(
-    maxDropdownHeight,
-    availableSpaceBelow - 120, // Leave space for keyboard
-    estimatedContentHeight
-  );
+  // Memoized render of customer list items
+  const renderedItems = useMemo(() => {
+    return displayedResults.map((customer, index) => (
+      <CustomerListItem
+        key={customer.id || `${customer.customerName}-${index}`}
+        customer={customer}
+        index={index}
+        total={displayedResults.length}
+        onSelect={handleSelectCustomer}
+        searchQuery={value}
+      />
+    ));
+  }, [displayedResults, handleSelectCustomer, value]);
+
+  // Memoized dropdown calculations with safety checks
+  const dropdownCalculations = useMemo(() => {
+    const dropdownTop = inputPosition.y || 0;
+    const availableSpaceBelow = screenHeight - dropdownTop;
+    const estimatedItemHeight = 70;
+    const headerHeight = 50;
+    const resultsLength = searchResults?.length || 0;
+    const estimatedContentHeight = resultsLength * estimatedItemHeight + headerHeight;
+    
+    // Ensure we have valid numbers
+    const safeAvailableSpace = isNaN(availableSpaceBelow) || availableSpaceBelow < 100 ? 300 : availableSpaceBelow;
+    
+    const dropdownHeight = Math.max(
+      200, // Minimum height
+      Math.min(
+        maxDropdownHeight,
+        safeAvailableSpace - 120,
+        estimatedContentHeight
+      )
+    );
+
+    return { 
+      dropdownHeight: isNaN(dropdownHeight) ? 300 : dropdownHeight, 
+      headerHeight 
+    };
+  }, [inputPosition.y, screenHeight, maxDropdownHeight, searchResults]);
+
+  // Memoized dropdown styles
+  const dropdownStyles = useMemo(() => ({
+    position: 'absolute' as const,
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: 'white',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    elevation: Platform.OS === 'android' ? 12 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#000' : 'transparent',
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 12 } : { width: 0, height: 0 },
+    shadowOpacity: Platform.OS === 'ios' ? 0.15 : 0,
+    shadowRadius: Platform.OS === 'ios' ? 20 : 0,
+    zIndex: 20000,
+    marginTop: 8,
+  }), [dropdownCalculations.dropdownHeight]);
 
   return (
-    <View ref={containerRef} style={{ position: 'relative', zIndex: showDropdown ? 10000 : 1000 }}>
+    <View style={{ position: 'relative', zIndex: showDropdown ? 10000 : 1000 }}>
+      <View ref={containerRef}>
       {/* Input Field */}
       <View style={{
         flexDirection: 'row',
         alignItems: 'center',
-        borderWidth: 1,
-        borderColor: error ? '#ef4444' : '#d1d5db',
-        borderRadius: 8,
-        backgroundColor: 'white',
-        paddingRight: 12,
+        borderWidth: 1.5,
+        borderColor: error ? '#ef4444' : (showDropdown ? '#3b82f6' : '#e5e7eb'),
+        borderRadius: 12,
+        backgroundColor: '#fafafa',
+        paddingRight: 14,
+        shadowColor: showDropdown ? '#3b82f6' : 'transparent',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: showDropdown ? 2 : 0,
       }}>
         <TextInput
           ref={inputRef}
@@ -164,10 +176,11 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
           placeholder={placeholder}
           style={{
             flex: 1,
-            paddingHorizontal: 12,
-            paddingVertical: 12,
-            fontSize: 16,
-            color: '#374151',
+            paddingHorizontal: 16,
+            paddingVertical: 14,
+            fontSize: 15,
+            color: '#1f2937',
+            fontWeight: '400',
           }}
           autoCapitalize="words"
           autoCorrect={false}
@@ -175,7 +188,7 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
         />
         
         {isSearching ? (
-          <ActivityIndicator size="small" color="#6b7280" />
+          <ActivityIndicator size="small" color="#3b82f6" />
         ) : value ? (
           <TouchableOpacity
             onPress={() => {
@@ -183,11 +196,12 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
               onSearch('');
             }}
             style={{ padding: 4 }}
+            activeOpacity={0.6}
           >
-            <Ionicons name="close-circle" size={20} color="#9ca3af" />
+            <Ionicons name="close-circle" size={22} color="#6b7280" />
           </TouchableOpacity>
         ) : (
-          <Ionicons name="search" size={20} color="#9ca3af" />
+          <Ionicons name="search" size={22} color="#9ca3af" />
         )}
       </View>
 
@@ -205,43 +219,10 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
 
       {/* Dropdown Results */}
       {showDropdown && (
-        <View
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            backgroundColor: 'white',
-            borderRadius: 8,
-            borderWidth: 1,
-            borderColor: '#d1d5db',
-            maxHeight: dropdownHeight,
-            elevation: Platform.OS === 'android' ? 10 : 0,
-            shadowColor: Platform.OS === 'ios' ? '#000' : 'transparent',
-            shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 8 } : { width: 0, height: 0 },
-            shadowOpacity: Platform.OS === 'ios' ? 0.15 : 0,
-            shadowRadius: Platform.OS === 'ios' ? 12 : 0,
-            zIndex: 20000,
-            marginTop: 4,
-          }}
-        >
+        <View style={dropdownStyles}>
           {isSearching ? (
-            <View style={{
-              paddingVertical: 20,
-              alignItems: 'center',
-            }}>
-              <ActivityIndicator size="small" color="#6b7280" />
-              <Text style={{
-                color: '#6b7280',
-                fontSize: 14,
-                marginTop: 8,
-              }}>
-                Searching customers...
-              </Text>
-            </View>
-          ) : searchResults && searchResults.length > 0 ? (
             <View>
-              {/* Header with "Showing Saved Parties" and "Add new party" */}
+              {/* Header */}
               <View style={{
                 flexDirection: 'row',
                 justifyContent: 'space-between',
@@ -257,7 +238,39 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
                   fontWeight: '600',
                   color: '#374151',
                 }}>
-                  Showing Saved Parties
+                  Searching...
+                </Text>
+              </View>
+              {/* Skeleton Loading */}
+              <CustomerListSkeleton count={5} />
+            </View>
+          ) : displayedResults && displayedResults.length > 0 ? (
+            <View style={{ overflow: 'hidden', borderRadius: 16 }}>
+              {/* Header with "Showing Saved Parties" and "Add new party" */}
+              <View style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                paddingHorizontal: 18,
+                paddingVertical: 14,
+                backgroundColor: '#ffffff',
+                borderBottomWidth: 1,
+                borderBottomColor: '#f3f4f6',
+              }}>
+                <Text style={{
+                  fontSize: 15,
+                  fontWeight: '700',
+                  color: '#1f2937',
+                  letterSpacing: -0.2,
+                }}>
+                  {value.trim() 
+                    ? searchResults.length > 15 
+                      ? `Found ${searchResults.length} parties` 
+                      : `Found ${searchResults.length} ${searchResults.length === 1 ? 'party' : 'parties'}`
+                    : searchResults.length > 15
+                      ? `${displayedResults.length} of ${searchResults.length} parties`
+                      : 'Saved Parties'
+                  }
                 </Text>
                 {onAddParty && (
                   <TouchableOpacity
@@ -265,11 +278,13 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
                       onAddParty();
                       onBlur();
                     }}
+                    activeOpacity={0.7}
                   >
                     <Text style={{
                       color: '#3b82f6',
                       fontSize: 14,
-                      fontWeight: '600',
+                      fontWeight: '700',
+                      letterSpacing: -0.1,
                     }}>
                       Add new party
                     </Text>
@@ -277,91 +292,42 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
                 )}
               </View>
               
-              {/* Customer List */}
+              {/* Customer List - Scrollable */}
               <ScrollView
-                style={{ maxHeight: Math.max(200, dropdownHeight - headerHeight) }}
+                style={{ 
+                  maxHeight: 320,
+                  backgroundColor: 'white',
+                }}
                 showsVerticalScrollIndicator={true}
                 keyboardShouldPersistTaps="handled"
                 nestedScrollEnabled={true}
-                contentContainerStyle={{ paddingBottom: 8 }}
+                bounces={true}
+                scrollEnabled={true}
+                alwaysBounceVertical={false}
               >
-                {searchResults.map((customer, index) => (
-                  <TouchableOpacity
-                    key={`${customer.customerName}-${customer.id || index}`}
-                    onPress={() => handleSelectCustomer(customer)}
-                    style={{
-                      paddingHorizontal: 16,
-                      paddingVertical: 14,
-                      borderBottomWidth: index < searchResults.length - 1 ? 1 : 0,
-                      borderBottomColor: '#f0f0f0',
-                      backgroundColor: 'white',
-                      minHeight: 68, // Ensure minimum height for proper display
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={{
-                      flexDirection: 'row',
-                      justifyContent: 'space-between',
-                      alignItems: 'flex-start', // Changed to flex-start for better alignment
+                {renderedItems}
+                {searchResults.length > 15 && (
+                  <View style={{
+                    paddingVertical: 14,
+                    paddingHorizontal: 18,
+                    backgroundColor: '#fafafa',
+                    borderTopWidth: 1,
+                    borderTopColor: '#f3f4f6',
+                  }}>
+                    <Text style={{
+                      fontSize: 13,
+                      color: '#6b7280',
+                      textAlign: 'center',
+                      fontWeight: '500',
+                      lineHeight: 18,
                     }}>
-                      <View style={{ flex: 1, marginRight: 12 }}>
-                        <Text style={{
-                          fontSize: 16,
-                          fontWeight: '600',
-                          color: '#111827',
-                          marginBottom: 4,
-                          lineHeight: 20,
-                        }}>
-                          {customer.customerName}
-                        </Text>
-                        {customer.businessName && (
-                          <Text style={{
-                            fontSize: 13,
-                            color: '#4b5563',
-                            marginBottom: 2,
-                            lineHeight: 16,
-                          }}>
-                            {customer.businessName}
-                          </Text>
-                        )}
-                        {customer.businessPhone && (
-                          <Text style={{
-                            fontSize: 12,
-                            color: '#6b7280',
-                            fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-                            lineHeight: 16,
-                          }}>
-                            {customer.businessPhone}
-                          </Text>
-                        )}
-                      </View>
-                      <View style={{ 
-                        alignItems: 'flex-end', 
-                        justifyContent: 'flex-start',
-                        minWidth: 60,
-                      }}>
-                        {(customer.receiptCount || 0) > 0 && (
-                          <View style={{
-                            backgroundColor: '#dcfce7',
-                            borderRadius: 12,
-                            paddingHorizontal: 6,
-                            paddingVertical: 2,
-                            marginBottom: 4,
-                          }}>
-                            <Text style={{
-                              fontSize: 11,
-                              color: '#15803d',
-                              fontWeight: '600',
-                            }}>
-                              {customer.receiptCount} receipt{customer.receiptCount > 1 ? 's' : ''}
-                            </Text>
-                          </View>
-                        )}
-                        <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                      {value.trim() 
+                        ? `💡 ${searchResults.length - 15} more found. Refine your search to see more.`
+                        : `Showing first 15 of ${searchResults.length} customers. Search to find specific customers quickly.`
+                      }
+                    </Text>
+                  </View>
+                )}
               </ScrollView>
             </View>
           ) : (
@@ -405,26 +371,47 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
               
               {/* Empty state content */}
               <View style={{
-                paddingVertical: 32,
-                paddingHorizontal: 16,
+                paddingVertical: 40,
+                paddingHorizontal: 20,
                 alignItems: 'center',
                 backgroundColor: 'white',
               }}>
-                <Ionicons name="people-outline" size={48} color="#d1d5db" />
+                <View style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: 32,
+                  backgroundColor: '#f3f4f6',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginBottom: 16,
+                }}>
+                  <Ionicons name={value.trim() ? "search-outline" : "people-outline"} size={32} color="#9ca3af" />
+                </View>
+                <Text style={{
+                  color: '#374151',
+                  fontSize: 15,
+                  textAlign: 'center',
+                  fontWeight: '600',
+                  marginBottom: 6,
+                }}>
+                  {value.trim() ? 'No customers found' : 'No saved customers yet'}
+                </Text>
                 <Text style={{
                   color: '#9ca3af',
-                  fontSize: 14,
+                  fontSize: 13,
                   textAlign: 'center',
-                  marginTop: 12,
-                  fontWeight: '500',
+                  lineHeight: 18,
                 }}>
-                  {value.trim() ? 'No matching customers found' : 'Start typing to search or add a new party'}
+                  {value.trim() 
+                    ? 'Try a different search or add a new party' 
+                    : 'Add your first customer to get started'}
                 </Text>
               </View>
             </View>
           )}
         </View>
       )}
+      </View>
     </View>
   );
 };

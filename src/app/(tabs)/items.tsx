@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   FlatList,
@@ -10,12 +10,13 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import ItemService from '../../services/ItemService';
-import StockService from '../../services/StockService';
+import ItemService from '../../services/data/ItemService';
+import StockService from '../../services/data/StockService';
 import { ItemDetails } from '../../types';
 import AddItemModalSynced from '../../components/AddItemModalSynced';
 import { useItems, useCreateItem, useUpdateItem, useDeleteItem, useUpdateStock } from '../../hooks/useSyncManager';
 import { usePendingUpdates } from '../../store/syncStore';
+import { ItemsListSkeleton } from '../../components/ui/SkeletonLoader';
 
 // Import new components
 import ItemsHeader from '../../components/Items/ItemsHeader';
@@ -63,14 +64,7 @@ const ItemsScreen: React.FC = () => {
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Debug: Track items data changes
-  useEffect(() => {
-    console.log('🏷️ [ITEMS SCREEN DEBUG] Items data changed:');
-    console.log('  - Count:', items.length);
-    console.log('  - Loading:', loading);
-    console.log('  - Error:', error?.message || 'none');
-    console.log('  - Items:', items.map(item => ({ id: item.id, name: item.item_name, stocks: item.stocks })));
-  }, [items, loading, error]);
+  // ✅ Removed excessive debug logging - was causing 4x duplicate logs
 
   // Check if item has pending updates
   const isItemPending = (itemId: string) => {
@@ -79,25 +73,18 @@ const ItemsScreen: React.FC = () => {
     );
   };
 
-  const onRefresh = async () => {
-    console.log('🔄 Manual refresh initiated');
-    console.log('📊 Current items count before refresh:', items.length);
-    console.log('📄 Current items:', items.map(item => ({ id: item.id, name: item.item_name })));
-    
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      console.log('🔄 Calling refetch...');
-      const result = await refetch();
-      console.log('✅ Refetch completed:', result);
-      console.log('📊 Items count after refetch:', result.data?.length || 0);
+      await refetch();
+      // ✅ Reduced logging - only log errors
     } catch (error) {
       console.error('❌ Refetch failed:', error);
       Alert.alert('Error', 'Failed to refresh items. Please try again.');
     } finally {
       setRefreshing(false);
-      console.log('🔄 Refresh completed, refreshing state set to false');
     }
-  };
+  }, [refetch]);
 
   // Filter and sort items
   const filteredAndSortedItems = useMemo(() => {
@@ -136,29 +123,26 @@ const ItemsScreen: React.FC = () => {
     return filtered;
   }, [items, searchQuery, sortBy, sortOrder]);
 
-  // Stock management functions
-  const handleAddStock = async (itemId: string) => {
+  // Stock management functions - memoized
+  const handleAddStock = useCallback((itemId: string) => {
     updateStockMutation.mutate(
       { itemId, stockChange: 1 },
       {
-        onSuccess: (data) => {
-          console.log(`✅ Stock added successfully:`, data);
-        },
         onError: (error) => {
           console.error('❌ Failed to add stock:', error);
           Alert.alert('Error', 'Failed to add stock');
         },
       }
     );
-  };
+  }, [updateStockMutation]);
 
-  // Edit functions
-  const handleEditItem = (item: ItemDetails) => {
+  // Edit functions - memoized
+  const handleEditItem = useCallback((item: ItemDetails) => {
     setEditingItem(item);
     setShowEditModal(true);
-  };
+  }, []);
 
-  const handleSaveItem = async (itemData: Omit<ItemDetails, 'id'>) => {
+  const handleSaveItem = useCallback(async (itemData: Omit<ItemDetails, 'id'>) => {
     if (!editingItem) return;
     
     try {
@@ -169,27 +153,27 @@ const ItemsScreen: React.FC = () => {
     } catch (error) {
       throw error; // Re-throw so modal can handle it
     }
-  };
+  }, [editingItem, updateItemMutation]);
 
-  // Delete functions
-  const handleDeleteSingle = (itemId: string) => {
+  // Delete functions - memoized
+  const handleDeleteSingle = useCallback((itemId: string) => {
     setItemToDelete(itemId);
     setDeleteMode('single');
     setShowDeleteConfirm(true);
-  };
+  }, []);
 
-  const handleDeleteMultiple = () => {
+  const handleDeleteMultiple = useCallback(() => {
     if (selectedItems.size === 0) return;
     setDeleteMode('multiple');
     setShowDeleteConfirm(true);
-  };
+  }, [selectedItems.size]);
 
-  const handleDeleteAll = () => {
+  const handleDeleteAll = useCallback(() => {
     setDeleteMode('all');
     setShowDeleteConfirm(true);
-  };
+  }, []);
 
-  const confirmDelete = async () => {
+  const confirmDelete = useCallback(async () => {
     setIsDeleting(true);
     try {
       switch (deleteMode) {
@@ -221,29 +205,31 @@ const ItemsScreen: React.FC = () => {
       setShowDeleteConfirm(false);
       setItemToDelete(null);
     }
-  };
+  }, [deleteMode, itemToDelete, selectedItems, filteredAndSortedItems, deleteItemMutation]);
 
-  const toggleItemSelection = (itemId: string) => {
-    const newSelected = new Set(selectedItems);
-    if (newSelected.has(itemId)) {
-      newSelected.delete(itemId);
-    } else {
-      newSelected.add(itemId);
-    }
-    setSelectedItems(newSelected);
-  };
+  const toggleItemSelection = useCallback((itemId: string) => {
+    setSelectedItems(prev => {
+      const newSelected = new Set(prev);
+      if (newSelected.has(itemId)) {
+        newSelected.delete(itemId);
+      } else {
+        newSelected.add(itemId);
+      }
+      return newSelected;
+    });
+  }, []);
 
-  const selectAllItems = () => {
+  const selectAllItems = useCallback(() => {
     const allIds = filteredAndSortedItems.map(i => i.id);
     setSelectedItems(new Set(allIds));
-  };
+  }, [filteredAndSortedItems]);
 
-  const clearSelection = () => {
+  const clearSelection = useCallback(() => {
     setSelectedItems(new Set());
     setIsSelectionMode(false);
-  };
+  }, []);
 
-  const renderItemCard = ({ item }: { item: ItemDetails }) => {
+  const renderItemCard = useCallback(({ item }: { item: ItemDetails }) => {
     const isSelected = selectedItems.has(item.id);
     
     return (
@@ -268,12 +254,49 @@ const ItemsScreen: React.FC = () => {
         onAddStock={handleAddStock}
       />
     );
-  };
+  }, [selectedItems, isSelectionMode, toggleItemSelection, handleEditItem, handleDeleteSingle, handleAddStock]);
 
-  if (loading) {
+  // FlatList optimization: getItemLayout for better performance
+  const getItemLayout = useCallback(
+    (_: any, index: number) => ({
+      length: 120, // Approximate item height
+      offset: 120 * index,
+      index,
+    }),
+    []
+  );
+
+  // Key extractor for FlatList optimization
+  const keyExtractor = useCallback((item: ItemDetails) => item.id, []);
+
+  if (loading && items.length === 0) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3b82f6" />
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <ItemsHeader
+            isSelectionMode={false}
+            selectedCount={0}
+            filteredCount={0}
+            totalCount={0}
+            searchQuery=""
+            sortBy="name"
+            sortOrder="asc"
+            showFilters={false}
+            onToggleSelectionMode={() => {}}
+            onSelectAll={() => {}}
+            onDeleteMultiple={() => {}}
+            onDeleteAll={() => {}}
+            onClearSelection={() => {}}
+            onToggleFilters={() => {}}
+            onRefresh={() => {}}
+            onSearchChange={() => {}}
+            onClearSearch={() => {}}
+            onSortByChange={() => {}}
+            onSortOrderToggle={() => {}}
+            onAddItem={() => setShowAddModal(true)}
+          />
+          <ItemsListSkeleton count={8} />
+        </SafeAreaView>
       </View>
     );
   }
@@ -341,7 +364,8 @@ const ItemsScreen: React.FC = () => {
           <FlatList
             data={filteredAndSortedItems}
             renderItem={renderItemCard}
-            keyExtractor={(item) => item.id}
+            keyExtractor={keyExtractor}
+            getItemLayout={getItemLayout}
             style={styles.list}
             showsVerticalScrollIndicator={false}
             refreshControl={
@@ -352,6 +376,12 @@ const ItemsScreen: React.FC = () => {
                 tintColor="#3b82f6"
               />
             }
+            // Performance optimizations
+            removeClippedSubviews={true}
+            maxToRenderPerBatch={10}
+            updateCellsBatchingPeriod={50}
+            windowSize={10}
+            initialNumToRender={10}
           />
         )}
         

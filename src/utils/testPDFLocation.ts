@@ -4,7 +4,7 @@
  */
 
 import * as FileSystem from 'expo-file-system';
-import { StorageService } from '../services/StorageService';
+import { StorageService } from '../services/storage/StorageService';
 
 export class PDFLocationTester {
   /**

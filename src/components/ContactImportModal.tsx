@@ -14,8 +14,8 @@ import {
   Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import ContactsService, { DeviceContact, ContactsPermissionStatus } from '../services/ContactsService';
-import PersonDetailsService from '../services/PersonDetailsService';
+import ContactsService, { DeviceContact, ContactsPermissionStatus } from '../services/utilities/ContactsService';
+import PersonDetailsService from '../services/data/PersonDetailsService';
 import * as Contacts from 'expo-contacts';
 
 interface ContactImportModalProps {

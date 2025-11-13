@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,9 +10,11 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { FirebaseReceipt } from '../services/ReceiptFirebaseService';
-import PaymentService, { PaymentTransaction } from '../services/PaymentService';
+import { useQueryClient } from '@tanstack/react-query';
+import { FirebaseReceipt } from '../services/business/ReceiptFirebaseService';
+import PaymentService, { PaymentTransaction } from '../services/business/PaymentService';
 import { formatCurrency } from '../utils';
+import { CacheInvalidation } from '../utils/cacheInvalidation';
 
 interface RecordPaymentModalProps {
   visible: boolean;
@@ -37,6 +39,7 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
   onClose,
   onPaymentRecorded,
 }) => {
+  const queryClient = useQueryClient();
   const [amount, setAmount] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [notes, setNotes] = useState<string>('');
@@ -44,6 +47,10 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
   const [error, setError] = useState<string>('');
   const [paymentHistory, setPaymentHistory] = useState<PaymentTransaction[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  
+  // Cache payment history to avoid refetching on every open
+  const historyCache = useRef<Map<string, { data: PaymentTransaction[]; timestamp: number }>>(new Map());
+  const CACHE_TTL = 30000; // 30 seconds
 
   // Calculate balance information
   const balance = receipt
@@ -66,16 +73,32 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
       setNotes('');
       setError('');
       setPaymentHistory([]);
+      setIsProcessing(false); // Reset processing state
     }
   }, [visible, receipt?.id]);
 
   const loadPaymentHistory = async () => {
     if (!receipt?.id) return;
 
+    // Check cache first
+    const cached = historyCache.current.get(receipt.id);
+    const now = Date.now();
+    
+    if (cached && (now - cached.timestamp) < CACHE_TTL) {
+      setPaymentHistory(cached.data);
+      return;
+    }
+
     setLoadingHistory(true);
     try {
       const history = await PaymentService.getReceiptPaymentHistory(receipt.id);
       setPaymentHistory(history);
+      
+      // Cache the result
+      historyCache.current.set(receipt.id, {
+        data: history,
+        timestamp: now
+      });
     } catch (error) {
       console.error('Error loading payment history:', error);
     } finally {
@@ -121,51 +144,72 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
   const handleRecordPayment = async () => {
     if (!validateForm() || !receipt) return;
 
+    const paymentAmount = parseFloat(amount);
+    const currentBalance = balance?.remainingBalance || 0;
+    const newBalance = Math.max(0, currentBalance - paymentAmount);
+    
+    // Optimistic update: Close modal immediately and show success
+    // Real-time listener will update the UI when Firebase completes
     setIsProcessing(true);
-    setError('');
-
-    try {
-      const result = await PaymentService.recordPayment({
-        receiptId: receipt.id,
-        amount: parseFloat(amount),
-        paymentMethod,
-        notes: notes.trim() || undefined,
-      });
-
-      if (result.success && result.paymentTransaction) {
-        let message = `Payment of ${formatCurrency(parseFloat(amount))} recorded successfully!\n\nNew balance: ${formatCurrency(result.paymentTransaction.newBalance)}`;
-        
-        // Show information if payment was applied to multiple receipts
-        if (result.paymentTransaction.affectedReceipts && result.paymentTransaction.affectedReceipts.length > 1) {
-          message += `\n\n💸 Payment distributed across ${result.paymentTransaction.affectedReceipts.length} receipt(s):\n${result.paymentTransaction.affectedReceipts.join(', ')}`;
-        } else if (result.paymentTransaction.cascadedReceipts && result.paymentTransaction.cascadedReceipts.length > 0) {
-          message += `\n\n💸 Excess payment applied to ${result.paymentTransaction.cascadedReceipts.length} other receipt(s):\n${result.paymentTransaction.cascadedReceipts.join(', ')}`;
-        }
-        
+    
+    // Create optimistic transaction for callback
+    const optimisticTransaction = {
+      id: 'temp-' + Date.now(),
+      receiptId: receipt.id,
+      receiptNumber: receipt.receiptNumber,
+      customerName: receipt.customerName || 'Walk-in Customer',
+      amount: paymentAmount,
+      paymentMethod,
+      notes: notes.trim() || undefined,
+      previousBalance: currentBalance,
+      newBalance: newBalance,
+      timestamp: { seconds: Date.now() / 1000 } as any,
+    };
+    
+    // Small delay to show button animation, then close
+    setTimeout(() => {
+      // Immediately trigger callback and close modal (optimistic)
+      if (onPaymentRecorded) {
+        onPaymentRecorded(optimisticTransaction);
+      }
+      
+      // Close modal immediately for instant feel
+      onClose();
+    }, 100); // 100ms delay for better UX
+    
+    // Process payment in background
+    PaymentService.recordPayment({
+      receiptId: receipt.id,
+      amount: paymentAmount,
+      paymentMethod,
+      notes: notes.trim() || undefined,
+    }).then(async (result) => {
+      // Invalidate cache for this receipt
+      if (receipt?.id) {
+        historyCache.current.delete(receipt.id);
+      }
+      
+      if (!result.success) {
+        // Only show alert if payment failed
         Alert.alert(
-          'Payment Recorded',
-          message,
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                if (onPaymentRecorded && result.paymentTransaction) {
-                  onPaymentRecorded(result.paymentTransaction);
-                }
-                onClose();
-              },
-            },
-          ]
+          'Payment Failed',
+          result.error || 'Failed to record payment. Please try again.',
+          [{ text: 'OK' }]
         );
       } else {
-        setError(result.error || 'Failed to record payment');
+        // Success: Force invalidate React Query cache to ensure UI updates
+        console.log('💰 Payment successful, invalidating cache...');
+        await CacheInvalidation.invalidateReceipts(queryClient);
+        console.log('✅ Cache invalidated - UI should update now');
       }
-    } catch (error) {
+    }).catch(async (error) => {
       console.error('Error recording payment:', error);
-      setError(error instanceof Error ? error.message : 'An error occurred');
-    } finally {
-      setIsProcessing(false);
-    }
+      Alert.alert(
+        'Payment Failed',
+        error instanceof Error ? error.message : 'An error occurred',
+        [{ text: 'OK' }]
+      );
+    });
   };
 
   if (!visible || !receipt) return null;

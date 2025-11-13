@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Receipt } from '../types';
-import ReceiptDeliveryService from '../services/ReceiptDeliveryService';
+import ReceiptDeliveryService from '../services/features/ReceiptDeliveryService';
 
 interface ReceiptDeliveryModalProps {
   visible: boolean;

@@ -16,6 +16,8 @@ export const useNetworkStatus = () => {
     isInternetReachable: null,
     type: 'unknown',
   });
+  const [lastPushTime, setLastPushTime] = useState(0);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const { setConnectionState } = useSyncStore();
 
@@ -36,16 +38,35 @@ export const useNetworkStatus = () => {
   }, []);
 
   const handleNetworkChange = (state: NetInfoState) => {
+    // Prevent concurrent processing
+    if (isProcessing) {
+      return;
+    }
+    
     const isConnected = state.isConnected ?? false;
     const isInternetReachable = state.isInternetReachable ?? null;
     const type = state.type || 'unknown';
+    
+    // Skip if nothing changed
+    if (
+      networkStatus.isConnected === isConnected &&
+      networkStatus.isInternetReachable === isInternetReachable &&
+      networkStatus.type === type
+    ) {
+      return;
+    }
+    
+    setIsProcessing(true);
 
-    console.log('🌐 Network status changed:', {
-      isConnected,
-      isInternetReachable,
-      type,
-      details: state.details,
-    });
+    // Only log in development to reduce console overhead
+    if (__DEV__) {
+      console.log('🌐 Network status changed:', {
+        isConnected,
+        isInternetReachable,
+        type,
+        details: state.details,
+      });
+    }
 
     // Update local state
     setNetworkStatus({
@@ -84,17 +105,30 @@ export const useNetworkStatus = () => {
       ...(isConnected && isInternetReachable && { lastSync: new Date() }),
     });
 
-    // Trigger sync when coming back online
+    // Trigger sync when coming back online (only push pending changes)
+    // Real-time listeners will automatically receive updates, no need for full sync
+    // Debounce to prevent multiple rapid calls
     if (isConnected && isInternetReachable) {
-      console.log('✅ Connection restored - triggering sync...');
-      
-      // Wait a bit to ensure stable connection
-      setTimeout(() => {
-        SyncEngine.sync().catch((error) => {
-          console.error('Auto-sync failed after reconnection:', error);
-        });
-      }, 2000);
+      const now = Date.now();
+      // Only push if at least 5 seconds since last push (increased to reduce duplication)
+      if (now - lastPushTime > 5000) {
+        if (__DEV__) {
+          console.log('✅ Connection restored - pushing pending changes...');
+        }
+        setLastPushTime(now);
+        
+        // Only push pending local changes, don't pull (real-time handles that)
+        // Increased delay to allow network to stabilize
+        setTimeout(() => {
+          SyncEngine.pushToFirebase().catch((error) => {
+            console.error('Auto-push failed after reconnection:', error);
+          });
+        }, 1000);
+      }
     }
+    
+    // Reset processing flag
+    setTimeout(() => setIsProcessing(false), 500);
   };
 
   const refresh = async () => {

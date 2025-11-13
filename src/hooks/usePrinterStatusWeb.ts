@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import ThermalPrinterService, { ThermalPrinter } from '../services/ThermalPrinterService';
+import ThermalPrinterService, { ThermalPrinter } from '../services/printing/ThermalPrinterService';
 
 export interface PrinterStatus {
   isConnected: boolean;

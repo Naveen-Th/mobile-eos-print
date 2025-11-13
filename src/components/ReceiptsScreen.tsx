@@ -8,10 +8,10 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
-import { FirebaseReceipt } from '../services/ReceiptFirebaseService';
+import { FirebaseReceipt } from '../services/business/ReceiptFirebaseService';
 import { useReceipts } from '../hooks/useSyncManager';
 import { formatCurrency, formatReceiptDate } from '../utils';
-import RecordPaymentModal from './RecordPaymentModal';
+import RecordPaymentModal from './RecordPaymentModalWithCascade';
 
 interface ReceiptsScreenProps {
   // Add any props if needed

@@ -5,7 +5,7 @@
  * the Firebase receipt saving feature.
  */
 
-import ReceiptFirebaseService from '../services/ReceiptFirebaseService';
+import ReceiptFirebaseService from '../services/business/ReceiptFirebaseService';
 import { Receipt, ReceiptItem } from '../types';
 import { generateId, generateReceiptNumber } from '../utils';
 

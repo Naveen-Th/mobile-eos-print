@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import FirebaseService from '../services/FirebaseService';
+import FirebaseService from '../services/auth/FirebaseService';
 import { ItemDetails } from '../types';
 
 interface UseItemDetailsReturn {

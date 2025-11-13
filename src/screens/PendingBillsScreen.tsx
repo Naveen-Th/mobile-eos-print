@@ -10,10 +10,11 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import PendingBillsService, { PendingBill } from '../services/PendingBillsService';
-import { FirebaseReceipt } from '../services/ReceiptFirebaseService';
+import PendingBillsService, { PendingBill } from '../services/business/PendingBillsService';
+import { FirebaseReceipt } from '../services/business/ReceiptFirebaseService';
 import { useReceipts } from '../hooks/useSyncManager';
 import { formatCurrency } from '../utils';
+import { useLanguage } from '../contexts/LanguageContext';
 
 interface CustomerBalance {
   customerName: string;
@@ -24,6 +25,7 @@ interface CustomerBalance {
 }
 
 const PendingBillsScreen: React.FC = () => {
+  const { t } = useLanguage();
   const { 
     data: receiptsData = [], 
     isLoading: loading
@@ -88,14 +90,14 @@ const PendingBillsScreen: React.FC = () => {
 
     const amount = parseFloat(paymentAmount);
     if (isNaN(amount) || amount <= 0) {
-      Alert.alert('Invalid Amount', 'Please enter a valid payment amount');
+      Alert.alert(t('pendingBills.invalidAmount'), t('pendingBills.invalidAmountMessage'));
       return;
     }
 
     if (amount > selectedBill.remainingBalance) {
       Alert.alert(
-        'Invalid Amount',
-        'Payment amount cannot exceed remaining balance'
+        t('pendingBills.invalidAmount'),
+        t('pendingBills.exceedsBalance')
       );
       return;
     }
@@ -107,31 +109,31 @@ const PendingBillsScreen: React.FC = () => {
                 paymentMethod: 'cash',
               });
 
-              Alert.alert('Success', 'Payment recorded successfully');
+              Alert.alert(t('common.success'), t('pendingBills.paymentSuccess'));
               setShowPaymentModal(false);
               setPaymentAmount('');
               setSelectedBill(null);
     } catch (error) {
       console.error('Error recording payment:', error);
-      Alert.alert('Error', 'Failed to record payment');
+      Alert.alert(t('common.error'), t('pendingBills.paymentError'));
     }
   };
 
   const handleDeleteBill = (bill: PendingBill) => {
     Alert.alert(
-      'Delete Bill',
-      `Are you sure you want to delete this receipt for ${bill.customerName}?`,
+      t('pendingBills.deleteBill'),
+      t('pendingBills.deleteBillConfirm', { customer: bill.customerName }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: async () => {
             try {
               await PendingBillsService.getInstance().deleteBill(bill.id);
-              Alert.alert('Success', 'Receipt deleted successfully');
+              Alert.alert(t('common.success'), t('pendingBills.deleteSuccess'));
             } catch (error: any) {
-              Alert.alert('Error', error.message || 'Failed to delete receipt');
+              Alert.alert(t('common.error'), error.message || t('pendingBills.deleteError'));
             }
           },
         },
@@ -213,7 +215,7 @@ const PendingBillsScreen: React.FC = () => {
                 <Text className="text-sm text-gray-500">{customer.businessName}</Text>
               )}
               <Text className="text-xs text-gray-400 mt-1">
-                {customer.billsCount} {customer.billsCount === 1 ? 'bill' : 'bills'}
+                {customer.billsCount} {customer.billsCount === 1 ? t('pendingBills.bill') : t('pendingBills.bills')}
               </Text>
             </View>
             <View className="items-end">
@@ -256,7 +258,7 @@ const PendingBillsScreen: React.FC = () => {
           
           {/* Total Amount */}
           <View className="items-end">
-            <Text className="text-xs text-gray-500">Total</Text>
+            <Text className="text-xs text-gray-500">{t('pendingBills.total')}</Text>
             <Text className="text-base font-bold text-blue-600">
               {formatCurrency(bill.amount)}
             </Text>
@@ -288,13 +290,13 @@ const PendingBillsScreen: React.FC = () => {
                     ? 'text-yellow-600'
                     : 'text-red-600'
               }`}>
-                {isPaid ? '✓ PAID' : bill.paidAmount > 0 ? '⏱ PARTIAL' : '⚠ UNPAID'}
+                {isPaid ? `✓ ${t('pendingBills.paid')}` : bill.paidAmount > 0 ? `⏱ ${t('pendingBills.partial')}` : `⚠ ${t('pendingBills.unpaid')}`}
               </Text>
             </View>
             
             {/* Balance Due */}
             <View className="items-end">
-              <Text className="text-xs text-gray-500">Balance Due</Text>
+              <Text className="text-xs text-gray-500">{t('pendingBills.balanceDue')}</Text>
               <Text className={`text-base font-bold ${
                 bill.remainingBalance > 0 ? 'text-red-600' : 'text-green-600'
               }`}>
@@ -309,7 +311,7 @@ const PendingBillsScreen: React.FC = () => {
               {/* Previous Balance */}
               {bill.oldBalance !== undefined && bill.oldBalance !== 0 && (
                 <View className="flex-1">
-                  <Text className="text-xs text-gray-500">Previous Balance</Text>
+                  <Text className="text-xs text-gray-500">{t('pendingBills.previousBalance')}</Text>
                   <Text className="text-sm font-semibold text-gray-600">
                     {formatCurrency(bill.oldBalance)}
                   </Text>
@@ -319,7 +321,7 @@ const PendingBillsScreen: React.FC = () => {
               {/* Amount Paid */}
               {bill.paidAmount > 0 && (
                 <View className="flex-1 items-end">
-                  <Text className="text-xs text-gray-500">Amount Paid</Text>
+                  <Text className="text-xs text-gray-500">{t('pendingBills.amountPaid')}</Text>
                   <Text className="text-sm font-bold text-green-600">
                     {formatCurrency(bill.paidAmount)}
                   </Text>
@@ -341,7 +343,7 @@ const PendingBillsScreen: React.FC = () => {
               className="flex-1 bg-green-500 py-3 rounded-lg flex-row items-center justify-center"
             >
               <Text className="text-white font-semibold text-sm">
-                💳 Pay {formatCurrency(bill.remainingBalance)}
+                💳 {t('pendingBills.pay')} {formatCurrency(bill.remainingBalance)}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -366,18 +368,18 @@ const PendingBillsScreen: React.FC = () => {
       <View className="flex-1 bg-black/50 justify-end">
         <View className="bg-white rounded-t-3xl p-6">
           <Text className="text-2xl font-bold text-gray-900 mb-4">
-            Record Payment
+            {t('pendingBills.recordPayment')}
           </Text>
 
           {selectedBill && (
             <>
               <View className="bg-gray-50 rounded-xl p-4 mb-4">
-                <Text className="text-gray-600 mb-2">Customer</Text>
+                <Text className="text-gray-600 mb-2">{t('pendingBills.customer')}</Text>
                 <Text className="text-lg font-bold text-gray-900 mb-3">
                   {selectedBill.customerName}
                 </Text>
                 <View className="flex-row justify-between">
-                  <Text className="text-gray-600">Remaining Balance:</Text>
+                  <Text className="text-gray-600">{t('pendingBills.remainingBalance')}:</Text>
                   <Text className="text-xl font-bold text-red-600">
                     {formatCurrency(selectedBill.remainingBalance)}
                   </Text>
@@ -386,7 +388,7 @@ const PendingBillsScreen: React.FC = () => {
 
               <View className="mb-4">
                 <Text className="text-gray-700 font-medium mb-2">
-                  Payment Amount
+                  {t('pendingBills.paymentAmount')}
                 </Text>
                 <TextInput
                   value={paymentAmount}
@@ -407,7 +409,7 @@ const PendingBillsScreen: React.FC = () => {
                   className="flex-1 bg-gray-200 py-4 rounded-xl"
                 >
                   <Text className="text-gray-700 font-semibold text-center">
-                    Cancel
+                    {t('common.cancel')}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -415,7 +417,7 @@ const PendingBillsScreen: React.FC = () => {
                   className="flex-1 bg-green-500 py-4 rounded-xl"
                 >
                   <Text className="text-white font-semibold text-center">
-                    Record Payment
+                    {t('pendingBills.recordPayment')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -431,7 +433,7 @@ const PendingBillsScreen: React.FC = () => {
       <SafeAreaView className="flex-1 bg-gray-50">
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator size="large" color="#3b82f6" />
-          <Text className="text-gray-600 mt-4">Loading pending bills...</Text>
+          <Text className="text-gray-600 mt-4">{t('pendingBills.loadingBills')}</Text>
         </View>
       </SafeAreaView>
     );
@@ -443,10 +445,10 @@ const PendingBillsScreen: React.FC = () => {
         {/* Header */}
         <View className="mb-6">
           <Text className="text-3xl font-bold text-gray-900 mb-2">
-            Pending Bills
+            {t('pendingBills.title')}
           </Text>
           <Text className="text-gray-600">
-            Manage customer balances and payments
+            {t('pendingBills.subtitle')}
           </Text>
         </View>
 
@@ -457,14 +459,14 @@ const PendingBillsScreen: React.FC = () => {
           className="mb-6"
         >
           {renderStatCard(
-            'Total Pending',
+            t('pendingBills.totalPending'),
             formatCurrency(stats.totalPending),
             '💰'
           )}
-          {renderStatCard('Total Bills', stats.totalBills.toString(), '📋')}
-          {renderStatCard('Overdue', stats.overdueCount.toString(), '⚠️')}
+          {renderStatCard(t('pendingBills.totalBills'), stats.totalBills.toString(), '📋')}
+          {renderStatCard(t('pendingBills.overdue'), stats.overdueCount.toString(), '⚠️')}
           {renderStatCard(
-            'Partial Paid',
+            t('pendingBills.partialPaid'),
             stats.partialPaymentCount.toString(),
             '📊'
           )}
@@ -483,7 +485,7 @@ const PendingBillsScreen: React.FC = () => {
                 viewMode === 'customer' ? 'text-white' : 'text-gray-700'
               }`}
             >
-              By Customer
+              {t('pendingBills.byCustomer')}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -497,7 +499,7 @@ const PendingBillsScreen: React.FC = () => {
                 viewMode === 'individual' ? 'text-white' : 'text-gray-700'
               }`}
             >
-              Individual Bills
+              {t('pendingBills.individualBills')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -507,7 +509,7 @@ const PendingBillsScreen: React.FC = () => {
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search by customer name..."
+            placeholder={t('pendingBills.searchPlaceholder')}
             className="px-4 py-4"
           />
         </View>
@@ -518,18 +520,20 @@ const PendingBillsScreen: React.FC = () => {
             <View className="flex-1 items-center justify-center py-12">
               <Text className="text-6xl mb-4">💸</Text>
               <Text className="text-xl font-bold text-gray-900 mb-2">
-                No Pending Bills
+                {t('pendingBills.noPendingBills')}
               </Text>
               <Text className="text-gray-600 text-center">
                 {searchQuery
-                  ? 'No customers match your search'
-                  : 'All customers have settled their balances'}
+                  ? t('pendingBills.noCustomersMatch')
+                  : t('pendingBills.allSettled')}
               </Text>
             </View>
           ) : (
             <View>
               <Text className="text-sm text-gray-600 mb-3">
-                {filteredCustomers.length} {filteredCustomers.length === 1 ? 'customer' : 'customers'} with pending balance
+                {filteredCustomers.length === 1 
+                  ? t('pendingBills.customerWithBalance', { count: filteredCustomers.length })
+                  : t('pendingBills.customersWithBalance', { count: filteredCustomers.length })}
               </Text>
               {filteredCustomers.map(renderCustomerBalanceItem)}
             </View>
@@ -538,12 +542,12 @@ const PendingBillsScreen: React.FC = () => {
           <View className="flex-1 items-center justify-center py-12">
             <Text className="text-6xl mb-4">💸</Text>
             <Text className="text-xl font-bold text-gray-900 mb-2">
-              No Pending Bills
+              {t('pendingBills.noPendingBills')}
             </Text>
             <Text className="text-gray-600 text-center">
               {searchQuery
-                ? 'No bills match your search'
-                : 'All customers have settled their balances'}
+                ? t('pendingBills.noBillsMatch')
+                : t('pendingBills.allSettled')}
             </Text>
           </View>
         ) : (

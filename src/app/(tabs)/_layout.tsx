@@ -1,8 +1,8 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { View, Text } from 'react-native';
-import { MobileUser } from '../../services/MobileAuthService';
+import { View } from 'react-native';
+import { MobileUser } from '../../services/auth/MobileAuthService';
 
 // Import screens
 import HomeScreen from './index';
@@ -16,6 +16,15 @@ interface TabLayoutProps {
   user?: MobileUser | null;
   onLogout?: () => void;
 }
+
+// Icon wrapper component to ensure proper rendering
+const TabIcon = ({ name, color, size }: { name: keyof typeof Ionicons.glyphMap; color: string; size: number }) => {
+  return (
+    <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
+      <Ionicons name={name} size={size} color={color} />
+    </View>
+  );
+};
 
 export default function TabLayout({ user, onLogout }: TabLayoutProps) {
   return (
@@ -51,8 +60,8 @@ export default function TabLayout({ user, onLogout }: TabLayoutProps) {
         component={HomeScreen}
         options={{
           title: 'POS',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="storefront-outline" size={size} color={color} />
+          tabBarIcon: ({ color, size = 24 }) => (
+            <TabIcon name="storefront-outline" color={color} size={size} />
           ),
         }}
       />
@@ -61,8 +70,8 @@ export default function TabLayout({ user, onLogout }: TabLayoutProps) {
         component={ReceiptsScreen}
         options={{
           title: 'Receipts',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="receipt-outline" size={size} color={color} />
+          tabBarIcon: ({ color, size = 24 }) => (
+            <TabIcon name="receipt-outline" color={color} size={size} />
           ),
         }}
       />
@@ -71,8 +80,8 @@ export default function TabLayout({ user, onLogout }: TabLayoutProps) {
         component={ItemsScreen}
         options={{
           title: 'Items',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="cube-outline" size={size} color={color} />
+          tabBarIcon: ({ color, size = 24 }) => (
+            <TabIcon name="cube-outline" color={color} size={size} />
           ),
         }}
       />
@@ -80,8 +89,8 @@ export default function TabLayout({ user, onLogout }: TabLayoutProps) {
         name="settings"
         options={{
           title: 'Settings',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="settings-outline" size={size} color={color} />
+          tabBarIcon: ({ color, size = 24 }) => (
+            <TabIcon name="settings-outline" color={color} size={size} />
           ),
         }}
       >

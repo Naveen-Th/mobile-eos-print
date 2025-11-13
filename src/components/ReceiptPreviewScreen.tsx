@@ -16,10 +16,10 @@ import {
   generateId,
   generateReceiptNumber,
 } from '../utils';
-import { PrintService } from '../services/PrintService';
-import { StorageService } from '../services/StorageService';
+import { PrintService } from '../services/printing/PrintService';
+import { StorageService } from '../services/storage/StorageService';
 import { QRCodeService } from '../services/QRCodeService';
-import ReceiptFirebaseService from '../services/ReceiptFirebaseService';
+import ReceiptFirebaseService from '../services/business/ReceiptFirebaseService';
 
 interface ReceiptPreviewScreenProps {
   onClose: () => void;

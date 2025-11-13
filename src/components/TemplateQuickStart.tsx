@@ -10,7 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { ReceiptTemplate } from '../types';
-import ReceiptTemplateService from '../services/ReceiptTemplateService';
+import ReceiptTemplateService from '../services/printing/ReceiptTemplateService';
 import ReceiptTemplatePreview from './ReceiptTemplatePreview';
 
 interface TemplateQuickStartProps {

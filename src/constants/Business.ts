@@ -10,7 +10,7 @@ export const MIN_RECEIPT_AMOUNT = 0.01; // Minimum amount per receipt
 
 // Caching
 export const CACHE_DURATION_MS = 30000; // 30 seconds
-export const BALANCE_CACHE_TTL = 30000; // 30 seconds for balance cache
+export const BALANCE_CACHE_TTL = 300000; // 5 minutes for balance cache (increased for better performance)
 export const CUSTOMER_CACHE_TTL = 60000; // 1 minute for customer data
 
 // Receipt Configuration

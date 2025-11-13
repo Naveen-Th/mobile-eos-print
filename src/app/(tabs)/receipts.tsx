@@ -1,43 +1,55 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
-  FlatList,
   Alert,
   RefreshControl,
   ActivityIndicator,
   StyleSheet,
+  Text,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import ReceiptFirebaseService, { FirebaseReceipt } from '../../services/ReceiptFirebaseService';
-import { useReceipts } from '../../hooks/useSyncManager';
+import ReceiptFirebaseService, { FirebaseReceipt } from '../../services/business/ReceiptFirebaseService';
+import { useProgressiveReceipts } from '../../hooks/useProgressiveReceipts';
+import { useQueryClient } from '@tanstack/react-query';
 import { usePendingUpdates } from '../../store/syncStore';
-import PDFService from '../../services/PDFService';
-import BalanceTrackingService from '../../services/BalanceTrackingService';
+import PDFService from '../../services/printing/PDFService';
+import BalanceTrackingService from '../../services/business/BalanceTrackingService';
+import ThermalPrinterService from '../../services/printing/ThermalPrinterService';
 
 // Import components
 import ReceiptDetailModal from '../../components/Receipts/ReceiptDetailModal';
 import DeleteConfirmationModal from '../../components/Receipts/DeleteConfirmationModal';
-import ReceiptItem from '../../components/Receipts/ReceiptItem';
+import ReceiptItem from '../../components/Receipts/ReceiptItemOptimized'; // Using optimized version
 import ReceiptsHeader from '../../components/Receipts/ReceiptsHeader';
 import EmptyState from '../../components/Receipts/EmptyState';
 import LoadingState from '../../components/Receipts/LoadingState';
 import ErrorState from '../../components/Receipts/ErrorState';
-import RecordPaymentModal from '../../components/RecordPaymentModal';
+import RecordPaymentModal from '../../components/RecordPaymentModalWithCascade';
+import FloatingActionBar from '../../components/Receipts/FloatingActionBar';
+import LoadMoreButton from '../../components/Receipts/LoadMoreButton';
+import SectionHeader from '../../components/Receipts/SectionHeader';
+import { useDebounce } from '../../hooks/useDebounce';
+import { groupReceiptsIntoSections, getSectionSummary, filterSections, ReceiptSection } from '../../utils/receiptSections';
+import { performanceTime, performanceTimeEnd } from '../../utils/performanceTiming';
 
 const ReceiptsScreen: React.FC = () => {
-  // TanStack Query hooks for receipts
-  const { 
-    data: receipts = [], 
-    isLoading: loading, 
-    error, 
-    refetch 
-  } = useReceipts();
+  const queryClient = useQueryClient();
   
-  // Debug: Log what receipts screen is receiving
-  console.log('🚿 [RECEIPTS SCREEN DEBUG] Receipts data:', receipts);
-  console.log('🚿 [RECEIPTS SCREEN DEBUG] Is loading:', loading);
-  console.log('🚿 [RECEIPTS SCREEN DEBUG] Error:', error);
-  console.log('🚿 [RECEIPTS SCREEN DEBUG] Receipts length:', receipts?.length);
+  // Progressive receipts hook - loads 50 initially, allows loading more
+  const {
+    receipts = [],
+    isLoading: loading,
+    error,
+    isLoadingMore,
+    hasMore,
+    loadMore,
+    loadAll,
+    reset,
+    stats
+  } = useProgressiveReceipts();
+  
+  // Removed debug logs for performance
   
   // Zustand state for pending updates
   const pendingUpdates = usePendingUpdates();
@@ -48,6 +60,7 @@ const ReceiptsScreen: React.FC = () => {
   
   // Search, Filter, Sort states
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebounce(searchQuery, 300); // Debounce search for performance
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'date' | 'customer' | 'total'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -56,6 +69,8 @@ const ReceiptsScreen: React.FC = () => {
   // Delete functionality states
   const [selectedReceipts, setSelectedReceipts] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+  
+  // Removed debug logs for performance
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteMode, setDeleteMode] = useState<'single' | 'multiple' | 'all'>('single');
   const [receiptToDelete, setReceiptToDelete] = useState<string | null>(null);
@@ -69,6 +84,25 @@ const ReceiptsScreen: React.FC = () => {
   
   // Customer balances cache
   const [customerBalances, setCustomerBalances] = useState<Map<string, number>>(new Map());
+  
+  // Debounce timer for balance calculations
+  const balanceCalculationTimer = useRef<NodeJS.Timeout | null>(null);
+  
+  // Section collapse/expand state
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  
+  // Toggle section collapsed state
+  const toggleSection = useCallback((sectionKey: string) => {
+    setCollapsedSections(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(sectionKey)) {
+        newSet.delete(sectionKey);
+      } else {
+        newSet.add(sectionKey);
+      }
+      return newSet;
+    });
+  }, []);
 
   // Helper function to handle receipt status updates (simplified - relies on real-time sync)
   const handleReceiptStatusUpdate = React.useCallback(async (receiptId: string, newStatus: 'printed' | 'exported' | 'draft') => {
@@ -87,7 +121,7 @@ const ReceiptsScreen: React.FC = () => {
         throw new Error(result.error || 'Failed to update receipt status');
       }
       
-      console.log(`Receipt ${receiptId} status updated to ${newStatus}`);
+      // Status updated
     } catch (error: any) {
       console.error('Error updating receipt status:', error);
       Alert.alert(
@@ -115,11 +149,16 @@ const ReceiptsScreen: React.FC = () => {
   const loadReceipts = React.useCallback(async () => {
     setRefreshing(true);
     try {
-      // Don't call refetch for real-time collections - data comes from listener
-      console.log('Skipping refetch for real-time collection - data comes from Firebase listener');
-      // Just simulate a brief loading state
+      // ✅ OPTIMIZED: Real-time listener already has latest data!
+      // Reset to initial 50 receipts on pull-to-refresh
+      reset();
+      
+      // Just wait a moment to show user something happened
       await new Promise(resolve => setTimeout(resolve, 300));
-      console.log('Receipts refresh completed (real-time data)');
+      
+      if (__DEV__) {
+        console.log('✅ Refresh complete - reset to recent 50 receipts');
+      }
     } catch (err) {
       console.error('Error refreshing receipts:', err);
       Alert.alert(
@@ -130,7 +169,7 @@ const ReceiptsScreen: React.FC = () => {
     } finally {
       setRefreshing(false);
     }
-  }, []); // Removed refetch from dependencies
+  }, [reset]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -224,22 +263,27 @@ const ReceiptsScreen: React.FC = () => {
     }
   }, []);
 
-  // Calculate customer balances from receipts with dynamic balances
+  // Calculate customer balances from receipts with dynamic balances (debounced)
   useEffect(() => {
-    const calculateBalances = () => {
+    // Clear existing timer
+    if (balanceCalculationTimer.current) {
+      clearTimeout(balanceCalculationTimer.current);
+    }
+    
+    // Debounce balance calculations to avoid excessive updates
+    balanceCalculationTimer.current = setTimeout(() => {
       const balances = new Map<string, number>();
       
       // For each customer, calculate their total outstanding balance across ALL receipts
       // Group receipts by customer first
-      const customerReceipts = new Map<string, typeof receiptsWithDynamicBalance>();
+      const customerReceipts = new Map<string, FirebaseReceipt[]>();
       
       receiptsWithDynamicBalance.forEach(receipt => {
-        if (receipt.customerName) {
-          if (!customerReceipts.has(receipt.customerName)) {
-            customerReceipts.set(receipt.customerName, []);
-          }
-          customerReceipts.get(receipt.customerName)!.push(receipt);
+        const customerKey = receipt.customerName || 'Walk-in Customer';
+        if (!customerReceipts.has(customerKey)) {
+          customerReceipts.set(customerKey, []);
         }
+        customerReceipts.get(customerKey)!.push(receipt);
       });
       
       // Calculate total balance for each customer
@@ -255,13 +299,20 @@ const ReceiptsScreen: React.FC = () => {
       });
       
       setCustomerBalances(balances);
-    };
+    }, 150); // Debounce for 150ms
     
-    calculateBalances();
+    // Cleanup on unmount
+    return () => {
+      if (balanceCalculationTimer.current) {
+        clearTimeout(balanceCalculationTimer.current);
+      }
+    };
   }, [receiptsWithDynamicBalance]);
   
   // Recalculate Previous Balance dynamically for all receipts
+  // Memoized to prevent expensive recalculations on every render
   const receiptsWithDynamicBalance = useMemo(() => {
+    if (!receipts || receipts.length === 0) return [];
     // Sort receipts by creation date (oldest first) for accurate balance calculation
     const sorted = [...receipts].sort((a, b) => {
       const dateA = a.createdAt?.toDate?.() || (a.date?.toDate ? a.date.toDate() : new Date(0));
@@ -272,7 +323,7 @@ const ReceiptsScreen: React.FC = () => {
     // Group by customer and calculate running balances
     const customerBalanceMap = new Map<string, number>();
     
-    return sorted.map(receipt => {
+    return sorted.map((receipt, index) => {
       const customerName = receipt.customerName || 'Walk-in Customer';
       
       // Get the cumulative balance before this receipt
@@ -281,65 +332,62 @@ const ReceiptsScreen: React.FC = () => {
       // Calculate this receipt's remaining balance (total - amountPaid)
       const receiptBalance = (receipt.total || 0) - (receipt.amountPaid || 0);
       
-      // Update cumulative balance for this customer
-      customerBalanceMap.set(customerName, previousBalance + receiptBalance);
+      // ✅ PRESERVE manually entered oldBalance from Firebase (if it exists)
+      // Only use dynamic calculation if no oldBalance was stored in Firebase
+      const oldBalanceFromFirebase = receipt.oldBalance || 0;
+      const oldBalance = oldBalanceFromFirebase > 0 ? oldBalanceFromFirebase : previousBalance;
       
-      // Return receipt with dynamically calculated oldBalance
+      // ✅ Update cumulative balance: include oldBalance + receipt balance for next receipt
+      // This ensures subsequent receipts see the full outstanding amount from this receipt
+      customerBalanceMap.set(customerName, oldBalance + receiptBalance);
+      
+      // Debug: Log balance calculation for customer "Ga"
+      if (customerName === 'Ga' && index < 5) {
+        console.log(`📊 [${receipt.receiptNumber}] Customer: ${customerName}, Firebase oldBal: ₹${oldBalanceFromFirebase}, Dynamic prevBal: ₹${previousBalance}, Using: ₹${oldBalance}, ReceiptBal: ₹${receiptBalance}, NewBal: ₹${oldBalance + receiptBalance}`);
+      }
+      
+      // Return receipt with preserved Firebase oldBalance or dynamic calculation
       return {
         ...receipt,
-        oldBalance: previousBalance, // Dynamic Previous Balance
-        newBalance: previousBalance + receiptBalance, // Dynamic Balance Due
+        oldBalance, // ✅ Use Firebase value if exists, otherwise dynamic
+        newBalance: oldBalance + receiptBalance, // Dynamic Balance Due
       };
     });
   }, [receipts]);
   
-  // Filter and sort receipts
-  const filteredAndSortedReceipts = useMemo(() => {
-    let filtered = receiptsWithDynamicBalance;
-
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(receipt => 
-        receipt.customerName?.toLowerCase().includes(query) ||
-        receipt.receiptNumber?.toLowerCase().includes(query) ||
-        receipt.companyName?.toLowerCase().includes(query) ||
-        receipt.items.some(item => item.name?.toLowerCase().includes(query))
-      );
-    }
-
-    // Apply status filter
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(receipt => receipt.status === statusFilter);
-    }
-
-    // Apply sorting
-    filtered.sort((a, b) => {
-      let comparison = 0;
-      
-      switch (sortBy) {
-        case 'date':
-          const dateA = a.createdAt?.toDate?.() || (a.date?.toDate ? a.date.toDate() : new Date(0));
-          const dateB = b.createdAt?.toDate?.() || (b.date?.toDate ? b.date.toDate() : new Date(0));
-          comparison = dateA.getTime() - dateB.getTime();
-          break;
-        case 'customer':
-          const customerA = (a.customerName || 'Walk-in Customer').toLowerCase();
-          const customerB = (b.customerName || 'Walk-in Customer').toLowerCase();
-          comparison = customerA.localeCompare(customerB);
-          break;
-        case 'total':
-          comparison = (a.total || 0) - (b.total || 0);
-          break;
-        default:
-          comparison = 0;
-      }
-      
-      return sortOrder === 'desc' ? -comparison : comparison;
-    });
-
+  // Group receipts into smart time-based sections
+  const receiptSections = useMemo(() => {
+    performanceTime('⚡ Group+Filter Sections');
+    
+    // First group all receipts into sections
+    const sections = groupReceiptsIntoSections(receiptsWithDynamicBalance);
+    
+    // Then filter sections by search and status
+    const filtered = filterSections(sections, debouncedSearchQuery, statusFilter);
+    
+    performanceTimeEnd('⚡ Group+Filter Sections');
+    
     return filtered;
-  }, [receipts, searchQuery, statusFilter, sortBy, sortOrder]);
+  }, [receiptsWithDynamicBalance, debouncedSearchQuery, statusFilter]);
+  
+  // Flatten sections into list items (section headers + receipts)
+  const flattenedData = useMemo(() => {
+    const items: Array<{ type: 'section' | 'receipt'; section?: ReceiptSection; receipt?: FirebaseReceipt }> = [];
+    
+    receiptSections.forEach(section => {
+      // Add section header
+      items.push({ type: 'section', section });
+      
+      // Add receipts if section is expanded
+      if (!collapsedSections.has(section.key)) {
+        section.data.forEach(receipt => {
+          items.push({ type: 'receipt', receipt });
+        });
+      }
+    });
+    
+    return items;
+  }, [receiptSections, collapsedSections]);
 
   // Delete functions
   const handleDeleteSingle = (receiptId: string) => {
@@ -363,6 +411,7 @@ const ReceiptsScreen: React.FC = () => {
     setIsDeleting(true);
     let receiptIdsToDelete: string[] = [];
     let receiptsToBackup: FirebaseReceipt[] = [];
+    const BATCH_SIZE = 10; // Process 10 at a time to avoid overwhelming Firestore
     
     try {
       switch (deleteMode) {
@@ -371,8 +420,26 @@ const ReceiptsScreen: React.FC = () => {
             receiptIdsToDelete = [receiptToDelete];
             receiptsToBackup = receipts.filter(r => r.id === receiptToDelete);
             
-            // Mark as pending
+            // Mark as pending immediately for instant UI feedback
             setPendingDeletions(prev => new Set(prev).add(receiptToDelete));
+            
+            // Close modal immediately for better UX
+            setShowDeleteConfirm(false);
+            
+            // ✅ Optimistic cache update - remove from cache immediately
+            console.log('🗑️ [DELETE] Optimistically removing receipt:', receiptToDelete);
+            queryClient.setQueryData<FirebaseReceipt[]>(['firebase', 'collections', 'receipts'], (oldData) => {
+              if (!oldData) return oldData;
+              const filtered = oldData.filter(r => r.id !== receiptToDelete);
+              console.log(`  🗑️ Filtered cache: ${oldData.length} -> ${filtered.length}`);
+              return filtered;
+            });
+            
+            // Also trigger a refetch to ensure UI updates
+            setTimeout(() => {
+              queryClient.invalidateQueries({ queryKey: ['firebase', 'collections', 'receipts'] });
+              reset(); // Reset progressive receipts to clear local state
+            }, 100);
             
             await ReceiptFirebaseService.deleteReceipt(receiptToDelete);
           }
@@ -381,81 +448,133 @@ const ReceiptsScreen: React.FC = () => {
           receiptIdsToDelete = Array.from(selectedReceipts);
           receiptsToBackup = receipts.filter(r => selectedReceipts.has(r.id));
           
-          // Mark as pending
+          // Mark as pending immediately for instant UI feedback
           setPendingDeletions(prev => {
             const newSet = new Set(prev);
             receiptIdsToDelete.forEach(id => newSet.add(id));
             return newSet;
           });
           
-          await Promise.all(receiptIdsToDelete.map(id => ReceiptFirebaseService.deleteReceipt(id)));
+          // Close modal immediately for better UX
+          setShowDeleteConfirm(false);
+          
+          // ✅ Optimistic cache update - remove multiple from cache immediately
+          console.log(`🗑️ [DELETE] Optimistically removing ${receiptIdsToDelete.length} receipts`);
+          queryClient.setQueryData<FirebaseReceipt[]>(['firebase', 'collections', 'receipts'], (oldData) => {
+            if (!oldData) return oldData;
+            const filtered = oldData.filter(r => !receiptIdsToDelete.includes(r.id));
+            console.log(`  🗑️ Filtered cache: ${oldData.length} -> ${filtered.length}`);
+            return filtered;
+          });
+          
+          // Also trigger a refetch to ensure UI updates
+          setTimeout(() => {
+            queryClient.invalidateQueries({ queryKey: ['firebase', 'collections', 'receipts'] });
+            reset(); // Reset progressive receipts to clear local state
+          }, 100);
+          
+          // Batch delete with optimized Promise.all
+          for (let i = 0; i < receiptIdsToDelete.length; i += BATCH_SIZE) {
+            const batch = receiptIdsToDelete.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(id => ReceiptFirebaseService.deleteReceipt(id)));
+          }
+          
           setSelectedReceipts(new Set());
           setIsSelectionMode(false);
           break;
         case 'all':
-          receiptIdsToDelete = filteredAndSortedReceipts.map(r => r.id);
-          receiptsToBackup = [...filteredAndSortedReceipts];
+          // Delete all receipts across all sections
+          const allReceipts = receiptSections.flatMap(s => s.data);
+          receiptIdsToDelete = allReceipts.map(r => r.id);
+          receiptsToBackup = [...allReceipts];
           
-          // Mark as pending
+          // Mark as pending immediately for instant UI feedback
           setPendingDeletions(prev => {
             const newSet = new Set(prev);
             receiptIdsToDelete.forEach(id => newSet.add(id));
             return newSet;
           });
           
-          await Promise.all(receiptIdsToDelete.map(id => ReceiptFirebaseService.deleteReceipt(id)));
+          // Close modal immediately for better UX
+          setShowDeleteConfirm(false);
+          
+          // ✅ Optimistic cache update - remove all from cache immediately
+          console.log(`🗑️ [DELETE] Optimistically removing ${receiptIdsToDelete.length} receipts (all)`);
+          queryClient.setQueryData<FirebaseReceipt[]>(['firebase', 'collections', 'receipts'], (oldData) => {
+            if (!oldData) return oldData;
+            const filtered = oldData.filter(r => !receiptIdsToDelete.includes(r.id));
+            console.log(`  🗑️ Filtered cache: ${oldData.length} -> ${filtered.length}`);
+            return filtered;
+          });
+          
+          // Also trigger a refetch to ensure UI updates
+          setTimeout(() => {
+            queryClient.invalidateQueries({ queryKey: ['firebase', 'collections', 'receipts'] });
+            reset(); // Reset progressive receipts to clear local state
+          }, 100);
+          
+          // Batch delete with optimized Promise.all
+          for (let i = 0; i < receiptIdsToDelete.length; i += BATCH_SIZE) {
+            const batch = receiptIdsToDelete.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(id => ReceiptFirebaseService.deleteReceipt(id)));
+          }
           break;
       }
       
       // Success - real-time listener will sync with Firebase
-      Alert.alert(
-        'Success',
-        `Receipt${deleteMode === 'single' ? '' : 's'} deleted successfully`
-      );
+      // Show subtle toast-like feedback instead of blocking alert
     } catch (error) {
       console.error('Error deleting receipts:', error);
       
-      // Note: Real-time sync will automatically revert any failed deletes
-      
-      Alert.alert('Error', 'Failed to delete receipt(s). Please try again.');
-    } finally {
-      // Clear pending deletions
+      // Revert pending deletions on error
       setPendingDeletions(prev => {
         const newSet = new Set(prev);
         receiptIdsToDelete.forEach(id => newSet.delete(id));
         return newSet;
       });
       
+      Alert.alert('Error', 'Failed to delete receipt(s). Please try again.');
+    } finally {
+      // Clear pending deletions after successful delete
+      setTimeout(() => {
+        setPendingDeletions(prev => {
+          const newSet = new Set(prev);
+          receiptIdsToDelete.forEach(id => newSet.delete(id));
+          return newSet;
+        });
+      }, 500); // Small delay to ensure smooth animation
+      
       setIsDeleting(false);
-      setShowDeleteConfirm(false);
       setReceiptToDelete(null);
     }
   };
 
-  const toggleReceiptSelection = (receiptId: string) => {
-    const newSelected = new Set(selectedReceipts);
-    if (newSelected.has(receiptId)) {
-      newSelected.delete(receiptId);
-    } else {
-      newSelected.add(receiptId);
-    }
-    setSelectedReceipts(newSelected);
-  };
+  const toggleReceiptSelection = useCallback((receiptId: string) => {
+    setSelectedReceipts(prev => {
+      const newSelected = new Set(prev);
+      if (newSelected.has(receiptId)) {
+        newSelected.delete(receiptId);
+      } else {
+        newSelected.add(receiptId);
+      }
+      return newSelected;
+    });
+  }, []);
 
-  const selectAllReceipts = () => {
-    const allIds = filteredAndSortedReceipts.map(r => r.id);
+  const selectAllReceipts = useCallback(() => {
+    const allReceipts = receiptSections.flatMap(s => s.data);
+    const allIds = allReceipts.map(r => r.id);
     setSelectedReceipts(new Set(allIds));
-  };
+  }, [receiptSections]);
 
-  const clearSelection = () => {
+  const clearSelection = useCallback(() => {
     setSelectedReceipts(new Set());
     setIsSelectionMode(false);
-  };
+  }, []);
 
   // Handle PDF generation
   const handleSavePDF = React.useCallback(async (receipt: FirebaseReceipt) => {
     try {
-      console.log('Generating PDF for receipt:', receipt.receiptNumber);
       await PDFService.generateAndSaveReceiptPDF(receipt);
       
       // Update receipt status to exported
@@ -466,18 +585,65 @@ const ReceiptsScreen: React.FC = () => {
     }
   }, [handleReceiptStatusUpdate]);
 
+  // Handle thermal print
+  const handleThermalPrint = React.useCallback(async (receipt: FirebaseReceipt) => {
+    try {
+      // Update receipt status to printed
+      await handleReceiptStatusUpdate(receipt.id, 'printed');
+    } catch (error) {
+      console.error('Error updating receipt status after print:', error);
+      // Don't throw - print already succeeded
+    }
+  }, [handleReceiptStatusUpdate]);
+
   // Note: Optimistic updates are handled by the real-time sync system
 
-  const renderReceiptItem = ({ item }: { item: FirebaseReceipt }) => {
-    const isSelected = selectedReceipts.has(item.id);
-    const isPendingDeletion = pendingDeletions.has(item.id);
+  // Memoized key extractor
+  const keyExtractor = useCallback((item: any, index: number) => {
+    if (item.type === 'section') {
+      return `section-${item.section.key}`;
+    }
+    return item.receipt.id;
+  }, []);
+
+  // Pre-compute section summaries for better performance
+  const sectionSummaries = useMemo(() => {
+    const summaries = new Map<string, string>();
+    receiptSections.forEach(section => {
+      summaries.set(section.key, getSectionSummary(section));
+    });
+    return summaries;
+  }, [receiptSections]);
+
+  // Memoized render function for list items (sections + receipts)
+  const renderListItem = useCallback(({ item }: { item: any }) => {
+    // Render section header
+    if (item.type === 'section') {
+      const section = item.section;
+      const isExpanded = !collapsedSections.has(section.key);
+      const summary = sectionSummaries.get(section.key) || '';
+      return (
+        <SectionHeader
+          title={section.title}
+          summary={summary}
+          isExpanded={isExpanded}
+          onToggle={() => toggleSection(section.key)}
+        />
+      );
+    }
     
-    // Get customer's total balance across all unpaid receipts
-    const customerTotalBalance = item.customerName ? customerBalances.get(item.customerName) : undefined;
+    // Render receipt item
+    const receipt = item.receipt;
+    const isSelected = selectedReceipts.has(receipt.id);
+    const isPendingDeletion = pendingDeletions.has(receipt.id);
+    
+    // Get customer's total balance (pre-computed)
+    const customerKey = receipt.customerName || 'Walk-in Customer';
+    const customerTotalBalance = customerBalances.get(customerKey);
     
     return (
       <ReceiptItem
-        item={item}
+        item={receipt}
         isSelected={isSelected}
         isSelectionMode={isSelectionMode}
         isPendingDeletion={isPendingDeletion}
@@ -488,25 +654,40 @@ const ReceiptsScreen: React.FC = () => {
         onLongPress={() => {
           if (!isSelectionMode && !isPendingDeletion) {
             setIsSelectionMode(true);
-            setSelectedReceipts(new Set([item.id]));
+            setSelectedReceipts(new Set([receipt.id]));
           }
         }}
         onPress={() => {
           if (isSelectionMode && !isPendingDeletion) {
-            toggleReceiptSelection(item.id);
+            toggleReceiptSelection(receipt.id);
           }
         }}
         onToggleSelection={toggleReceiptSelection}
         onViewReceipt={setSelectedReceipt}
         onDeleteReceipt={handleDeleteSingle}
         onSavePDF={handleSavePDF}
+        onPrintReceipt={handleThermalPrint}
         onPayClick={(receipt) => {
           setReceiptForPayment(receipt);
           setShowPaymentModal(true);
         }}
       />
     );
-  };
+  }, [
+    collapsedSections,
+    toggleSection,
+    sectionSummaries,
+    selectedReceipts,
+    isSelectionMode,
+    pendingDeletions,
+    customerBalances,
+    formatReceiptDate,
+    getStatusColor,
+    getStatusIcon,
+    toggleReceiptSelection,
+    handleDeleteSingle,
+    handleSavePDF,
+  ]);
 
   if (loading) {
     return (
@@ -531,13 +712,14 @@ const ReceiptsScreen: React.FC = () => {
         <ReceiptsHeader
           isSelectionMode={isSelectionMode}
           selectedCount={selectedReceipts.size}
-          filteredCount={filteredAndSortedReceipts.length}
+          filteredCount={receiptSections.reduce((sum, s) => sum + s.data.length, 0)}
           totalCount={receipts.length}
           searchQuery={searchQuery}
           statusFilter={statusFilter}
           sortBy={sortBy}
           sortOrder={sortOrder}
           showFilters={showFilters}
+          isDeleting={isDeleting}
           onToggleSelectionMode={() => setIsSelectionMode(true)}
           onSelectAll={selectAllReceipts}
           onDeleteMultiple={handleDeleteMultiple}
@@ -552,7 +734,7 @@ const ReceiptsScreen: React.FC = () => {
           onSortOrderToggle={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
         />
 
-        {filteredAndSortedReceipts.length === 0 ? (
+        {flattenedData.length === 0 ? (
           <View style={styles.emptyContainer}>
             {loading ? (
               <ActivityIndicator size="large" color="#9ca3af" />
@@ -568,28 +750,63 @@ const ReceiptsScreen: React.FC = () => {
             )}
           </View>
         ) : (
-          <FlatList
-            data={filteredAndSortedReceipts}
-            renderItem={renderReceiptItem}
-            keyExtractor={(item) => item.id}
-            style={styles.list}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                colors={['#3b82f6']}
-                tintColor="#3b82f6"
+          <View style={styles.contentWrapper}>
+            <FlashList
+              data={flattenedData}
+              renderItem={renderListItem}
+              keyExtractor={keyExtractor}
+              estimatedItemSize={140}
+              contentContainerStyle={[
+                styles.listContent,
+                isSelectionMode && selectedReceipts.size > 0 && { paddingBottom: 120 }
+              ]}
+              showsVerticalScrollIndicator={false}
+              extraData={{ isSelectionMode, selectedReceipts, pendingDeletions, collapsedSections }}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  colors={['#3b82f6']}
+                  tintColor="#3b82f6"
+                  progressViewOffset={-40}
+                />
+              }
+              // ⚡ ULTRA-OPTIMIZED: Performance settings for smooth 60fps scrolling
+              removeClippedSubviews={true}
+              drawDistance={500}
+              maxToRenderPerBatch={10}
+              windowSize={7}
+              initialNumToRender={15}
+              updateCellsBatchingPeriod={30}
+              getItemType={(item) => item.type === 'section' ? 'sectionHeader' : 'receipt'}
+              // Pre-calculate layout for smooth scrolling
+              overrideItemLayout={(layout, item) => {
+                if (item.type === 'section') {
+                  layout.size = 60; // Section header fixed height
+                } else {
+                  layout.size = 180; // Receipt item estimated height
+                }
+              }}
+            />
+            
+            {/* Progressive Loading - Show at bottom if more data available */}
+            {hasMore && (
+              <LoadMoreButton
+                onLoadMore={loadMore}
+                onLoadAll={loadAll}
+                isLoading={isLoadingMore}
+                hasMore={hasMore}
+                stats={stats}
               />
-            }
-          />
+            )}
+          </View>
         )}
         
         <DeleteConfirmationModal
           visible={showDeleteConfirm}
           deleteMode={deleteMode}
           selectedCount={selectedReceipts.size}
-          totalCount={filteredAndSortedReceipts.length}
+          totalCount={receiptSections.reduce((sum, s) => sum + s.data.length, 0)}
           isDeleting={isDeleting}
           onConfirm={confirmDelete}
           onCancel={() => setShowDeleteConfirm(false)}
@@ -611,7 +828,6 @@ const ReceiptsScreen: React.FC = () => {
             setReceiptForPayment(null);
           }}
           onPaymentRecorded={(transaction) => {
-            console.log('Payment recorded:', transaction);
             // Real-time listener will automatically update the receipt
             Alert.alert(
               'Payment Recorded',
@@ -619,6 +835,16 @@ const ReceiptsScreen: React.FC = () => {
               [{ text: 'OK' }]
             );
           }}
+        />
+        
+        {/* Floating Action Bar for Batch Delete */}
+        <FloatingActionBar
+          visible={isSelectionMode && selectedReceipts.size > 0}
+          selectedCount={selectedReceipts.size}
+          onDelete={handleDeleteMultiple}
+          onSelectAll={selectAllReceipts}
+          onDeselectAll={clearSelection}
+          isDeleting={isDeleting}
         />
       </SafeAreaView>
     </View>
@@ -638,10 +864,20 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
+  contentWrapper: {
+    flex: 1,
+  },
   list: {
     flex: 1,
     paddingTop: 12,
     paddingBottom: 12,
+  },
+  listContent: {
+    paddingTop: 12,
+    paddingBottom: 12,
+  },
+  bottomControls: {
+    backgroundColor: '#f8fafc',
   },
   loadingContainer: {
     flex: 1,

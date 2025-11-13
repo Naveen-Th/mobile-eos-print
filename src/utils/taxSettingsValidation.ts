@@ -1,4 +1,4 @@
-import { getTaxRate, setTaxRate, DEFAULT_TAX_RATE } from '../services/TaxSettings';
+import { getTaxRate, setTaxRate, DEFAULT_TAX_RATE } from '../services/utilities/TaxSettings';
 
 /**
  * Utility functions to validate tax settings integration

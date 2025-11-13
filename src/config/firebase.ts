@@ -8,8 +8,9 @@ import {
   persistentSingleTabManager,
   memoryLocalCache,
 } from 'firebase/firestore';
-import { getAuth, Auth, connectAuthEmulator, initializeAuth } from 'firebase/auth';
+import { getAuth, Auth, connectAuthEmulator, initializeAuth, getReactNativePersistence } from 'firebase/auth';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Firebase configuration (same as shared config but adapted for mobile)
 const firebaseConfig = {
@@ -59,14 +60,20 @@ export const initializeFirebase = (): boolean => {
       db = getFirestore(app);
     }
     
-    // Initialize Auth
+    // Initialize Auth with AsyncStorage persistence for React Native
     try {
       auth = initializeAuth(app, {
-        // Note: React Native persistence is handled automatically by the SDK
+        persistence: getReactNativePersistence(AsyncStorage),
       });
+      if (__DEV__) {
+        console.log('✅ Firebase Auth initialized with AsyncStorage persistence');
+      }
     } catch (error) {
       // Fallback if already initialized
       auth = getAuth(app);
+      if (__DEV__) {
+        console.log('⚠️ Using fallback auth (already initialized)');
+      }
     }
     
     isInitialized = true;

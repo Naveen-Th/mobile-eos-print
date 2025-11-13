@@ -3,10 +3,13 @@ import { immer } from 'zustand/middleware/immer';
 import { devtools } from 'zustand/middleware';
 import { ItemDetails, ReceiptItem, Receipt } from '../types';
 import { generateId, generateReceiptNumber } from '../utils';
-import StockService from '../services/StockService';
-import ReceiptFirebaseService from '../services/ReceiptFirebaseService';
-import { getTaxRate } from '../services/TaxSettings';
-import BalanceTrackingService from '../services/BalanceTrackingService';
+import StockService from '../services/data/StockService';
+import ReceiptFirebaseService from '../services/business/ReceiptFirebaseService';
+import { getTaxRate } from '../services/utilities/TaxSettings';
+import BalanceTrackingService from '../services/business/BalanceTrackingService';
+import { performanceTime, performanceTimeEnd, performanceLog } from '../utils/performanceTiming';
+import { batchUpdateOldReceipts, queueBackgroundOperation } from '../utils/firebaseBatchOperations';
+import PersonDetailsService from '../services/data/PersonDetailsService';
 
 // Form item interface for the receipt creation form
 interface FormItem {
@@ -14,11 +17,13 @@ interface FormItem {
   selectedItemId: string;
   price: string;
   quantity: string;
-  // New weight-based fields
-  kg?: string;
-  gms?: string;
-  pricePerKg?: string;
-  calculatedPrice?: string;
+  // Weight-based fields (table format)
+  qty_200g?: string;  // Quantity of 200g packs
+  qty_100g?: string;  // Quantity of 100g packs
+  qty_50g?: string;   // Quantity of 50g packs
+  totalKg?: string;   // Calculated total kg
+  pricePerKg?: string; // Price per kg
+  calculatedPrice?: string; // Total amount
   // Temporary state for UI
   isValidating?: boolean;
   stockError?: string;
@@ -127,9 +132,11 @@ const initialState: ReceiptState = {
     selectedItemId: '', 
     price: '0.00', 
     quantity: '1',
-    kg: '0',
-    gms: '0',
-    pricePerKg: '',
+    qty_200g: '0',
+    qty_100g: '0',
+    qty_50g: '0',
+    totalKg: '0',
+    pricePerKg: '0',
     calculatedPrice: '0.00'
   }],
   customer: {
@@ -176,9 +183,11 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             selectedItemId: '',
             price: '0.00',
             quantity: '1',
-            kg: '0',
-            gms: '0',
-            pricePerKg: '',
+            qty_200g: '0',
+            qty_100g: '0',
+            qty_50g: '0',
+            totalKg: '0',
+            pricePerKg: '0',
             calculatedPrice: '0.00'
           });
         });
@@ -204,20 +213,24 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
           if (itemIndex !== -1) {
             (state.formItems[itemIndex] as any)[field] = value;
             
-            // Calculate price when kg, gms, or pricePerKg changes
-            if (field === 'kg' || field === 'gms' || field === 'pricePerKg') {
+            // Calculate total kg and price when weight quantities or pricePerKg changes
+            if (field === 'qty_200g' || field === 'qty_100g' || field === 'qty_50g' || field === 'pricePerKg') {
               const formItem = state.formItems[itemIndex];
-              const kg = parseFloat(formItem.kg || '0');
-              const gms = parseFloat(formItem.gms || '0');
+              const qty_200g = parseFloat(formItem.qty_200g || '0');
+              const qty_100g = parseFloat(formItem.qty_100g || '0');
+              const qty_50g = parseFloat(formItem.qty_50g || '0');
               const pricePerKg = parseFloat(formItem.pricePerKg || '0');
               
-              // Convert gms to kg and add to kg value
-              const totalKg = kg + (gms / 1000);
+              // Formula: Total KG = Qty_200g + Qty_100g + Qty_50g
+              // Each quantity unit = 1 kg (200g×1 = 1kg, 100g×1 = 1kg, etc.)
+              const totalKg = qty_200g + qty_100g + qty_50g;
               
-              // Calculate total price
+              // Calculate total price: Total KG × Price Per KG
               const calculatedPrice = totalKg * pricePerKg;
               
-              // Update the calculated price and main price fields
+              // Update calculated fields
+              // Remove trailing zeros from totalKg display
+              state.formItems[itemIndex].totalKg = totalKg.toString().replace(/\.?0+$/, '');
               state.formItems[itemIndex].calculatedPrice = calculatedPrice.toFixed(2);
               state.formItems[itemIndex].price = calculatedPrice.toFixed(2);
               
@@ -226,7 +239,7 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             }
             
             // Clear stock error when updating
-            if (field === 'quantity' || field === 'selectedItemId' || field === 'kg' || field === 'gms') {
+            if (field === 'quantity' || field === 'selectedItemId' || field === 'qty_200g' || field === 'qty_100g' || field === 'qty_50g') {
               state.formItems[itemIndex].stockError = undefined;
             }
             
@@ -237,7 +250,7 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
         setTimeout(() => get().calculateTotals(), 0);
 
         // Trigger stock validation for weight and quantity changes
-        if ((field === 'quantity' || field === 'kg' || field === 'gms') && value) {
+        if ((field === 'quantity' || field === 'qty_200g' || field === 'qty_100g' || field === 'qty_50g') && value) {
           const state = get();
           const formItem = state.formItems.find(item => item.id === id);
           if (formItem && formItem.selectedItemId) {
@@ -278,8 +291,10 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             // Auto-populate pricePerKg from Firebase (the price field contains per kg price)
             state.formItems[itemIndex].pricePerKg = selectedItem.price.toFixed(2);
             // Reset weight fields when new item is selected
-            state.formItems[itemIndex].kg = '0';
-            state.formItems[itemIndex].gms = '0';
+            state.formItems[itemIndex].qty_200g = '0';
+            state.formItems[itemIndex].qty_100g = '0';
+            state.formItems[itemIndex].qty_50g = '0';
+            state.formItems[itemIndex].totalKg = '0';
             state.formItems[itemIndex].calculatedPrice = '0.00';
             state.formItems[itemIndex].stockError = undefined;
           }
@@ -488,10 +503,11 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
         });
 
         try {
-          // Validate form first
-          const isValid = await state.validateForm();
-          if (!isValid) {
-            return { success: false, error: 'Please fix validation errors before creating receipt' };
+          performanceTime('⏱️ Receipt Creation Total Time');
+          
+          // Quick validation (customer name only, no stock check)
+          if (!state.customer.customerName?.trim()) {
+            return { success: false, error: 'Customer name is required' };
           }
 
           // Get valid items
@@ -500,19 +516,50 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             parseFloat(item.price) > 0 && 
             parseInt(item.quantity) > 0
           );
+          
+          if (validItems.length === 0) {
+            return { success: false, error: 'Please add at least one valid item' };
+          }
 
-          // Double-check stock availability before creating receipt
-          const stockValidationPromises = validItems.map(async (formItem) => {
-            const selectedItem = state.availableItems.find(item => item.id === formItem.selectedItemId);
-            if (selectedItem) {
-              const quantity = parseInt(formItem.quantity);
-              const hasStock = await StockService.hasSufficientStock(selectedItem.id, quantity);
-              return { formItem, selectedItem, hasStock, quantity };
-            }
-            return null;
-          });
-
-          const stockValidations = await Promise.all(stockValidationPromises);
+          // OPTIMIZATION 1: Use cached stock data + business details fetch in parallel
+          // No Firebase calls needed for stock - we already have it in availableItems!
+          performanceTime('⏱️ Parallel Operations (Stock + Business Details)');
+          const [stockValidations, businessDetails] = await Promise.all([
+            // Stock validation - use cached data (no Firebase calls!)
+            Promise.resolve(validItems.map((formItem) => {
+              const selectedItem = state.availableItems.find(item => item.id === formItem.selectedItemId);
+              if (selectedItem) {
+                const quantity = parseInt(formItem.quantity);
+                const currentStock = selectedItem.stocks || 0;
+                const hasStock = currentStock >= quantity;
+                return { formItem, selectedItem, hasStock, quantity };
+              }
+              return null;
+            })),
+            // Business details fetch with timeout to prevent delays
+            Promise.race([
+              (async () => {
+                if (!state.customer.customerName?.trim()) return { businessName: '', businessPhone: '' };
+                try {
+                  const personDetails = await PersonDetailsService.getPersonDetails();
+                  const customerDetail = personDetails.find(person => 
+                    person.personName.toLowerCase() === state.customer.customerName?.toLowerCase().trim()
+                  );
+                  return {
+                    businessName: customerDetail?.businessName || '',
+                    businessPhone: customerDetail?.phoneNumber || ''
+                  };
+                } catch (error) {
+                  return { businessName: '', businessPhone: '' };
+                }
+              })(),
+              // Timeout after 1 second - don't block receipt creation for business details
+              new Promise<{ businessName: string; businessPhone: string }>((resolve) => 
+                setTimeout(() => resolve({ businessName: '', businessPhone: '' }), 1000)
+              )
+            ])
+          ]);
+          performanceTimeEnd('⏱️ Parallel Operations (Stock + Business Details)');
           
           // Check for any stock issues
           for (const validation of stockValidations) {
@@ -528,15 +575,8 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
           // Convert form items to receipt items
           const receiptItems: ReceiptItem[] = validItems.map(formItem => {
             const selectedItem = state.availableItems.find(item => item.id === formItem.selectedItemId);
-            const kg = parseFloat(formItem.kg || '0');
-            const gms = parseFloat(formItem.gms || '0');
-            const totalWeight = kg + (gms / 1000);
-
-            // Determine if this is a weight-based entry
+            const totalWeight = parseFloat(formItem.totalKg || '0');
             const isWeightBased = totalWeight > 0;
-
-            // For weight-based items: store unit price (per Kg) and quantity as total weight.
-            // For normal items: store unit price and integer quantity as provided.
             const unitPrice = isWeightBased
               ? parseFloat(formItem.pricePerKg || formItem.price || '0')
               : parseFloat(formItem.price || '0');
@@ -554,49 +594,7 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
 
           const totals = state.calculateTotals();
 
-          // Validate payment amount
-          const totalDue = state.balance.oldBalance + totals.total;
-          if (state.balance.amountPaid > totalDue) {
-            console.warn(`⚠️ Payment (₹${state.balance.amountPaid}) exceeds total due (₹${totalDue}). Excess will be recorded as credit.`);
-            // You could choose to:
-            // 1. Auto-adjust: state.balance.amountPaid = totalDue;
-            // 2. Show warning and continue (current behavior)
-            // 3. Block and show error
-          }
-          
-          // Log payment breakdown for transparency
-          if (state.balance.amountPaid > 0) {
-            const paymentBreakdown = {
-              totalDue,
-              amountPaid: state.balance.amountPaid,
-              toOldBalance: Math.min(state.balance.amountPaid, state.balance.oldBalance),
-              toCurrentReceipt: Math.max(0, state.balance.amountPaid - state.balance.oldBalance),
-              excess: Math.max(0, state.balance.amountPaid - totalDue)
-            };
-            console.log('💰 Payment breakdown:', paymentBreakdown);
-          }
-
-          // Fetch business details from person_details collection
-          let businessName = '';
-          let businessPhone = '';
-          
-          if (state.customer.customerName?.trim()) {
-            try {
-              // Import PersonDetailsService here to avoid circular dependencies
-              const { default: PersonDetailsService } = await import('../services/PersonDetailsService');
-              const personDetails = await PersonDetailsService.getPersonDetails();
-              const customerDetail = personDetails.find(person => 
-                person.personName.toLowerCase() === state.customer.customerName?.toLowerCase().trim()
-              );
-              
-              if (customerDetail) {
-                businessName = customerDetail.businessName || '';
-                businessPhone = customerDetail.phoneNumber || '';
-              }
-            } catch (error) {
-              console.warn('Could not fetch business details from person_details:', error);
-            }
-          }
+          // Removed verbose payment breakdown logging for performance
 
           // Create receipt object
           const receipt: Receipt = {
@@ -609,8 +607,8 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             date: new Date(),
             companyName: 'My Thermal Receipt Store',
             companyAddress: '123 Business St, City, State 12345',
-            businessName: businessName || undefined,
-            businessPhone: businessPhone || undefined,
+            ...(businessDetails.businessName && { businessName: businessDetails.businessName }),
+            ...(businessDetails.businessPhone && { businessPhone: businessDetails.businessPhone }),
             footerMessage: 'Thank you for your business!',
             customerName: state.customer.customerName?.trim(),
             oldBalance: state.balance.oldBalance,
@@ -619,161 +617,108 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             newBalance: state.balance.newBalance,
           };
           
-          console.log('Creating receipt with balance data:', {
-            oldBalance: receipt.oldBalance,
-            isPaid: receipt.isPaid,
-            amountPaid: receipt.amountPaid,
-            newBalance: receipt.newBalance
-          });
+          performanceLog(`Creating receipt: ${receipt.receiptNumber}`);
 
-          // Save receipt to Firebase
+          // OPTIMIZATION 2: Save receipt to Firebase (critical path)
+          performanceTime('⏱️ Firebase Save Receipt');
           const result = await ReceiptFirebaseService.saveReceipt(receipt, 'thermal');
+          performanceTimeEnd('⏱️ Firebase Save Receipt');
           
           if (!result.success) {
             return { success: false, error: result.error || 'Failed to create receipt' };
           }
 
-          // PAYMENT LOGIC FIX:
-          // Only apply payment to old receipts if the payment EXCEEDS the current receipt total
-          // This ensures that marking current receipt as "PAID" doesn't accidentally pay old receipts
+          // CRITICAL: Invalidate balance cache immediately after receipt creation
+          // This ensures the next receipt fetch gets the updated balance including this receipt
+          BalanceTrackingService.invalidateCache(state.customer.customerName);
+          performanceLog(`✅ Balance cache invalidated for "${state.customer.customerName}"`);
+
+          // OPTIMIZATION 3: Defer old receipt updates to background (non-blocking)
+          // User sees success immediately, updates happen in background
           const paymentExcess = state.balance.amountPaid - totals.total;
           
           if (state.balance.oldBalance > 0 && paymentExcess > 0) {
-            try {
-              console.log(`🔄 Payment exceeds current receipt. Applying excess (₹${paymentExcess}) to old receipts...`);
+            // Defer old receipt updates to background
+            queueBackgroundOperation(async () => {
+              performanceLog(`🔄 Background: Applying payment excess (₹${paymentExcess}) to old receipts...`);
+              const amountForOldReceipts = Math.min(paymentExcess, state.balance.oldBalance);
               
-              // Import Firebase services
-              const { getFirebaseDb } = await import('../config/firebase');
-              const { collection, query, where, getDocs, updateDoc, doc } = await import('firebase/firestore');
-              
-              const db = getFirebaseDb();
-              if (db && state.customer.customerName) {
-                // Get all unpaid receipts for this customer (excluding the current one)
-                const receiptsRef = collection(db, 'receipts');
-                const q = query(
-                  receiptsRef,
-                  where('customerName', '==', state.customer.customerName.trim())
-                );
-                const querySnapshot = await getDocs(q);
-                
-                // Calculate how much we can apply to old receipts (only the excess)
-                const amountForOldReceipts = Math.min(paymentExcess, state.balance.oldBalance);
-                let remainingPayment = amountForOldReceipts;
-                
-                console.log(`💰 Amount allocated for old receipts: ₹${amountForOldReceipts}`);
-                
-                // Process old receipts in order (oldest first)
-                const oldReceipts: any[] = [];
-                querySnapshot.forEach(docSnap => {
-                  const receiptData = docSnap.data();
-                  // Skip the current receipt we just created
-                  if (docSnap.id !== receipt.id) {
-                    const remainingBalance = receiptData.newBalance || (receiptData.oldBalance + receiptData.total - (receiptData.amountPaid || 0));
-                    if (remainingBalance > 0) {
-                      oldReceipts.push({ id: docSnap.id, ...receiptData, remainingBalance });
-                    }
-                  }
-                });
-                
-                // Sort by date (oldest first)
-                oldReceipts.sort((a, b) => {
-                  const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
-                  const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
-                  return dateA.getTime() - dateB.getTime();
-                });
-                
-                // Apply payment to old receipts
-                for (const oldReceipt of oldReceipts) {
-                  if (remainingPayment <= 0) break;
-                  
-                  const paymentToApply = Math.min(remainingPayment, oldReceipt.remainingBalance);
-                  const newAmountPaid = (oldReceipt.amountPaid || 0) + paymentToApply;
-                  const newBalance = oldReceipt.oldBalance + oldReceipt.total - newAmountPaid;
-                  const isPaid = newBalance <= 0.01; // Allow small rounding
-                  
-                  console.log(`  ✅ Updating receipt ${oldReceipt.receiptNumber}: paying ₹${paymentToApply}, new balance: ₹${newBalance}`);
-                  
-                  // Update the receipt
-                  const receiptRef = doc(db, 'receipts', oldReceipt.id);
-                  await updateDoc(receiptRef, {
-                    amountPaid: newAmountPaid,
-                    newBalance: newBalance,
-                    isPaid: isPaid,
-                    updatedAt: new Date()
-                  });
-                  
-                  remainingPayment -= paymentToApply;
-                }
-                
-                console.log(`✅ Successfully updated ${oldReceipts.length} old receipt(s)`);
-              }
-            } catch (updateError) {
-              console.error('Error updating old receipts:', updateError);
-              // Don't fail receipt creation if old receipt update fails
-            }
-          } else if (paymentExcess > 0) {
-            console.log(`ℹ️ No old balance to pay. Payment is only for current receipt.`);
-          } else {
-            console.log(`ℹ️ Payment (₹${state.balance.amountPaid}) covers only current receipt (₹${totals.total}). No excess to apply to old receipts.`);
-          }
-
-          // Sync customer balance in person_details from all receipts
-          // This calculates total balance from all unpaid receipts (source of truth)
-          try {
-            const balanceSyncResult = await BalanceTrackingService.syncCustomerBalance(
-              state.customer.customerName,
-              businessName || undefined,
-              businessPhone || undefined
-            );
-            
-            if (!balanceSyncResult.success) {
-              console.warn('Balance sync warning:', balanceSyncResult.error);
-              // Don't fail the receipt creation if balance sync fails
-              // The balance is still tracked in the receipt
-            } else {
-              console.log(`✅ Customer balance synced successfully in person_details: ₹${balanceSyncResult.totalBalance}`);
-            }
-          } catch (balanceError) {
-            console.error('Error syncing customer balance:', balanceError);
-            // Don't fail the receipt creation if balance sync fails
-          }
-
-          // Update stock levels ONLY after successful receipt creation
-          // This prevents double deduction
-          const stockUpdatePromises = receiptItems.map(async (item) => {
-            const selectedItem = state.availableItems.find(availableItem => 
-              availableItem.item_name === item.name
-            );
-            
-            if (selectedItem) {
-              const stockResult = await StockService.subtractStock(
-                selectedItem.id, 
-                item.quantity, 
-                'Receipt sale',
-                receipt.id
+              const batchResult = await batchUpdateOldReceipts(
+                state.customer.customerName,
+                receipt.id,
+                amountForOldReceipts,
+                state.balance.oldBalance
               );
               
-              if (!stockResult.success) {
-                console.error(`Failed to update stock for ${item.name}:`, stockResult.error);
-                // Log error but don't fail the entire operation since receipt is already created
+              if (batchResult.success) {
+                performanceLog(`✅ Background: Updated ${batchResult.updatedCount} old receipt(s)`);
+              } else {
+                console.error('❌ Background: Failed to update old receipts:', batchResult.error);
               }
-              
-              return stockResult;
+            }, 'Update Old Receipts');
+          }
+
+          // OPTIMIZATION 4: Defer balance sync to background (non-blocking)
+          queueBackgroundOperation(async () => {
+            performanceLog('🔄 Background: Syncing customer balance...');
+            const balanceSyncResult = await BalanceTrackingService.syncCustomerBalance(
+              state.customer.customerName,
+              businessDetails.businessName || undefined,
+              businessDetails.businessPhone || undefined
+            );
+            
+            if (balanceSyncResult.success) {
+              performanceLog(`✅ Background: Balance synced: ₹${balanceSyncResult.totalBalance}`);
+            } else {
+              console.warn('⚠️ Background: Balance sync warning:', balanceSyncResult.error);
             }
-            return { success: true, newStock: 0 };
-          });
+          }, 'Sync Customer Balance');
+          
+          performanceTimeEnd('✅ Receipt Creation Total Time');
+          performanceLog('✅ Receipt created successfully (background operations queued)');
 
-          const stockResults = await Promise.all(stockUpdatePromises);
-          const failedStockUpdates = stockResults.filter(result => !result.success);
-
+          // Set current receipt immediately
           set((state) => {
             state.currentReceipt = receipt;
           });
 
-          if (failedStockUpdates.length > 0) {
-            console.warn(`${failedStockUpdates.length} stock updates failed, but receipt was created successfully`);
-          }
+          // OPTIMIZATION 5: Move stock updates to background (non-blocking)
+          // Stock updates don't need to block user success feedback
+          queueBackgroundOperation(async () => {
+            performanceLog('🔄 Background: Updating stock levels...');
+            const stockUpdatePromises = receiptItems.map(async (item) => {
+              const selectedItem = state.availableItems.find(availableItem => 
+                availableItem.item_name === item.name
+              );
+              
+              if (selectedItem) {
+                const stockResult = await StockService.subtractStock(
+                  selectedItem.id, 
+                  item.quantity, 
+                  'Receipt sale',
+                  receipt.id
+                );
+                
+                if (!stockResult.success) {
+                  console.error(`Failed to update stock for ${item.name}:`, stockResult.error);
+                }
+                
+                return stockResult;
+              }
+              return { success: true, newStock: 0 };
+            });
 
+            const stockResults = await Promise.all(stockUpdatePromises);
+            const failedStockUpdates = stockResults.filter(result => !result.success);
+            
+            if (failedStockUpdates.length > 0) {
+              console.error(`❌ Background: ${failedStockUpdates.length} stock updates failed`);
+            } else {
+              performanceLog(`✅ Background: Updated stock for ${receiptItems.length} items`);
+            }
+          }, 'Update Stock Levels');
+
+          // Return success immediately - all non-critical operations in background
           return { success: true, receipt };
 
         } catch (error) {

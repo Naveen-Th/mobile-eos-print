@@ -17,7 +17,7 @@ import PaymentReminderService, {
   PartyWithReminder,
   ReminderSettings,
   ReminderLog,
-} from '../services/PaymentReminderService';
+} from '../services/features/PaymentReminderService';
 
 type TabType = 'parties' | 'settings' | 'history';
 

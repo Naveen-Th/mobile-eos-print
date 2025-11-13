@@ -1,10 +1,11 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
 import Card from '../ui/Card';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 interface ReceiptsHeaderProps {
   isSelectionMode: boolean;
@@ -16,6 +17,7 @@ interface ReceiptsHeaderProps {
   sortBy: string;
   sortOrder: string;
   showFilters: boolean;
+  isDeleting?: boolean;
   onToggleSelectionMode: () => void;
   onSelectAll: () => void;
   onDeleteMultiple: () => void;
@@ -40,6 +42,7 @@ const ReceiptsHeader: React.FC<ReceiptsHeaderProps> = ({
   sortBy,
   sortOrder,
   showFilters,
+  isDeleting = false,
   onToggleSelectionMode,
   onSelectAll,
   onDeleteMultiple,
@@ -53,6 +56,8 @@ const ReceiptsHeader: React.FC<ReceiptsHeaderProps> = ({
   onSortByChange,
   onSortOrderToggle,
 }) => {
+  const { t } = useLanguage();
+
   const getSortIcon = (field: string) => {
     if (sortBy !== field) return 'swap-vertical-outline';
     return sortOrder === 'asc' ? 'chevron-up' : 'chevron-down';
@@ -70,30 +75,29 @@ const ReceiptsHeader: React.FC<ReceiptsHeaderProps> = ({
           {isSelectionMode ? (
             <>
               <View className="flex-row items-center">
-                <TouchableOpacity onPress={onClearSelection} className="mr-3 rounded-lg p-2">
+                <TouchableOpacity onPress={onClearSelection} className="mr-3 rounded-lg p-2 bg-secondary-100">
                   <Ionicons name="close" size={24} color="#374151" />
                 </TouchableOpacity>
-                <Text className="text-base font-semibold text-secondary-800">
-                  {selectedCount} of {filteredCount} selected
-                </Text>
+                <View>
+                  <Text className="text-base font-bold text-secondary-900">
+                    {selectedCount === 0 ? 'Select receipts' : t('receipts.selected', { count: selectedCount, total: filteredCount })}
+                  </Text>
+                  {selectedCount === 0 && (
+                    <Text className="text-xs text-secondary-500 mt-0.5">
+                      Tap receipts to select
+                    </Text>
+                  )}
+                </View>
               </View>
-              <View className="flex-row items-center gap-2">
-                <Button title="All" onPress={onSelectAll} variant="outline" />
-                <Button
-                  title=""
-                  onPress={onDeleteMultiple}
-                  disabled={selectedCount === 0}
-                  variant="destructive"
-                  leftIcon={<Ionicons name="trash-outline" size={18} color="#fff" />}
-                />
-              </View>
+              {/* Simplified - actions moved to floating bottom bar */}
+              <View />
             </>
           ) : (
             <>
               <View>
-                <Text className="text-2xl font-extrabold text-secondary-900">Receipts</Text>
+                <Text className="text-2xl font-extrabold text-secondary-900">{t('receipts.title')}</Text>
                 <Text className="mt-0.5 text-sm text-secondary-500">
-                  {totalCount} receipts {filteredCount !== totalCount && `(${filteredCount} filtered)`}
+                  {t('receipts.receiptCount', { count: totalCount })} {filteredCount !== totalCount && `(${filteredCount} filtered)`}
                 </Text>
               </View>
               <View className="flex-row items-center gap-2">
@@ -120,7 +124,7 @@ const ReceiptsHeader: React.FC<ReceiptsHeaderProps> = ({
           <Input
             value={searchQuery}
             onChangeText={onSearchChange}
-            placeholder="Search receipts, customers, items..."
+            placeholder={t('receipts.searchPlaceholder')}
             left={<Ionicons name="search-outline" size={20} color="#6b7280" />}
             right={
               searchQuery.length > 0 ? (
@@ -137,7 +141,7 @@ const ReceiptsHeader: React.FC<ReceiptsHeaderProps> = ({
       <Modal visible={showFilters} onClose={onToggleFilters}>
           {/* Header */}
           <View className="flex-row items-center justify-between pb-5 mb-6 border-b border-secondary-200">
-            <Text className="text-xl font-extrabold text-secondary-900">Sort & Filter</Text>
+            <Text className="text-xl font-extrabold text-secondary-900">{t('receipts.sortAndFilter')}</Text>
             <TouchableOpacity onPress={onToggleFilters} className="rounded-full p-2 bg-secondary-100">
               <Ionicons name="close" size={20} color="#374151" />
             </TouchableOpacity>
@@ -146,7 +150,7 @@ const ReceiptsHeader: React.FC<ReceiptsHeaderProps> = ({
           <View className="gap-8">
             {/* Status Filter Section */}
             <View>
-              <Text className="mb-3 text-sm font-bold text-secondary-700 uppercase tracking-wide">Status</Text>
+              <Text className="mb-3 text-sm font-bold text-secondary-700 uppercase tracking-wide">{t('receipts.status')}</Text>
               <View className="flex-row flex-wrap" style={{ gap: 10 }}>
                 {['all', 'printed', 'exported', 'draft'].map((status) => (
                   <TouchableOpacity
@@ -161,7 +165,7 @@ const ReceiptsHeader: React.FC<ReceiptsHeaderProps> = ({
                         statusFilter === status ? 'text-white font-bold' : 'text-secondary-700 font-medium'
                       }`}
                     >
-                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                      {t(`receipts.status.${status}`)}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -170,9 +174,9 @@ const ReceiptsHeader: React.FC<ReceiptsHeaderProps> = ({
 
             {/* Sort By Section */}
             <View>
-              <Text className="mb-3 text-sm font-bold text-secondary-700 uppercase tracking-wide">Sort By</Text>
+              <Text className="mb-3 text-sm font-bold text-secondary-700 uppercase tracking-wide">{t('receipts.sortBy')}</Text>
               <View style={{ gap: 12 }}>
-                {[{ key: 'date', label: 'Date' }, { key: 'customer', label: 'Customer' }, { key: 'total', label: 'Total' }].map(
+                {[{ key: 'date', label: t('receipts.date') }, { key: 'customer', label: t('receipts.customer') }, { key: 'total', label: t('receipts.total') }].map(
                   (option) => (
                     <TouchableOpacity
                       key={option.key}
@@ -198,7 +202,7 @@ const ReceiptsHeader: React.FC<ReceiptsHeaderProps> = ({
             {/* Sort Order */}
             <View>
               <TouchableOpacity onPress={onSortOrderToggle} className="flex-row items-center justify-between rounded-xl bg-primary-50 border border-primary-200 px-5 py-4">
-                <Text className="text-base text-primary-700 font-bold">Order: {sortOrder === 'asc' ? 'Ascending' : 'Descending'}</Text>
+                <Text className="text-base text-primary-700 font-bold">{sortOrder === 'asc' ? t('receipts.orderAscending') : t('receipts.orderDescending')}</Text>
                 <Ionicons name={sortOrder === 'asc' ? 'arrow-up' : 'arrow-down'} size={20} color="#2563eb" />
               </TouchableOpacity>
             </View>
@@ -207,7 +211,7 @@ const ReceiptsHeader: React.FC<ReceiptsHeaderProps> = ({
             <View className="pt-2">
               <TouchableOpacity onPress={onDeleteAll} className="flex-row items-center justify-center gap-2 rounded-xl border-2 border-danger-200 bg-danger-50 px-5 py-4">
                 <Ionicons name="trash-outline" size={20} color="#ef4444" />
-                <Text className="text-base font-bold text-danger-600">Delete All Receipts</Text>
+                <Text className="text-base font-bold text-danger-600">{t('receipts.deleteAllReceipts')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -216,4 +220,4 @@ const ReceiptsHeader: React.FC<ReceiptsHeaderProps> = ({
   );
 };
 
-export default ReceiptsHeader;
+export default React.memo(ReceiptsHeader);

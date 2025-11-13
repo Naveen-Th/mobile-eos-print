@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import SignInForm from './components/SignInForm';
-import MobileAuthService, { MobileUser } from './services/MobileAuthService';
+import MobileAuthService, { MobileUser } from './services/auth/MobileAuthService';
 import AppLayout from './layout/AppLayout';
 import { QueryProvider } from './providers/QueryProvider';
-import OfflineFirstService from './services/OfflineFirstService';
-import AutoSyncService from './services/AutoSyncService';
+import OfflineFirstService from './services/storage/OfflineFirstService';
+import AutoSyncService from './services/storage/AutoSyncService';
 import { useNetworkStatus } from './hooks/useNetworkStatus';
 import SyncStatus from './components/SyncStatus';
 import { LanguageProvider } from './contexts/LanguageContext';
@@ -41,33 +41,48 @@ const MobileApp: React.FC = () => {
   const [initError, setInitError] = useState<Error | null>(null);
   const [showSplash, setShowSplash] = useState(true);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [hasTriggeredSync, setHasTriggeredSync] = useState(false);
+  const [hasInitialized, setHasInitialized] = useState(false); // Guard against double init
   const isOffline = useIsOffline();
   const { isConnected, initialize: initializeNetwork } = useNetworkStore();
 
   useEffect(() => {
+    // Guard against double initialization (React 18 StrictMode can cause this)
+    if (hasInitialized) {
+      return;
+    }
+    setHasInitialized(true);
+    
     const initAuth = async () => {
       try {
-        // Initialize network monitoring first
+        // Initialize network monitoring first (non-blocking)
         initializeNetwork();
         
-        // Wait a moment for network state to settle
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Check for stored session (works offline)
+        // OFFLINE-FIRST: Check for stored session immediately (works offline)
         const storedSession = await MobileAuthService.loadStoredSession();
         if (storedSession) {
-          console.log('✅ Loaded stored session:', storedSession.email);
+          if (__DEV__) {
+            console.log('✅ Restored session from AsyncStorage:', storedSession.email);
+          }
           setCurrentUser(storedSession);
           setIsLoading(false);
           
-          // If online, try to sync
-          if (isConnected) {
-            // Initialize Firebase now that we know we're online
-            MobileAuthService.initializeFirebase();
-            triggerAutoSync(storedSession.uid);
-          } else {
-            console.log('📴 Offline mode - using cached session');
-          }
+          // DEFERRED: If online, try to sync in background (non-blocking)
+          setTimeout(() => {
+            if (isConnected) {
+              try {
+                MobileAuthService.initializeFirebase();
+                triggerAutoSync(storedSession.uid);
+              } catch (syncError) {
+                console.warn('⚠️ Background sync failed:', syncError);
+                // Continue in offline mode
+              }
+            } else {
+              if (__DEV__) {
+                console.log('📴 OFFLINE MODE - App fully functional with local data');
+              }
+            }
+          }, 100); // Defer Firebase init
           
           return () => {};
         }
@@ -97,7 +112,7 @@ const MobileApp: React.FC = () => {
             console.error('Auto-login failed, will show login form:', error);
           }
         } else {
-          console.log('📴 Offline - Firebase auth skipped');
+          console.log('📴 Offline - Will show login (requires online for first login)');
           setIsLoading(false);
           return () => {};
         }
@@ -111,24 +126,29 @@ const MobileApp: React.FC = () => {
             
             // Trigger auto-sync when user logs in (but not on initial load or logout)
             if (user && !previousUser) {
-              triggerAutoSync(user.uid);
+              try {
+                triggerAutoSync(user.uid);
+              } catch (syncError) {
+                console.warn('⚠️ Auto-sync failed:', syncError);
+              }
             }
           });
 
           return unsubscribe;
         } else {
+          console.log('📴 Offline - Showing login (first-time users need online)');
           setIsLoading(false);
           return () => {};
         }
       } catch (error) {
-        // Firebase initialization failed - but allow offline mode
+        // Firebase initialization failed - ALLOW OFFLINE MODE
         console.error('❌ Firebase initialization failed:', error);
         
-        // If we have a stored session, use it (offline mode)
+        // Try to use stored session for offline mode
         try {
           const storedSession = await MobileAuthService.loadStoredSession();
           if (storedSession) {
-            console.log('✅ Using offline mode with stored session');
+            console.log('✅ 📴 OFFLINE MODE: Using stored session');
             setCurrentUser(storedSession);
             setIsLoading(false);
             return () => {};
@@ -137,8 +157,8 @@ const MobileApp: React.FC = () => {
           console.error('❌ Offline session load failed:', offlineError);
         }
         
-        // Only show error if we can't work offline
-        setInitError(error as Error);
+        // No stored session available - show login (requires online for first login)
+        console.log('📴 No offline session - first-time login requires internet');
         setIsLoading(false);
         return () => {};
       }
@@ -160,19 +180,28 @@ const MobileApp: React.FC = () => {
     const initOfflineFirst = async () => {
       if (!isLoading && !offlineInitialized) {
         try {
-          console.log('🚀 Initializing offline-first service...');
+          if (__DEV__) {
+            console.log('🚀 Initializing offline-first service...');
+          }
           await OfflineFirstService.initialize();
           setOfflineInitialized(true);
-          console.log('✅ Offline-first service initialized');
-          
-          // Initialize payment reminder background task
-          try {
-            await registerPaymentReminderTask();
-            console.log('✅ Payment reminder background task registered');
-          } catch (bgError) {
-            console.warn('⚠️ Failed to register payment reminder task:', bgError);
-            // Non-critical error, don't block app
+          if (__DEV__) {
+            console.log('✅ Offline-first service initialized');
           }
+          
+          // DEFERRED: Initialize payment reminder background task after a delay
+          // This is non-critical and can happen in the background
+          setTimeout(async () => {
+            try {
+              await registerPaymentReminderTask();
+              if (__DEV__) {
+                console.log('✅ Payment reminder background task registered');
+              }
+            } catch (bgError) {
+              console.warn('⚠️ Failed to register payment reminder task:', bgError);
+              // Non-critical error, don't block app
+            }
+          }, 3000); // Defer by 3 seconds
         } catch (error) {
           console.error('❌ Failed to initialize offline-first:', error);
           // Still mark as initialized - app should work offline
@@ -210,12 +239,20 @@ const MobileApp: React.FC = () => {
    * Trigger automatic sync on login
    */
   const triggerAutoSync = async (userId: string) => {
+    // Prevent duplicate sync triggers
+    if (hasTriggeredSync) {
+      console.log('⏸️ Auto-sync already triggered, skipping...');
+      return;
+    }
+
     // Only sync if online
     if (!isConnected) {
       console.log('📴 Offline - skipping auto-sync');
       setSyncProgress({ progress: 0, status: 'Working offline' });
       return;
     }
+    
+    setHasTriggeredSync(true);
     
     try {
       console.log('🔄 Triggering auto-sync on login...');
@@ -230,15 +267,18 @@ const MobileApp: React.FC = () => {
       AutoSyncService.syncOnLogin(userId, {
         forceFullSync: false, // Use incremental sync for better performance
         batchSize: 100,
-        throttleDelay: 50,
+        throttleDelay: 0, // No throttle for faster sync
       }).then(() => {
         console.log('✅ Auto-sync completed successfully');
         setSyncProgress({ progress: 100, status: 'Sync complete' });
         removeListener();
+        // Reset flag after successful sync to allow future syncs if needed
+        setTimeout(() => setHasTriggeredSync(false), 60000); // Reset after 1 minute
       }).catch((error) => {
         console.error('❌ Auto-sync error:', error);
         setSyncProgress({ progress: 0, status: 'Sync failed - working offline' });
         removeListener();
+        setHasTriggeredSync(false); // Reset on error to allow retry
       });
     } catch (error) {
       console.error('Error triggering auto-sync:', error);

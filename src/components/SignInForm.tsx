@@ -10,7 +10,8 @@ import {
   Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MobileAuthService, { MobileUser } from '../services/MobileAuthService';
+import MobileAuthService from '../services/auth/MobileAuthService';
+import type { MobileUser } from '../services/auth/MobileAuthService';
 import { useShouldUseFirebase, useIsOffline } from '../store/networkStore';
 
 interface SignInFormProps {

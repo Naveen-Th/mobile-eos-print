@@ -3,8 +3,8 @@
  * This demonstrates the organized folder structure and file management capabilities
  */
 
-import { StorageService } from '../services/StorageService';
-import { PrintService } from '../services/PrintService';
+import { StorageService } from '../services/storage/StorageService';
+import { PrintService } from '../services/printing/PrintService';
 import { Receipt, CompanySettings } from '../types';
 
 export class PDFStorageManager {

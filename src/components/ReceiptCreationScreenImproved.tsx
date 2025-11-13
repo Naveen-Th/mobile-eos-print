@@ -19,12 +19,12 @@ import SearchableDropdown from './SearchableDropdown';
 import PartyManagementScreen from '../screens/PartyManagementScreen';
 import { ItemDetails } from '../types';
 import TaxSettingsModal from './TaxSettingsModal';
-import ItemService from '../services/ItemService';
-import CustomerService, { UniqueCustomer } from '../services/CustomerService';
+import ItemService from '../services/data/ItemService';
+import CustomerService, { UniqueCustomer } from '../services/data/CustomerService';
 import { useReceiptStore } from '../stores/receiptStore';
 import { useReceiptIntegration } from '../hooks/useReceiptIntegration';
-import ReceiptFirebaseService from '../services/ReceiptFirebaseService';
-import BalanceTrackingService from '../services/BalanceTrackingService';
+import ReceiptFirebaseService from '../services/business/ReceiptFirebaseService';
+import BalanceTrackingService from '../services/business/BalanceTrackingService';
 import {
   formatCurrency,
   validateCustomerInfo,
@@ -81,9 +81,26 @@ const ReceiptCreationScreenImproved: React.FC<ReceiptCreationScreenProps> = ({
   const [customerSearchResults, setCustomerSearchResults] = useState<UniqueCustomer[]>([]);
   const [isSearchingCustomers, setIsSearchingCustomers] = useState(false);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [isCustomerServiceReady, setIsCustomerServiceReady] = useState(false);
+  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
 
   // Animation for step transitions
   const fadeAnim = useState(new Animated.Value(1))[0];
+
+  // Initialize CustomerService when screen becomes visible
+  useEffect(() => {
+    if (visible) {
+      CustomerService.initialize()
+        .then(() => {
+          setIsCustomerServiceReady(true);
+          console.log('CustomerService initialized and ready');
+        })
+        .catch(err => {
+          console.error('Failed to initialize CustomerService:', err);
+          setIsCustomerServiceReady(false);
+        });
+    }
+  }, [visible]);
 
   const transitionToStep = (nextStep: Step) => {
     Animated.sequence([
@@ -128,24 +145,19 @@ const ReceiptCreationScreenImproved: React.FC<ReceiptCreationScreenProps> = ({
     updateCustomerInfo({ customerName: text });
     clearError('customer');
     
+    // Reset balance when clearing customer name
     if (!text.trim()) {
       updateBalanceInfo({ oldBalance: 0, isPaid: false, amountPaid: 0 });
+      setIsLoadingBalance(false);
       return;
     }
     
-    if (text.trim().length >= 3) {
-      try {
-        const oldBalance = await BalanceTrackingService.getCustomerBalance(text);
-        updateBalanceInfo({ oldBalance });
-      } catch (error) {
-        console.error('Error fetching customer balance:', error);
-      }
-    }
+    // Don't fetch balance while typing - only when customer is selected
+    // This prevents slow queries on every keystroke
   };
 
   const handleCustomerSearch = async (query: string) => {
     if (!query.trim()) {
-      setIsSearchingCustomers(true);
       try {
         const recentCustomers = await CustomerService.getRecentCustomers(10);
         setCustomerSearchResults(Array.isArray(recentCustomers) ? recentCustomers : []);
@@ -153,20 +165,13 @@ const ReceiptCreationScreenImproved: React.FC<ReceiptCreationScreenProps> = ({
       } catch (error) {
         setCustomerSearchResults([]);
         updateCustomerInfo({ isNewCustomer: false });
-      } finally {
-        setIsSearchingCustomers(false);
       }
       return;
     }
 
     setIsSearchingCustomers(true);
     try {
-      let results;
-      if (query.trim().length <= 3) {
-        results = await CustomerService.searchCustomersImmediate(query);
-      } else {
-        results = await CustomerService.searchCustomers(query);
-      }
+      const results = await CustomerService.searchCustomersImmediate(query);
       
       const safeResults = Array.isArray(results) ? results : [];
       setCustomerSearchResults(safeResults);
@@ -193,11 +198,16 @@ const ReceiptCreationScreenImproved: React.FC<ReceiptCreationScreenProps> = ({
     clearError('customer');
     setShowCustomerDropdown(false);
     
+    // Fetch balance with loading state
+    setIsLoadingBalance(true);
     try {
       const oldBalance = await BalanceTrackingService.getCustomerBalance(customer.customerName);
       updateBalanceInfo({ oldBalance });
     } catch (error) {
+      console.error('Error fetching customer balance:', error);
       updateBalanceInfo({ oldBalance: 0 });
+    } finally {
+      setIsLoadingBalance(false);
     }
   };
 
@@ -367,9 +377,11 @@ const ReceiptCreationScreenImproved: React.FC<ReceiptCreationScreenProps> = ({
   const renderCustomerStep = () => (
     <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
       <ScrollView 
-        contentContainerStyle={{ padding: 16 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: showCustomerDropdown ? 400 : 16 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        nestedScrollEnabled={true}
+        scrollEnabled={!showCustomerDropdown}
       >
         <View style={{
           backgroundColor: 'white',
@@ -609,7 +621,7 @@ const ReceiptCreationScreenImproved: React.FC<ReceiptCreationScreenProps> = ({
           </Text>
         </View>
 
-        {isLoadingItems ? (
+        {isLoadingItems || (availableItems.length === 0 && !itemsError) ? (
           <View style={{
             backgroundColor: 'white',
             borderRadius: 12,
@@ -642,6 +654,23 @@ const ReceiptCreationScreenImproved: React.FC<ReceiptCreationScreenProps> = ({
             >
               <Text style={{ color: '#dc2626', fontWeight: '600' }}>Retry</Text>
             </TouchableOpacity>
+          </View>
+        ) : availableItems.length === 0 ? (
+          <View style={{
+            backgroundColor: '#fffbeb',
+            borderWidth: 1,
+            borderColor: '#fcd34d',
+            borderRadius: 12,
+            padding: 40,
+            alignItems: 'center',
+          }}>
+            <Ionicons name="cube-outline" size={48} color="#d97706" />
+            <Text style={{ color: '#92400e', textAlign: 'center', marginTop: 12, fontWeight: '600', fontSize: 16 }}>
+              No Items Available
+            </Text>
+            <Text style={{ color: '#92400e', textAlign: 'center', marginTop: 8, fontSize: 14 }}>
+              Please add items to your inventory first from the Items tab.
+            </Text>
           </View>
         ) : (
           <>

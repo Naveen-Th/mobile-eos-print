@@ -1,7 +1,7 @@
 import React, {createContext, useContext, useReducer, ReactNode, useEffect} from 'react';
 import {ReceiptItem, CartState, CompanySettings} from '../types';
 import {calculateTotals, generateId, addMoneyAmounts} from '../utils/index';
-import { getTaxRate } from '../services/TaxSettings';
+import { getTaxRate } from '../services/utilities/TaxSettings';
 
 interface CartContextType {
   state: CartState;

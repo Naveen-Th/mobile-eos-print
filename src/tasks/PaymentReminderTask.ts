@@ -1,6 +1,6 @@
 import * as TaskManager from 'expo-task-manager';
 import * as BackgroundFetch from 'expo-background-fetch';
-import PaymentReminderService from '../services/PaymentReminderService';
+import PaymentReminderService from '../services/features/PaymentReminderService';
 
 const PAYMENT_REMINDER_TASK = 'PAYMENT_REMINDER_BACKGROUND_TASK';
 

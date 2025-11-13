@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Language, languages, languageNames } from '../locales';
-import LanguageService from '../services/LanguageService';
+import LanguageService from '../services/utilities/LanguageService';
 
 interface LanguageContextType {
   language: Language;

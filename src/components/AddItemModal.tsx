@@ -12,7 +12,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import ItemService from '../services/ItemService';
+import ItemService from '../services/data/ItemService';
 import { ItemDetails } from '../types';
 
 interface AddItemModalProps {

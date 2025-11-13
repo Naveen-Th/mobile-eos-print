@@ -9,7 +9,7 @@ import {
 } from '../store/syncStore';
 import { queryUtils } from '../providers/QueryProvider';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
-import OfflineFirstService from '../services/OfflineFirstService';
+import OfflineFirstService from '../services/storage/OfflineFirstService';
 import SyncEngine from '../sync/SyncEngine';
 
 const SyncStatus: React.FC = () => {

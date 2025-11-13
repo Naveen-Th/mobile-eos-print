@@ -13,12 +13,12 @@ import { useNavigation, CommonActions } from '@react-navigation/native';
 import { useCart } from '../context/CartContext';
 import { ReceiptPreviewScreen } from './ReceiptPreviewScreen';
 import { Receipt, PrintMethod } from '../types';
-import { PrintService } from '../services/PrintService';
-import { StorageService } from '../services/StorageService';
-import { DirectFileSystemService } from '../services/DirectFileSystemService';
-import ReceiptFirebaseService from '../services/ReceiptFirebaseService';
-import StockService from '../services/StockService';
-import ThermalPrinterService from '../services/ThermalPrinterService';
+import { PrintService } from '../services/printing/PrintService';
+import { StorageService } from '../services/storage/StorageService';
+import { DirectFileSystemService } from '../services/storage/DirectFileSystemService';
+import ReceiptFirebaseService from '../services/business/ReceiptFirebaseService';
+import StockService from '../services/data/StockService';
+import ThermalPrinterService from '../services/printing/ThermalPrinterService';
 import { Alert as RNAlert } from 'react-native';
 import { Alert, ReceiptAlerts } from './common';
 import {
@@ -30,7 +30,7 @@ import {
   isValidMoneyAmount,
   roundMoney,
 } from '../utils';
-import { getTaxRate } from '../services/TaxSettings';
+import { getTaxRate } from '../services/utilities/TaxSettings';
 
 interface PrintOptionsScreenProps {
   onClose: () => void;

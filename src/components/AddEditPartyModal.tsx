@@ -13,7 +13,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import PersonDetailsService, { PersonDetail, CreatePersonDetailData } from '../services/PersonDetailsService';
+import PersonDetailsService, { PersonDetail, CreatePersonDetailData } from '../services/data/PersonDetailsService';
 import ContactImportModal from './ContactImportModal';
 
 interface AddEditPartyModalProps {

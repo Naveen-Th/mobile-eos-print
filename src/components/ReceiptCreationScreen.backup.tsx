@@ -18,12 +18,12 @@ import SearchableDropdown from './SearchableDropdown';
 import PartyManagementScreen from '../screens/PartyManagementScreen';
 import { ItemDetails } from '../types';
 import TaxSettingsModal from './TaxSettingsModal';
-import ItemService from '../services/ItemService';
-import CustomerService, { UniqueCustomer } from '../services/CustomerService';
+import ItemService from '../services/data/ItemService';
+import CustomerService, { UniqueCustomer } from '../services/data/CustomerService';
 import { useReceiptStore } from '../stores/receiptStore';
 import { useReceiptIntegration } from '../hooks/useReceiptIntegration';
-import ReceiptFirebaseService from '../services/ReceiptFirebaseService';
-import BalanceTrackingService from '../services/BalanceTrackingService';
+import ReceiptFirebaseService from '../services/business/ReceiptFirebaseService';
+import BalanceTrackingService from '../services/business/BalanceTrackingService';
 import {
   formatCurrency,
   validateCustomerInfo,

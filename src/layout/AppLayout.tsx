@@ -6,7 +6,7 @@ import TabLayout from '../app/(tabs)/_layout';
 import QueryProvider from '../providers/QueryProvider';
 import { enableMapSet } from 'immer';
 import { View, Text, ActivityIndicator, Alert } from 'react-native';
-import MobileAuthService, { MobileUser } from '../services/MobileAuthService';
+import MobileAuthService, { MobileUser } from '../services/auth/MobileAuthService';
 import { useSyncStore } from '../store/syncStore';
 import AnalyticsScreen from '../screens/AnalyticsScreen';
 import PendingBillsScreen from '../screens/PendingBillsScreen';
@@ -30,11 +30,15 @@ const AppLayout: React.FC<AppLayoutProps> = ({ user: propUser, onLogout }) => {
 
   // Initialize auth service and setup auth state listener
   useEffect(() => {
-    console.log('AppLayout: Initializing auth service...');
+    if (__DEV__) {
+      console.log('AppLayout: Initializing auth service...');
+    }
     
     // If user is provided from props, we're already authenticated (possibly offline)
     if (propUser) {
-      console.log('✅ AppLayout: User provided from props, skipping auth initialization');
+      if (__DEV__) {
+        console.log('✅ AppLayout: User provided from props, skipping auth initialization');
+      }
       setCurrentUser(propUser);
       setIsLoading(false);
       return;
@@ -43,16 +47,17 @@ const AppLayout: React.FC<AppLayoutProps> = ({ user: propUser, onLogout }) => {
     const initializeAuth = async () => {
       try {
         // Try to restore stored session from AsyncStorage first (for instant app access)
-        try {
-          const stored = await MobileAuthService.loadStoredSession();
-          if (stored) {
-            console.log('🔄 Restored stored session, user can access app immediately');
-            setCurrentUser(stored);
-            setIsLoading(false);
-          }
-        } catch (restoreError) {
-          console.warn('Failed to restore session:', restoreError);
-        }
+        // This is already handled by MobileApp, so skip here to avoid duplication
+        // try {
+        //   const stored = await MobileAuthService.loadStoredSession();
+        //   if (stored) {
+        //     console.log('🔄 Restored stored session, user can access app immediately');
+        //     setCurrentUser(stored);
+        //     setIsLoading(false);
+        //   }
+        // } catch (restoreError) {
+        //   console.warn('Failed to restore session:', restoreError);
+        // }
 
         // Initialize the auth service (will sync with Firebase in background)
         // This is safe to call even if Firebase isn't initialized - it will just skip setup

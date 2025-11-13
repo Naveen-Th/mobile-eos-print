@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import ThermalPrinterService, { ThermalPrinter } from '../services/ThermalPrinterService';
+import ThermalPrinterService, { ThermalPrinter } from '../services/printing/ThermalPrinterService';
 
 interface PrinterSetupModalProps {
   isOpen: boolean;

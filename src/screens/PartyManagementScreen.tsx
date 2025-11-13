@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 // Navigation handled by parent modal
-import PersonDetailsService, { PersonDetail } from '../services/PersonDetailsService';
+import PersonDetailsService, { PersonDetail } from '../services/data/PersonDetailsService';
 import AddEditPartyModal from '../components/AddEditPartyModal';
 
 interface PartyManagementScreenProps {

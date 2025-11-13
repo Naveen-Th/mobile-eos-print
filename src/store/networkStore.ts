@@ -3,6 +3,10 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
 
+// Debounce helper to prevent rapid updates
+let debounceTimer: NodeJS.Timeout | null = null;
+const DEBOUNCE_DELAY = 300; // ms
+
 interface NetworkState {
   isConnected: boolean;
   isInternetReachable: boolean | null;
@@ -28,19 +32,39 @@ export const useNetworkStore = create<NetworkState>()(
       setNetworkState: (netInfo: NetInfoState) => {
         const isConnected = netInfo.isConnected ?? false;
         const isInternetReachable = netInfo.isInternetReachable;
+        const currentState = get();
+        
+        // Skip update if nothing changed
+        if (
+          currentState.isConnected === isConnected &&
+          currentState.isInternetReachable === isInternetReachable &&
+          currentState.type === netInfo.type
+        ) {
+          return;
+        }
 
-        set({
-          isConnected,
-          isInternetReachable,
-          type: netInfo.type,
-          lastOnlineTime: isConnected ? Date.now() : get().lastOnlineTime,
-        });
+        // Debounce to prevent rapid successive updates
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+        }
 
-        console.log('📡 Network state updated:', {
-          isConnected,
-          isInternetReachable,
-          type: netInfo.type,
-        });
+        debounceTimer = setTimeout(() => {
+          set({
+            isConnected,
+            isInternetReachable,
+            type: netInfo.type,
+            lastOnlineTime: isConnected ? Date.now() : get().lastOnlineTime,
+          });
+
+          // Only log in development
+          if (__DEV__) {
+            console.log('📡 Network state updated:', {
+              isConnected,
+              isInternetReachable,
+              type: netInfo.type,
+            });
+          }
+        }, DEBOUNCE_DELAY);
       },
 
       setOfflineMode: (enabled: boolean) => {
