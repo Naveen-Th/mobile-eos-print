@@ -49,10 +49,10 @@ const ReceiptItemOptimized = memo<ReceiptItemProps>((
     const oldBalance = item.oldBalance || 0;
     const isPaid = receiptBalance <= 0.01;
     
-    // ✅ CRITICAL FIX: If receipt is PAID, totalBalance should be 0
-    // oldBalance doesn't get cleared when paid (it's historical), but it's "consumed"
-    // So we can't just add receiptBalance + oldBalance for paid receipts
-    const totalBalance = isPaid ? 0 : (receiptBalance + oldBalance);
+    // ✅ CRITICAL FIX: Pay button should ONLY show THIS receipt's balance
+    // The oldBalance is displayed separately for context, but NOT added to Pay button amount
+    // This prevents confusion where users see "Pay ₹800" when receipt is only ₹200
+    const totalBalance = isPaid ? 0 : receiptBalance; // Only THIS receipt's balance
     const paymentPercent = total > 0 ? Math.round((paid / total) * 100) : 0;
     
     // Debug: Log for customer "Ga"

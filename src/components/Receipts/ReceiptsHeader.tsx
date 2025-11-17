@@ -176,7 +176,12 @@ const ReceiptsHeader: React.FC<ReceiptsHeaderProps> = ({
             <View>
               <Text className="mb-3 text-sm font-bold text-secondary-700 uppercase tracking-wide">{t('receipts.sortBy')}</Text>
               <View style={{ gap: 12 }}>
-                {[{ key: 'date', label: t('receipts.date') }, { key: 'customer', label: t('receipts.customer') }, { key: 'total', label: t('receipts.total') }].map(
+                {[
+                  { key: 'date', label: t('receipts.date') },
+                  { key: 'customer', label: t('receipts.customer') },
+                  { key: 'total', label: t('receipts.total') },
+                  { key: 'unpaid', label: 'Unpaid' }
+                ].map(
                   (option) => (
                     <TouchableOpacity
                       key={option.key}

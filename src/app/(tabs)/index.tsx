@@ -14,6 +14,7 @@ import PrinterSetupScreen from '../../screens/PrinterSetupScreen';
 import { useNavigation } from '@react-navigation/native';
 import { useLanguage } from '../../contexts/LanguageContext';
 import LowStockAlertsPanel from '../../components/LowStockAlertsPanel';
+import SystemStatusModal from '../../components/SystemStatusModal';
 
 // Try to import LinearGradient, fallback to View if not available
 let LinearGradient: any;
@@ -56,6 +57,7 @@ const HomeScreen: React.FC = () => {
   });
   const [showReceiptCreation, setShowReceiptCreation] = useState(false);
   const [showPrinterSetup, setShowPrinterSetup] = useState(false);
+  const [showSystemStatus, setShowSystemStatus] = useState(false);
 
   // Function to get greeting based on current time
   const getTimeBasedGreeting = (): string => {
@@ -379,7 +381,7 @@ const HomeScreen: React.FC = () => {
             
             <TouchableOpacity 
               className="flex-1 bg-green-500 rounded-xl p-4 items-center"
-              onPress={() => Alert.alert('Status', 'All systems operational')}
+              onPress={() => setShowSystemStatus(true)}
               activeOpacity={0.8}
             >
               <Ionicons name="checkmark-circle" size={24} color="white" />
@@ -405,6 +407,12 @@ const HomeScreen: React.FC = () => {
           }}
         />
       )}
+      
+      {/* System Status Modal */}
+      <SystemStatusModal
+        visible={showSystemStatus}
+        onClose={() => setShowSystemStatus(false)}
+      />
       </View>
     </SafeAreaView>
   );

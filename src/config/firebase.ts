@@ -45,14 +45,14 @@ export const initializeFirebase = (): boolean => {
     // Initialize Firebase app
     app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
     
-    // Initialize Firestore
+    // Initialize Firestore with persistent cache for offline support
     try {
       db = initializeFirestore(app, {
-        localCache: Platform.OS === 'web'
-          ? persistentLocalCache({
-              tabManager: persistentSingleTabManager(undefined),
-            })
-          : memoryLocalCache(),
+        localCache: persistentLocalCache(
+          Platform.OS === 'web'
+            ? { tabManager: persistentSingleTabManager(undefined) }
+            : {} // Mobile: persistent cache without tab manager
+        ),
         experimentalForceLongPolling: Platform.OS !== 'web',
       });
     } catch (error) {

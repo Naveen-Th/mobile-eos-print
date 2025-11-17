@@ -30,6 +30,7 @@ import FloatingActionBar from '../../components/Receipts/FloatingActionBar';
 import LoadMoreButton from '../../components/Receipts/LoadMoreButton';
 import SectionHeader from '../../components/Receipts/SectionHeader';
 import { useDebounce } from '../../hooks/useDebounce';
+import { useCustomerBalances, useReceiptsWithBalance } from '../../hooks/useCustomerBalances';
 import { groupReceiptsIntoSections, getSectionSummary, filterSections, ReceiptSection } from '../../utils/receiptSections';
 import { performanceTime, performanceTimeEnd } from '../../utils/performanceTiming';
 
@@ -62,7 +63,7 @@ const ReceiptsScreen: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearchQuery = useDebounce(searchQuery, 300); // Debounce search for performance
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<'date' | 'customer' | 'total'>('date');
+  const [sortBy, setSortBy] = useState<'date' | 'customer' | 'total' | 'unpaid'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [showFilters, setShowFilters] = useState(false);
   
@@ -81,12 +82,6 @@ const ReceiptsScreen: React.FC = () => {
   // Payment modal state
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [receiptForPayment, setReceiptForPayment] = useState<FirebaseReceipt | null>(null);
-  
-  // Customer balances cache
-  const [customerBalances, setCustomerBalances] = useState<Map<string, number>>(new Map());
-  
-  // Debounce timer for balance calculations
-  const balanceCalculationTimer = useRef<NodeJS.Timeout | null>(null);
   
   // Section collapse/expand state
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
@@ -263,112 +258,72 @@ const ReceiptsScreen: React.FC = () => {
     }
   }, []);
 
-  // Calculate customer balances from receipts with dynamic balances (debounced)
-  useEffect(() => {
-    // Clear existing timer
-    if (balanceCalculationTimer.current) {
-      clearTimeout(balanceCalculationTimer.current);
+  // ✅ OPTIMIZED: Calculate customer balances with O(n) hook
+  const customerBalances = useCustomerBalances(receipts);
+  
+  // ✅ OPTIMIZED: Calculate receipts with balance (only when needed for display)
+  const receiptsWithDynamicBalance = useReceiptsWithBalance(receipts);
+  
+  // ✅ Sort receipts based on sortBy and sortOrder
+  const sortedReceipts = useMemo(() => {
+    if (!receiptsWithDynamicBalance || receiptsWithDynamicBalance.length === 0) {
+      return receiptsWithDynamicBalance;
     }
     
-    // Debounce balance calculations to avoid excessive updates
-    balanceCalculationTimer.current = setTimeout(() => {
-      const balances = new Map<string, number>();
+    const sorted = [...receiptsWithDynamicBalance].sort((a, b) => {
+      let comparison = 0;
       
-      // For each customer, calculate their total outstanding balance across ALL receipts
-      // Group receipts by customer first
-      const customerReceipts = new Map<string, FirebaseReceipt[]>();
-      
-      receiptsWithDynamicBalance.forEach(receipt => {
-        const customerKey = receipt.customerName || 'Walk-in Customer';
-        if (!customerReceipts.has(customerKey)) {
-          customerReceipts.set(customerKey, []);
-        }
-        customerReceipts.get(customerKey)!.push(receipt);
-      });
-      
-      // Calculate total balance for each customer
-      customerReceipts.forEach((receipts, customerName) => {
-        const totalBalance = receipts.reduce((sum, receipt) => {
-          // Each receipt's outstanding balance is: total - amountPaid
-          const receiptBalance = (receipt.total || 0) - (receipt.amountPaid || 0);
-          return sum + receiptBalance;
-        }, 0);
-        
-        // Store the total balance (even if 0) so we can show payment button
-        balances.set(customerName, totalBalance);
-      });
-      
-      setCustomerBalances(balances);
-    }, 150); // Debounce for 150ms
-    
-    // Cleanup on unmount
-    return () => {
-      if (balanceCalculationTimer.current) {
-        clearTimeout(balanceCalculationTimer.current);
-      }
-    };
-  }, [receiptsWithDynamicBalance]);
-  
-  // Recalculate Previous Balance dynamically for all receipts
-  // Memoized to prevent expensive recalculations on every render
-  const receiptsWithDynamicBalance = useMemo(() => {
-    if (!receipts || receipts.length === 0) return [];
-    // Sort receipts by creation date (oldest first) for accurate balance calculation
-    const sorted = [...receipts].sort((a, b) => {
-      const dateA = a.createdAt?.toDate?.() || (a.date?.toDate ? a.date.toDate() : new Date(0));
-      const dateB = b.createdAt?.toDate?.() || (b.date?.toDate ? b.date.toDate() : new Date(0));
-      return dateA.getTime() - dateB.getTime();
-    });
-    
-    // Group by customer and calculate running balances
-    const customerBalanceMap = new Map<string, number>();
-    
-    return sorted.map((receipt, index) => {
-      const customerName = receipt.customerName || 'Walk-in Customer';
-      
-      // Get the cumulative balance before this receipt
-      const previousBalance = customerBalanceMap.get(customerName) || 0;
-      
-      // Calculate this receipt's remaining balance (total - amountPaid)
-      const receiptBalance = (receipt.total || 0) - (receipt.amountPaid || 0);
-      
-      // ✅ PRESERVE manually entered oldBalance from Firebase (if it exists)
-      // Only use dynamic calculation if no oldBalance was stored in Firebase
-      const oldBalanceFromFirebase = receipt.oldBalance || 0;
-      const oldBalance = oldBalanceFromFirebase > 0 ? oldBalanceFromFirebase : previousBalance;
-      
-      // ✅ Update cumulative balance: include oldBalance + receipt balance for next receipt
-      // This ensures subsequent receipts see the full outstanding amount from this receipt
-      customerBalanceMap.set(customerName, oldBalance + receiptBalance);
-      
-      // Debug: Log balance calculation for customer "Ga"
-      if (customerName === 'Ga' && index < 5) {
-        console.log(`📊 [${receipt.receiptNumber}] Customer: ${customerName}, Firebase oldBal: ₹${oldBalanceFromFirebase}, Dynamic prevBal: ₹${previousBalance}, Using: ₹${oldBalance}, ReceiptBal: ₹${receiptBalance}, NewBal: ₹${oldBalance + receiptBalance}`);
+      switch (sortBy) {
+        case 'date':
+          const dateA = a.createdAt?.toDate?.() || (a.date?.toDate ? a.date.toDate() : new Date(0));
+          const dateB = b.createdAt?.toDate?.() || (b.date?.toDate ? b.date.toDate() : new Date(0));
+          comparison = dateA.getTime() - dateB.getTime();
+          break;
+          
+        case 'customer':
+          const customerA = (a.customerName || 'Walk-in Customer').toLowerCase();
+          const customerB = (b.customerName || 'Walk-in Customer').toLowerCase();
+          comparison = customerA.localeCompare(customerB);
+          break;
+          
+        case 'total':
+          comparison = (a.total || 0) - (b.total || 0);
+          break;
+          
+        case 'unpaid':
+          // Sort by unpaid amount (total - amountPaid)
+          const unpaidA = (a.total || 0) - (a.amountPaid || 0);
+          const unpaidB = (b.total || 0) - (b.amountPaid || 0);
+          comparison = unpaidA - unpaidB;
+          break;
+          
+        default:
+          comparison = 0;
       }
       
-      // Return receipt with preserved Firebase oldBalance or dynamic calculation
-      return {
-        ...receipt,
-        oldBalance, // ✅ Use Firebase value if exists, otherwise dynamic
-        newBalance: oldBalance + receiptBalance, // Dynamic Balance Due
-      };
+      // Apply sort order (asc or desc)
+      return sortOrder === 'asc' ? comparison : -comparison;
     });
-  }, [receipts]);
+    
+    return sorted;
+  }, [receiptsWithDynamicBalance, sortBy, sortOrder]);
   
-  // Group receipts into smart time-based sections
+  // ✅ OPTIMIZED: Split grouping and filtering into separate memos
+  // Group receipts into sections (only when receipts change)
+  const allReceiptSections = useMemo(() => {
+    performanceTime('⚡ Group Sections');
+    const sections = groupReceiptsIntoSections(sortedReceipts);
+    performanceTimeEnd('⚡ Group Sections');
+    return sections;
+  }, [sortedReceipts]);
+  
+  // Filter sections (cheap operation, can run on search/filter changes)
   const receiptSections = useMemo(() => {
-    performanceTime('⚡ Group+Filter Sections');
-    
-    // First group all receipts into sections
-    const sections = groupReceiptsIntoSections(receiptsWithDynamicBalance);
-    
-    // Then filter sections by search and status
-    const filtered = filterSections(sections, debouncedSearchQuery, statusFilter);
-    
-    performanceTimeEnd('⚡ Group+Filter Sections');
-    
+    performanceTime('⚡ Filter Sections');
+    const filtered = filterSections(allReceiptSections, debouncedSearchQuery, statusFilter);
+    performanceTimeEnd('⚡ Filter Sections');
     return filtered;
-  }, [receiptsWithDynamicBalance, debouncedSearchQuery, statusFilter]);
+  }, [allReceiptSections, debouncedSearchQuery, statusFilter]);
   
   // Flatten sections into list items (section headers + receipts)
   const flattenedData = useMemo(() => {
@@ -606,22 +561,14 @@ const ReceiptsScreen: React.FC = () => {
     return item.receipt.id;
   }, []);
 
-  // Pre-compute section summaries for better performance
-  const sectionSummaries = useMemo(() => {
-    const summaries = new Map<string, string>();
-    receiptSections.forEach(section => {
-      summaries.set(section.key, getSectionSummary(section));
-    });
-    return summaries;
-  }, [receiptSections]);
-
-  // Memoized render function for list items (sections + receipts)
+  // ✅ OPTIMIZED: Memoized render function with minimal dependencies
   const renderListItem = useCallback(({ item }: { item: any }) => {
     // Render section header
     if (item.type === 'section') {
       const section = item.section;
       const isExpanded = !collapsedSections.has(section.key);
-      const summary = sectionSummaries.get(section.key) || '';
+      // Compute summary on-demand (cheap - just string formatting)
+      const summary = getSectionSummary(section);
       return (
         <SectionHeader
           title={section.title}
@@ -676,7 +623,6 @@ const ReceiptsScreen: React.FC = () => {
   }, [
     collapsedSections,
     toggleSection,
-    sectionSummaries,
     selectedReceipts,
     isSelectionMode,
     pendingDeletions,
@@ -730,7 +676,7 @@ const ReceiptsScreen: React.FC = () => {
           onSearchChange={setSearchQuery}
           onClearSearch={() => setSearchQuery('')}
           onStatusFilterChange={setStatusFilter}
-          onSortByChange={(sortBy) => setSortBy(sortBy as 'date' | 'customer' | 'total')}
+          onSortByChange={(sortBy) => setSortBy(sortBy as 'date' | 'customer' | 'total' | 'unpaid')}
           onSortOrderToggle={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
         />
 

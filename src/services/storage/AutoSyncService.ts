@@ -3,6 +3,8 @@ import { db as firebaseDb, isFirebaseInitialized } from '../../config/firebase';
 import { database } from '../../database';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getCircuitBreaker } from '../../utils/ErrorHandler';
+import { performanceTime, performanceTimeEnd } from '../../utils/performanceTiming';
 
 interface SyncMetrics {
   lastSyncTime: number;
@@ -92,6 +94,7 @@ class AutoSyncService {
 
     this.isSyncing = true;
     const startTime = Date.now();
+    performanceTime('autosync_full');
 
     try {
       console.log('🔄 Starting auto-sync on login for user:', userId);
@@ -151,11 +154,13 @@ class AutoSyncService {
       await this.saveSyncMetrics(metrics);
 
       const duration = Date.now() - startTime;
+      performanceTimeEnd('autosync_full');
       console.log(`✅ Auto-sync complete in ${duration}ms`);
       console.log(`📊 Synced: ${metrics.totalSynced}, Failed: ${metrics.totalFailed}`);
       
       this.notifyProgress(100, `Synced ${metrics.totalSynced} records`);
     } catch (error) {
+      performanceTimeEnd('autosync_full');
       console.error('❌ Auto-sync failed:', error);
       this.notifyProgress(0, 'Sync failed');
       throw error;
@@ -180,6 +185,7 @@ class AutoSyncService {
 
     const batchSize = options.batchSize || this.BATCH_SIZE;
     const throttleDelay = options.throttleDelay || this.THROTTLE_DELAY;
+    const circuitBreaker = getCircuitBreaker(`autosync_${firebaseCollection}`);
     
     let synced = 0;
     let failed = 0;
@@ -187,6 +193,7 @@ class AutoSyncService {
     let hasMore = true;
 
     console.log(`📥 Syncing ${firebaseCollection}...`);
+    performanceTime(`sync_${firebaseCollection}`);
 
     while (hasMore) {
       try {
@@ -209,7 +216,15 @@ class AutoSyncService {
           q = query(q, startAfter(lastDoc));
         }
 
-        const snapshot = await getDocs(q);
+        // Execute with circuit breaker protection
+        const snapshot = await circuitBreaker.execute(
+          () => getDocs(q),
+          () => {
+            // Fallback when circuit is OPEN - return empty to skip gracefully
+            console.warn(`🔴 Circuit breaker OPEN for ${firebaseCollection} - using fallback`);
+            return { empty: true, docs: [] } as any;
+          }
+        );
         
         if (snapshot.empty) {
           hasMore = false;
@@ -248,11 +263,13 @@ class AutoSyncService {
         console.log(`  📦 Batch processed: ${synced} synced, ${failed} failed`);
       } catch (error) {
         console.error(`Error syncing batch from ${firebaseCollection}:`, error);
+        // Circuit breaker already tracked the failure in execute()
         failed++;
         hasMore = false; // Stop on error
       }
     }
 
+    performanceTimeEnd(`sync_${firebaseCollection}`);
     console.log(`✅ ${firebaseCollection}: ${synced} synced, ${failed} failed`);
     return { synced, failed };
   }
@@ -270,6 +287,7 @@ class AutoSyncService {
 
     const batchSize = options.batchSize || this.BATCH_SIZE;
     const throttleDelay = options.throttleDelay || this.THROTTLE_DELAY;
+    const circuitBreaker = getCircuitBreaker('autosync_receipts');
     
     let synced = 0;
     let failed = 0;
@@ -277,6 +295,7 @@ class AutoSyncService {
     let hasMore = true;
 
     console.log('📥 Syncing receipts...');
+    performanceTime('sync_receipts');
 
     while (hasMore) {
       try {
@@ -296,7 +315,15 @@ class AutoSyncService {
           q = query(q, startAfter(lastDoc));
         }
 
-        const snapshot = await getDocs(q);
+        // Execute with circuit breaker protection
+        const snapshot = await circuitBreaker.execute(
+          () => getDocs(q),
+          () => {
+            // Fallback when circuit is OPEN - return empty to skip gracefully
+            console.warn('🔴 Circuit breaker OPEN for receipts - using fallback');
+            return { empty: true, docs: [] } as any;
+          }
+        );
         
         if (snapshot.empty) {
           hasMore = false;
@@ -332,11 +359,13 @@ class AutoSyncService {
         console.log(`  📦 Receipts batch: ${synced} synced, ${failed} failed`);
       } catch (error) {
         console.error('Error syncing receipts batch:', error);
+        // Circuit breaker already tracked the failure in execute()
         failed++;
         hasMore = false;
       }
     }
 
+    performanceTimeEnd('sync_receipts');
     console.log(`✅ Receipts: ${synced} synced, ${failed} failed`);
     return { synced, failed };
   }

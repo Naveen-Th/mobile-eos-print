@@ -219,7 +219,155 @@ export function createBalanceError(message: string, metadata?: any): AppError {
 }
 
 /**
- * Retry helper for async operations
+ * Circuit Breaker State
+ */
+type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+
+interface CircuitBreakerStats {
+  state: CircuitState;
+  failures: number;
+  successes: number;
+  lastFailure: number;
+  nextRetry: number;
+}
+
+/**
+ * Circuit Breaker for preventing cascading failures
+ */
+class CircuitBreaker {
+  private state: CircuitState = 'CLOSED';
+  private failures = 0;
+  private successes = 0;
+  private lastFailureTime = 0;
+  private nextRetryTime = 0;
+
+  constructor(
+    private name: string,
+    private failureThreshold = 5,
+    private successThreshold = 2,
+    private timeout = 60000 // 1 minute
+  ) {}
+
+  async execute<T>(
+    operation: () => Promise<T>,
+    fallback?: () => T
+  ): Promise<T> {
+    if (this.state === 'OPEN') {
+      if (Date.now() < this.nextRetryTime) {
+        Logger.warn(`Circuit breaker [${this.name}] is OPEN - request rejected`);
+        
+        if (fallback) {
+          return fallback();
+        }
+        
+        throw new AppError(
+          `Circuit breaker ${this.name} is open`,
+          ErrorCodes.NETWORK_ERROR,
+          'Service temporarily unavailable. Please try again later.',
+          true
+        );
+      }
+      
+      // Transition to HALF_OPEN to test recovery
+      this.state = 'HALF_OPEN';
+      Logger.info(`Circuit breaker [${this.name}] transitioning to HALF_OPEN`);
+    }
+
+    try {
+      const result = await operation();
+      this.onSuccess();
+      return result;
+    } catch (error) {
+      this.onFailure(error);
+      
+      if (fallback) {
+        return fallback();
+      }
+      
+      throw error;
+    }
+  }
+
+  private onSuccess(): void {
+    this.failures = 0;
+    
+    if (this.state === 'HALF_OPEN') {
+      this.successes++;
+      
+      if (this.successes >= this.successThreshold) {
+        this.state = 'CLOSED';
+        this.successes = 0;
+        Logger.success(`Circuit breaker [${this.name}] recovered - CLOSED`);
+      }
+    }
+  }
+
+  private onFailure(error: any): void {
+    this.failures++;
+    this.lastFailureTime = Date.now();
+    
+    Logger.warn(
+      `Circuit breaker [${this.name}] failure ${this.failures}/${this.failureThreshold}`,
+      error
+    );
+
+    if (this.state === 'HALF_OPEN') {
+      this.state = 'OPEN';
+      this.successes = 0;
+      this.nextRetryTime = Date.now() + this.timeout;
+      Logger.error(`Circuit breaker [${this.name}] failed recovery - OPEN`);
+    } else if (this.failures >= this.failureThreshold) {
+      this.state = 'OPEN';
+      this.nextRetryTime = Date.now() + this.timeout;
+      Logger.error(`Circuit breaker [${this.name}] threshold reached - OPEN`);
+    }
+  }
+
+  getStats(): CircuitBreakerStats {
+    return {
+      state: this.state,
+      failures: this.failures,
+      successes: this.successes,
+      lastFailure: this.lastFailureTime,
+      nextRetry: this.nextRetryTime,
+    };
+  }
+
+  reset(): void {
+    this.state = 'CLOSED';
+    this.failures = 0;
+    this.successes = 0;
+    this.lastFailureTime = 0;
+    this.nextRetryTime = 0;
+    Logger.info(`Circuit breaker [${this.name}] manually reset`);
+  }
+}
+
+// Circuit breaker instances
+const circuitBreakers = new Map<string, CircuitBreaker>();
+
+export function getCircuitBreaker(name: string): CircuitBreaker {
+  if (!circuitBreakers.has(name)) {
+    circuitBreakers.set(name, new CircuitBreaker(name));
+  }
+  return circuitBreakers.get(name)!;
+}
+
+export function getAllCircuitBreakers(): Map<string, CircuitBreakerStats> {
+  const stats = new Map<string, CircuitBreakerStats>();
+  circuitBreakers.forEach((breaker, name) => {
+    stats.set(name, breaker.getStats());
+  });
+  return stats;
+}
+
+export function resetAllCircuitBreakers(): void {
+  circuitBreakers.forEach(breaker => breaker.reset());
+  Logger.success('All circuit breakers reset');
+}
+
+/**
+ * Retry helper with exponential backoff
  */
 export async function retryOperation<T>(
   operation: () => Promise<T>,
@@ -236,7 +384,9 @@ export async function retryOperation<T>(
       Logger.warn(`Attempt ${attempt}/${maxAttempts} failed`, error);
 
       if (attempt < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, delayMs * attempt));
+        // Exponential backoff
+        const delay = delayMs * Math.pow(2, attempt - 1);
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
   }

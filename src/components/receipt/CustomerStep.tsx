@@ -153,11 +153,11 @@ const CustomerStep: React.FC<CustomerStepProps> = ({
                   <Text style={{ fontSize: 15, fontWeight: '700', color: '#1f2937', letterSpacing: -0.2 }}>
                     Previous Balance <Text style={{ fontSize: 12, color: '#6b7280', fontWeight: '400' }}>(Optional)</Text>
                   </Text>
-                  {!isManualMode && oldBalance > 0 && (
+                  {!isManualMode && !isLoadingBalance && (
                     <TouchableOpacity
                       onPress={() => {
                         setIsManualMode(true);
-                        setManualBalanceInput(oldBalance.toString());
+                        setManualBalanceInput(oldBalance > 0 ? oldBalance.toString() : '');
                       }}
                       style={{
                         paddingHorizontal: 10,
@@ -188,8 +188,8 @@ const CustomerStep: React.FC<CustomerStepProps> = ({
                       Loading previous balance...
                     </Text>
                   </View>
-                ) : isManualMode || oldBalance === 0 ? (
-                  // Manual Input Mode
+                ) : isManualMode ? (
+                  // Manual Input Mode (only when explicitly enabled)
                   <View>
                     <View style={{
                       flexDirection: 'row',
@@ -214,6 +214,7 @@ const CustomerStep: React.FC<CustomerStepProps> = ({
                         }}
                         placeholder="0.00"
                         keyboardType="decimal-pad"
+                        autoFocus
                         style={{
                           flex: 1,
                           fontSize: 18,
@@ -234,36 +235,47 @@ const CustomerStep: React.FC<CustomerStepProps> = ({
                         </TouchableOpacity>
                       )}
                     </View>
-                    <Text style={{ fontSize: 11, color: '#6b7280', marginTop: 6, marginLeft: 4 }}>
-                      Enter any outstanding balance from previous transactions
-                    </Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+                      <Text style={{ fontSize: 11, color: '#6b7280', marginLeft: 4 }}>
+                        Enter any outstanding balance from previous transactions
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setIsManualMode(false);
+                          setManualBalanceInput('');
+                        }}
+                        style={{ paddingHorizontal: 8, paddingVertical: 4 }}
+                      >
+                        <Text style={{ fontSize: 11, color: '#3b82f6', fontWeight: '600' }}>CANCEL</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 ) : (
-                  // Display Mode (Auto-fetched balance)
+                  // ✅ Display Mode - Show balance (whether ₹0 or not) with EDIT button
                   <View style={{
                     padding: 14,
-                    backgroundColor: '#fef2f2',
+                    backgroundColor: oldBalance > 0 ? '#fef2f2' : '#f0fdf4',
                     borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: '#fecaca',
+                    borderColor: oldBalance > 0 ? '#fecaca' : '#bbf7d0',
                   }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 11, fontWeight: '600', color: '#991b1b', marginBottom: 3, letterSpacing: 0.5 }}>
-                          AUTO-FETCHED BALANCE
+                        <Text style={{ fontSize: 11, fontWeight: '600', color: oldBalance > 0 ? '#991b1b' : '#166534', marginBottom: 3, letterSpacing: 0.5 }}>
+                          {oldBalance > 0 ? 'AUTO-FETCHED BALANCE' : 'NO OUTSTANDING BALANCE'}
                         </Text>
-                        <Text style={{ fontSize: 20, fontWeight: '700', color: '#dc2626' }}>
+                        <Text style={{ fontSize: 20, fontWeight: '700', color: oldBalance > 0 ? '#dc2626' : '#16a34a' }}>
                           {formatCurrency(oldBalance)}
                         </Text>
-                        <Text style={{ fontSize: 11, color: '#991b1b', marginTop: 3 }}>
-                          💰 Outstanding from previous transactions
+                        <Text style={{ fontSize: 11, color: oldBalance > 0 ? '#991b1b' : '#166534', marginTop: 3 }}>
+                          {oldBalance > 0 ? '💰 Outstanding from previous transactions' : '✓ Customer has no pending balance'}
                         </Text>
                       </View>
                       <View style={{
                         width: 40,
                         height: 40,
                         borderRadius: 10,
-                        backgroundColor: '#dc2626',
+                        backgroundColor: oldBalance > 0 ? '#dc2626' : '#16a34a',
                         justifyContent: 'center',
                         alignItems: 'center',
                       }}>

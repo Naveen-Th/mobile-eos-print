@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
-  FlatList,
   Alert,
   RefreshControl,
   ActivityIndicator,
@@ -9,6 +8,7 @@ import {
   Text,
   TouchableOpacity,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ItemService from '../../services/data/ItemService';
 import StockService from '../../services/data/StockService';
@@ -256,17 +256,7 @@ const ItemsScreen: React.FC = () => {
     );
   }, [selectedItems, isSelectionMode, toggleItemSelection, handleEditItem, handleDeleteSingle, handleAddStock]);
 
-  // FlatList optimization: getItemLayout for better performance
-  const getItemLayout = useCallback(
-    (_: any, index: number) => ({
-      length: 120, // Approximate item height
-      offset: 120 * index,
-      index,
-    }),
-    []
-  );
-
-  // Key extractor for FlatList optimization
+  // Key extractor for list optimization
   const keyExtractor = useCallback((item: ItemDetails) => item.id, []);
 
   if (loading && items.length === 0) {
@@ -361,12 +351,12 @@ const ItemsScreen: React.FC = () => {
             )}
           </View>
         ) : (
-          <FlatList
+          <FlashList
             data={filteredAndSortedItems}
             renderItem={renderItemCard}
             keyExtractor={keyExtractor}
-            getItemLayout={getItemLayout}
-            style={styles.list}
+            estimatedItemSize={120}
+            contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
             refreshControl={
               <RefreshControl
@@ -376,12 +366,9 @@ const ItemsScreen: React.FC = () => {
                 tintColor="#3b82f6"
               />
             }
-            // Performance optimizations
+            // FlashList performance optimizations
+            drawDistance={500}
             removeClippedSubviews={true}
-            maxToRenderPerBatch={10}
-            updateCellsBatchingPeriod={50}
-            windowSize={10}
-            initialNumToRender={10}
           />
         )}
         
@@ -425,6 +412,9 @@ const styles = StyleSheet.create({
   },
   list: {
     flex: 1,
+    paddingTop: 8,
+  },
+  listContent: {
     paddingTop: 8,
   },
   loadingContainer: {

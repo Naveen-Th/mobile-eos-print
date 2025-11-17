@@ -20,6 +20,8 @@ import {
 import { db, isFirebaseInitialized } from '../config/firebase';
 import { useSyncStore, OptimisticUpdate } from '../store/syncStore';
 import { getCache, setCache } from '../utils/offlineStorage';
+import { getCircuitBreaker } from '../utils/ErrorHandler';
+import { performanceTime, performanceTimeEnd } from '../utils/performanceTiming';
 
 // Query Keys Factory
 export const queryKeys = {
@@ -111,6 +113,10 @@ export function useRealtimeCollection<T = any>(
       }
       
       const startTime = Date.now();
+      performanceTime(`realtime_${collectionName}`);
+      
+      // Circuit breaker for this collection
+      const circuitBreaker = getCircuitBreaker(`firebase_${collectionName}`);
       
       // ✅ Track last update to prevent duplicate logs and batch operations
       let lastUpdateTime = 0;
@@ -185,6 +191,9 @@ export function useRealtimeCollection<T = any>(
               console.error('❌ Error updating React Query cache:', cacheError);
             }
             
+            // Record success in circuit breaker
+            circuitBreaker.execute(async () => documents).catch(() => {});
+            
             // Update connection state (get fresh store reference)
             const { setConnectionState: setConnState, updateMetrics: updateMets } = useSyncStore.getState();
             setConnState({
@@ -219,7 +228,16 @@ export function useRealtimeCollection<T = any>(
         (error) => {
           if (!isActive) return; // Prevent updates after cleanup
           
+          performanceTimeEnd(`realtime_${collectionName}`);
+          
           console.error(`❌ Real-time listener error for ${collectionName}:`, error);
+          
+          // Record failure in circuit breaker
+          circuitBreaker.execute(async () => {
+            throw error;
+          }).catch(() => {
+            // Circuit breaker handles the error
+          });
           
           // Get fresh store reference for error handling
           const { setConnectionState: setConnState, updateMetrics: updateMets } = useSyncStore.getState();
