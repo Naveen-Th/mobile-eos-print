@@ -38,6 +38,7 @@ interface CustomerInfo {
 // Balance information interface
 interface BalanceInfo {
   oldBalance: number;
+  isManualOldBalance: boolean; // true if oldBalance was manually entered, false if dynamically calculated
   isPaid: boolean;
   amountPaid: number;
   newBalance: number;
@@ -145,6 +146,7 @@ const initialState: ReceiptState = {
   },
   balance: {
     oldBalance: 0,
+    isManualOldBalance: false,
     isPaid: false,
     amountPaid: 0,
     newBalance: 0
@@ -612,6 +614,7 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
             footerMessage: 'Thank you for your business!',
             customerName: state.customer.customerName?.trim(),
             oldBalance: state.balance.oldBalance,
+            isManualOldBalance: state.balance.isManualOldBalance,
             isPaid: state.balance.isPaid,
             amountPaid: state.balance.amountPaid,
             newBalance: state.balance.newBalance,
@@ -768,6 +771,7 @@ export const useReceiptStore = create<ReceiptState & ReceiptActions>()(
           };
           state.balance = {
             oldBalance: 0,
+            isManualOldBalance: false,
             isPaid: false,
             amountPaid: 0,
             newBalance: 0

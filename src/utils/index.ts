@@ -48,6 +48,10 @@ export const formatReceiptDate = (date: any): string => {
     else if (typeof date.toDate === 'function') {
       dateObj = date.toDate();
     }
+    // If it's a Firestore Timestamp-like object with seconds and nanoseconds
+    else if (typeof date === 'object' && date !== null && 'seconds' in date && 'nanoseconds' in date) {
+      dateObj = new Date(date.seconds * 1000 + date.nanoseconds / 1000000);
+    }
     // If it's a timestamp number
     else if (typeof date === 'number') {
       dateObj = new Date(date);
@@ -93,6 +97,10 @@ export const formatCompactDate = (date: any): string => {
     // If it's a Firebase Timestamp with toDate method
     else if (typeof date.toDate === 'function') {
       dateObj = date.toDate();
+    }
+    // If it's a Firestore Timestamp-like object with seconds and nanoseconds
+    else if (typeof date === 'object' && date !== null && 'seconds' in date && 'nanoseconds' in date) {
+      dateObj = new Date(date.seconds * 1000 + date.nanoseconds / 1000000);
     }
     // If it's a timestamp number
     else if (typeof date === 'number') {

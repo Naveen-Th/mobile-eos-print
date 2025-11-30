@@ -120,9 +120,11 @@ class PaymentService {
       const currentAmountPaid = receipt.amountPaid || 0;
       const receiptBalance = receiptTotal - currentAmountPaid;
       const oldBalance = receipt.oldBalance || 0;
+      let isManualOldBalance = receipt.isManualOldBalance || false;
       
-      // ✅ CRITICAL FIX: The "Previous Balance" (oldBalance) on this receipt is PART OF THIS RECEIPT
-      // The current receipt can consume payment up to (receiptBalance + oldBalance)
+      // ✅ CRITICAL FIX: Handle manual vs dynamic oldBalance differently
+      // - Manual oldBalance: Historical debt not in system, consume on THIS receipt
+      // - Dynamic oldBalance: Debt from older receipts, cascade payment to them
       const totalReceiptDebt = receiptBalance + oldBalance;
       const currentBalance = totalReceiptDebt;
 
@@ -130,47 +132,11 @@ class PaymentService {
       const affectedReceipts: Array<{ receipt: FirebaseReceipt; ref: any; payment: number }> = [];
       let paymentAppliedToCurrent = 0; // track items payment
       let totalCascadedToOlder = 0; // track cascade sum
-
-      if (__DEV__) {
-        console.log(`💵 [PAYMENT] Receipt ${receipt.receiptNumber}: total=₹${receiptTotal}, paid=₹${currentAmountPaid}, receiptBalance=₹${receiptBalance}, oldBalance=₹${oldBalance}, totalDebt=₹${totalReceiptDebt}`);
-      }
-
-      // Step 1: Apply payment to current receipt first (up to its total debt including oldBalance)
-      // ✅ Only apply up to the receipt balance (the actual amount owed on THIS receipt's items)
-      // The oldBalance portion doesn't add to amountPaid, it just prevents cascading
-      const paymentForCurrentReceipt = Math.min(remainingPayment, receiptBalance);
-      if (paymentForCurrentReceipt > 0) {
-        affectedReceipts.push({
-          receipt: receipt,
-          ref: receiptRef,
-          payment: paymentForCurrentReceipt,
-        });
-        remainingPayment -= paymentForCurrentReceipt;
-        paymentAppliedToCurrent = paymentForCurrentReceipt;
-        
-        if (__DEV__) {
-          console.log(`💰 Payment of ₹${paymentForCurrentReceipt.toFixed(2)} applied to current receipt ${receipt.receiptNumber}`);
-        }
-      }
       
-      // ✅ CRITICAL FIX: Don't consume oldBalance - let it cascade to real older receipts!
-      // The oldBalance represents debt on OLDER receipts that still exist in the system.
-      // If we "consume" it here, those older receipts remain unpaid (duplicate accounting).
-      // Instead, let the remaining payment cascade to actually pay those older receipts.
-      
-      if (__DEV__ && oldBalance > 0 && remainingPayment > 0) {
-        console.log(`🔄 Receipt has ₹${oldBalance} oldBalance. Remaining ₹${remainingPayment} will cascade to older receipts to pay them.`);
-      }
-
-      // Step 2: If there's remaining payment, cascade to older unpaid receipts
-      // ✅ Use 0.01 threshold to avoid cascading tiny amounts due to floating-point precision
-      if (remainingPayment > 0.01 && receipt.customerName) {
-        if (__DEV__) {
-          console.log(`💸 Remaining payment ₹${remainingPayment.toFixed(2)} will cascade to older receipts`);
-        }
-
+      // ✅ First, fetch older unpaid receipts to determine if we need to infer isManualOldBalance
+      let unpaidReceipts: FirebaseReceipt[] = [];
+      if (receipt.customerName) {
         try {
-          // Get all receipts for this customer (without isPaid filter to avoid index requirement)
           const receiptsRef = collection(db, this.RECEIPTS_COLLECTION);
           const olderReceiptsQuery = query(
             receiptsRef,
@@ -180,8 +146,8 @@ class PaymentService {
           const olderReceiptsSnapshot = await getDocs(olderReceiptsQuery);
           
           // Filter unpaid receipts and sort by date in memory
-          const unpaidReceipts = olderReceiptsSnapshot.docs
-            .map(doc => ({ id: doc.id, ...doc.data() as FirebaseReceipt }))
+          unpaidReceipts = olderReceiptsSnapshot.docs
+            .map(docSnap => ({ id: docSnap.id, ...docSnap.data() as FirebaseReceipt }))
             .filter(r => {
               const balance = (r.total || 0) - (r.amountPaid || 0);
               return balance > 0.01 && r.id !== receipt.id; // Exclude current receipt
@@ -191,35 +157,113 @@ class PaymentService {
               const dateB = b.createdAt?.toDate?.() || new Date(0);
               return dateA.getTime() - dateB.getTime(); // Oldest first
             });
-          
-          for (const olderReceipt of unpaidReceipts) {
-            // ✅ Use 0.01 threshold to avoid floating-point precision issues
-            if (remainingPayment < 0.01) break;
-
-            const olderReceiptBalance = (olderReceipt.total || 0) - (olderReceipt.amountPaid || 0);
-
-            // Apply remaining payment to this older receipt
-            const paymentForOlderReceipt = Math.min(remainingPayment, olderReceiptBalance);
-            
-            // ✅ Only add if payment is meaningful (> 1 paisa)
-            if (paymentForOlderReceipt < 0.01) continue;
-            
-            affectedReceipts.push({
-              receipt: olderReceipt,
-              ref: doc(db, this.RECEIPTS_COLLECTION, olderReceipt.id),
-              payment: paymentForOlderReceipt,
-            });
-            
-            remainingPayment -= paymentForOlderReceipt;
-            totalCascadedToOlder += paymentForOlderReceipt;
-            
-            if (__DEV__) {
-              console.log(`💸 Cascaded ₹${paymentForOlderReceipt.toFixed(2)} to older receipt ${olderReceipt.receiptNumber}`);
-            }
+        } catch (error) {
+          console.error('Error fetching unpaid receipts:', error);
+        }
+      }
+      
+      // ✅ BACKWARD COMPATIBILITY: For receipts created before isManualOldBalance was added,
+      // infer whether oldBalance was manual or dynamic by checking if OLDER receipts exist
+      if (oldBalance > 0 && receipt.isManualOldBalance === undefined) {
+        // Get the current receipt's creation date
+        const currentReceiptDate = receipt.createdAt?.toDate?.() || receipt.date?.toDate?.() || new Date();
+        
+        // Filter to only receipts created BEFORE the current receipt
+        const olderReceipts = unpaidReceipts.filter(r => {
+          const rDate = r.createdAt?.toDate?.() || r.date?.toDate?.() || new Date(0);
+          return rDate < currentReceiptDate;
+        });
+        
+        // Calculate total unpaid balance from OLDER receipts only
+        const totalOlderUnpaidBalance = olderReceipts.reduce((sum, r) => {
+          const rBalance = (r.total || 0) - (r.amountPaid || 0);
+          return sum + (rBalance > 0.01 ? rBalance : 0);
+        }, 0);
+        
+        // If older receipts' total unpaid balance is LESS than this receipt's oldBalance,
+        // then the oldBalance must include some manually entered historical debt
+        if (totalOlderUnpaidBalance < oldBalance - 0.01) {
+          isManualOldBalance = true;
+          if (__DEV__) {
+            console.log(`  🔍 [INFERRED] oldBalance ₹${oldBalance} > OLDER receipts total ₹${totalOlderUnpaidBalance} → treating as MANUAL`);
           }
-        } catch (cascadeError) {
-          console.error('Error during payment cascade:', cascadeError);
-          // Continue without cascade if there's an error
+        } else {
+          isManualOldBalance = false;
+          if (__DEV__) {
+            console.log(`  🔍 [INFERRED] oldBalance ₹${oldBalance} matches OLDER receipts total ₹${totalOlderUnpaidBalance} → treating as DYNAMIC`);
+          }
+        }
+      }
+      
+      // ✅ Now calculate consumableOnCurrentReceipt based on isManualOldBalance
+      const consumableOnCurrentReceipt = isManualOldBalance 
+        ? receiptBalance + oldBalance  // Manual: consume both receipt items + manual old balance
+        : receiptBalance;              // Dynamic: only consume receipt items, cascade to older receipts
+
+      if (__DEV__) {
+        console.log(`💵 [PAYMENT] Receipt ${receipt.receiptNumber}: total=₹${receiptTotal}, paid=₹${currentAmountPaid}, receiptBalance=₹${receiptBalance}, oldBalance=₹${oldBalance}, isManualOldBalance=${isManualOldBalance}, consumableOnCurrent=₹${consumableOnCurrentReceipt}`);
+      }
+
+      // Step 1: Apply payment to current receipt first
+      // ✅ If manual oldBalance, consume both items + oldBalance on this receipt
+      // ✅ If dynamic oldBalance, only consume items, cascade the rest
+      const paymentForCurrentReceipt = Math.min(remainingPayment, consumableOnCurrentReceipt);
+      if (paymentForCurrentReceipt > 0) {
+        affectedReceipts.push({
+          receipt: receipt,
+          ref: receiptRef,
+          payment: Math.min(paymentForCurrentReceipt, receiptBalance), // Only add to amountPaid up to receiptBalance
+        });
+        remainingPayment -= paymentForCurrentReceipt;
+        paymentAppliedToCurrent = paymentForCurrentReceipt;
+        
+        if (__DEV__) {
+          console.log(`💰 Payment of ₹${paymentForCurrentReceipt.toFixed(2)} applied to current receipt ${receipt.receiptNumber}`);
+          if (isManualOldBalance && oldBalance > 0) {
+            console.log(`    ℹ️ Manual oldBalance ₹${oldBalance} consumed on this receipt (no cascade)`);
+          }
+        }
+      }
+      
+      // ✅ CRITICAL FIX: Only cascade if oldBalance was NOT manually entered
+      // Manual oldBalance = historical debt not in system, already consumed above
+      // Dynamic oldBalance = debt from older receipts, cascade payment to them
+      
+      if (__DEV__ && oldBalance > 0 && remainingPayment > 0 && !isManualOldBalance) {
+        console.log(`🔄 Receipt has ₹${oldBalance} DYNAMIC oldBalance. Remaining ₹${remainingPayment} will cascade to older receipts to pay them.`);
+      }
+
+      // Step 2: If there's remaining payment, cascade to older unpaid receipts
+      // ✅ Use 0.01 threshold to avoid cascading tiny amounts due to floating-point precision
+      if (remainingPayment > 0.01 && unpaidReceipts.length > 0) {
+        if (__DEV__) {
+          console.log(`💸 Remaining payment ₹${remainingPayment.toFixed(2)} will cascade to older receipts`);
+        }
+
+        for (const olderReceipt of unpaidReceipts) {
+          // ✅ Use 0.01 threshold to avoid floating-point precision issues
+          if (remainingPayment < 0.01) break;
+
+          const olderReceiptBalance = (olderReceipt.total || 0) - (olderReceipt.amountPaid || 0);
+
+          // Apply remaining payment to this older receipt
+          const paymentForOlderReceipt = Math.min(remainingPayment, olderReceiptBalance);
+          
+          // ✅ Only add if payment is meaningful (> 1 paisa)
+          if (paymentForOlderReceipt < 0.01) continue;
+          
+          affectedReceipts.push({
+            receipt: olderReceipt,
+            ref: doc(db, this.RECEIPTS_COLLECTION, olderReceipt.id),
+            payment: paymentForOlderReceipt,
+          });
+          
+          remainingPayment -= paymentForOlderReceipt;
+          totalCascadedToOlder += paymentForOlderReceipt;
+          
+          if (__DEV__) {
+            console.log(`💸 Cascaded ₹${paymentForOlderReceipt.toFixed(2)} to older receipt ${olderReceipt.receiptNumber}`);
+          }
         }
       }
 
@@ -243,24 +287,43 @@ class PaymentService {
           updatedAt: serverTimestamp(),
         };
         
-        // ✅ CRITICAL: If this is the primary receipt and payment cascaded, clear oldBalance
-        // The oldBalance is being "paid" by the cascade to older receipts
+        // ✅ CRITICAL: If this is the primary receipt, handle oldBalance clearing
         if (affected.receipt.id === receipt.id) {
           const currentOldBalance = affected.receipt.oldBalance || 0;
+          const isManual = affected.receipt.isManualOldBalance || false;
+          
           if (currentOldBalance > 0) {
-            // Determine leftover after items + cascade
-            const leftoverAfterCascade = Math.max(0, (paymentData.amount - paymentAppliedToCurrent) - totalCascadedToOlder);
+            let oldBalanceConsumed = 0;
+            
+            if (isManual) {
+              // ✅ Manual oldBalance: consumed directly on this receipt
+              // Calculate how much of the payment went to oldBalance (after paying items)
+              const paymentAfterItems = Math.max(0, paymentAppliedToCurrent - receiptBalance);
+              oldBalanceConsumed = Math.min(currentOldBalance, paymentAfterItems);
+              
+              if (__DEV__) {
+                console.log(`✅ Clearing MANUAL oldBalance: current ₹${currentOldBalance}, payment after items ₹${paymentAfterItems} → consumed ₹${oldBalanceConsumed}`);
+              }
+            } else {
+              // ✅ Dynamic oldBalance: cleared by cascade to older receipts
+              // Determine leftover after items + cascade
+              const leftoverAfterCascade = Math.max(0, (paymentData.amount - paymentAppliedToCurrent) - totalCascadedToOlder);
 
-            // If cascade happened, reduce by cascaded amount
-            // Also reduce by any leftover (no older receipts left)
-            const oldBalanceConsumed = Math.min(currentOldBalance, totalCascadedToOlder + leftoverAfterCascade);
+              // If cascade happened, reduce by cascaded amount
+              // Also reduce by any leftover (no older receipts left)
+              oldBalanceConsumed = Math.min(currentOldBalance, totalCascadedToOlder + leftoverAfterCascade);
+              
+              if (__DEV__) {
+                console.log(`✅ Clearing DYNAMIC oldBalance using cascade + leftover: current ₹${currentOldBalance}, cascaded ₹${totalCascadedToOlder}, leftover ₹${leftoverAfterCascade} → consumed ₹${oldBalanceConsumed}`);
+              }
+            }
+            
             const newOldBalance = Math.max(0, currentOldBalance - oldBalanceConsumed);
-
             updateData.oldBalance = newOldBalance;
             updateData.oldBalanceCleared = oldBalanceConsumed; // for UI display of 'cleared'
 
             if (__DEV__) {
-              console.log(`✅ Clearing oldBalance using cascade + leftover: current ₹${currentOldBalance}, cascaded ₹${totalCascadedToOlder}, leftover ₹${leftoverAfterCascade} → new oldBalance ₹${newOldBalance}`);
+              console.log(`   → new oldBalance ₹${newOldBalance}`);
             }
           }
         }

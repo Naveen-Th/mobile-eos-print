@@ -7,84 +7,25 @@
     <list default="true" id="0584559d-6515-4de5-8967-61fa3aa61661" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/caches/deviceStreaming.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/caches/deviceStreaming.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/10K_RECEIPTS_IMPLEMENTATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/AGGRESSIVE_OPTIMIZATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/BALANCE_PERFORMANCE_OPTIMIZATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/BATCH_OPERATIONS_OPTIMIZATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/CACHE_FIX_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/CASCADE_INTEGRATION_CHECKLIST.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/CASCADE_INTEGRATION_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/CASCADE_PAYMENT_UX_GUIDE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/CHANGES_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/COMPLETE_OPTIMIZATION_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/CRITICAL_SCALE_OPTIMIZATIONS.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/FINAL_OPTIMIZATIONS_COMPLETE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/FINAL_OPTIMIZATION_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/FINAL_PERFORMANCE_FIX.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/FINAL_PERFORMANCE_OPTIMIZATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/FIREBASE_READ_OPTIMIZATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/FLOATING_POINT_FIX.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/IMPLEMENTATION_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/OPTIMIZATION_CHECKLIST.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/OPTIMIZATION_FIXES.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/OPTIMIZATION_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PAGINATION_OPTIMIZATION_GUIDE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PAGINATION_REDESIGN_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PAYMENT_BALANCE_LOGIC_FIX.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PAYMENT_FIX_APPLIED.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PAYMENT_OPTIMIZATION_CRITICAL.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PAYMENT_RECORDING_OPTIMIZATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PAYMENT_UI_FIX_COMPLETE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PAYMENT_UI_INSTANT_UPDATE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PERFORMANCE_IMPROVEMENT_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PERFORMANCE_OPTIMIZATIONS.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PERFORMANCE_OPTIMIZATION_GUIDE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PERFORMANCE_OPTIMIZATION_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PERFORMANCE_QUICK_START.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PERFORMANCE_TEST_PLAN.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PREVIOUS_BALANCE_FIX.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PRINTER_TROUBLESHOOTING.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PROGRESSIVE_LOADING.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/PROGRESS_BAR_FIX.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/QUICK_START.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/RECEIPTS_FULLY_OPTIMIZED.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/RECEIPTS_MODULES_OPTIMIZATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/RECEIPTS_OPTIMIZATION_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/RECEIPTS_PAGE_OPTIMIZATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/RECEIPT_SAVE_OPTIMIZATION_GUIDE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/RECEIPT_SCREEN_OPTIMIZATIONS.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/SMART_SECTIONS_IMPLEMENTATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/SYNC_OPTIMIZATION_PRODUCTION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/ULTIMATE_RECEIPTS_OPTIMIZATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/ULTRA_OPTIMIZATION_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/ULTRA_OPTIMIZED_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/ULTRA_PAYMENT_OPTIMIZATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/UX_IMPROVEMENTS.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/apply-sync-optimization.sh" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/firestore.indexes.json" beforeDir="false" afterPath="$PROJECT_DIR$/firestore.indexes.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/production_rebuild.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/AUTO_SHARE_RECEIPT_GUIDE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/CHANGES_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/FEATURES_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/IMPLEMENTATION_GUIDE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/INTEGRATION_COMPLETE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/PAYMENT_RECORDING_GUIDE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/PAYMENT_SYSTEM_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/QUICK_REFERENCE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/UI_COMPONENTS_COMPLETE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/app/(tabs)/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/index.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/app/(tabs)/items.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/items.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/app/(tabs)/receipts.optimized.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/receipts.optimized.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/app/(tabs)/receipts.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/(tabs)/receipts.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/components/Receipts/ReceiptItemOptimized.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/Receipts/ReceiptItemOptimized.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/components/Receipts/ReceiptsHeader.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/Receipts/ReceiptsHeader.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/components/receipt/CustomerStep.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/receipt/CustomerStep.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/config/firebase.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/config/firebase.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/ReceiptCreationScreen.backup.tsx" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/ReceiptCreationScreen.old.tsx" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/ReceiptCreationScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/ReceiptCreationScreen.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/ReceiptCreationScreenImproved.tsx" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/RecordPaymentModalWithCascade.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/RecordPaymentModalWithCascade.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/receipt/ItemsStep.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/receipt/ItemsStep.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/hooks/useCustomerBalances.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/hooks/useCustomerBalances.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/hooks/useProgressiveReceipts.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/hooks/useProgressiveReceipts.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/hooks/useReceiptIntegration.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/hooks/useReceiptIntegration.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/hooks/useSyncManager.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/hooks/useSyncManager.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/README.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/storage/AutoSyncService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/storage/AutoSyncService.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils/ErrorHandler.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/ErrorHandler.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils/performanceTiming.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/performanceTiming.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/business/BalanceTrackingService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/business/BalanceTrackingService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/business/PaymentService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/business/PaymentService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/business/ReceiptFirebaseService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/business/ReceiptFirebaseService.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/stores/receiptStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/stores/receiptStore.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/types/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/types/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/receiptSections.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/receiptSections.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

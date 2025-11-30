@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, memo, useCallback } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ReceiptItem from './ReceiptItem';
@@ -40,7 +40,7 @@ interface ItemsStepProps {
   setItemsError: (error: string | null) => void;
 }
 
-const ItemsStep: React.FC<ItemsStepProps> = ({
+const ItemsStep: React.FC<ItemsStepProps> = memo(({
   customerName,
   formItems,
   availableItems,
@@ -61,26 +61,32 @@ const ItemsStep: React.FC<ItemsStepProps> = ({
 }) => {
   const isPaid = amountPaid >= receiptTotal;
   
-  // Debug logging
-  console.log('📦 ItemsStep render:', {
-    isLoadingItems,
-    availableItemsCount: availableItems.length,
-    itemsError,
-    formItemsCount: formItems.length
-  });
+  // Debug logging - only in development
+  if (__DEV__) {
+    console.log('📦 ItemsStep render:', {
+      isLoadingItems,
+      availableItemsCount: availableItems.length,
+      itemsError,
+      formItemsCount: formItems.length
+    });
+  }
   
   // Ensure loading state is triggered when component mounts with no items
   useEffect(() => {
-    console.log('🔄 ItemsStep mounted/updated', {
-      isLoadingItems,
-      availableItemsLength: availableItems.length,
-      itemsError
-    });
+    if (__DEV__) {
+      console.log('🔄 ItemsStep mounted/updated', {
+        isLoadingItems,
+        availableItemsLength: availableItems.length,
+        itemsError
+      });
+    }
     
     // Only trigger loading on initial mount if items are empty
     // Don't trigger if already loading to avoid infinite loop
     if (availableItems.length === 0 && !isLoadingItems && !itemsError) {
-      console.log('⚠️ Triggering items reload - items empty but not loading');
+      if (__DEV__) {
+        console.log('⚠️ Triggering items reload - items empty but not loading');
+      }
       // Use setTimeout to avoid calling setState during render
       setTimeout(() => setItemsLoading(true), 0);
     }
@@ -335,6 +341,45 @@ const ItemsStep: React.FC<ItemsStepProps> = ({
       </View>
     </View>
   );
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison function for React.memo
+  // Return true if props are equal (skip re-render), false if different (re-render)
+  
+  // Check primitive props
+  if (prevProps.customerName !== nextProps.customerName) return false;
+  if (prevProps.isLoadingItems !== nextProps.isLoadingItems) return false;
+  if (prevProps.itemsError !== nextProps.itemsError) return false;
+  if (prevProps.amountPaid !== nextProps.amountPaid) return false;
+  if (prevProps.receiptTotal !== nextProps.receiptTotal) return false;
+  if (prevProps.canProceed !== nextProps.canProceed) return false;
+  
+  // Check array lengths first (quick check)
+  if (prevProps.formItems.length !== nextProps.formItems.length) return false;
+  if (prevProps.availableItems.length !== nextProps.availableItems.length) return false;
+  
+  // Deep compare formItems (only compare relevant fields)
+  for (let i = 0; i < prevProps.formItems.length; i++) {
+    const prev = prevProps.formItems[i];
+    const next = nextProps.formItems[i];
+    if (prev.id !== next.id ||
+        prev.selectedItemId !== next.selectedItemId ||
+        prev.price !== next.price ||
+        prev.quantity !== next.quantity ||
+        prev.qty_200g !== next.qty_200g ||
+        prev.qty_100g !== next.qty_100g ||
+        prev.qty_50g !== next.qty_50g ||
+        prev.stockError !== next.stockError) {
+      return false;
+    }
+  }
+  
+  // Callbacks are assumed stable (wrapped in useCallback in parent)
+  // Skip comparing: onItemSelect, onUpdateField, onAddItem, onRemoveItem, 
+  // onTogglePaymentStatus, onBack, onNext, setItemsLoading, setItemsError
+  
+  return true;
+});
+
+ItemsStep.displayName = 'ItemsStep';
 
 export default ItemsStep;

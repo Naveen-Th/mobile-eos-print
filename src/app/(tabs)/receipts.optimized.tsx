@@ -159,6 +159,8 @@ const ReceiptsScreen: React.FC = () => {
         dateObj = date;
       } else if (date && typeof date.toDate === 'function') {
         dateObj = date.toDate();
+      } else if (typeof date === 'object' && date !== null && 'seconds' in date && 'nanoseconds' in date) {
+        dateObj = new Date(date.seconds * 1000 + date.nanoseconds / 1000000);
       } else if (typeof date === 'number' && !isNaN(date)) {
         dateObj = new Date(date);
       } else if (typeof date === 'string' && date.trim()) {

@@ -53,6 +53,7 @@ export interface Receipt {
   roundingAdjustment?: number;
   // Balance and payment tracking
   oldBalance?: number;
+  isManualOldBalance?: boolean; // true if oldBalance was manually entered, false if dynamically calculated
   isPaid?: boolean;
   amountPaid?: number;
   newBalance?: number;
@@ -81,6 +82,7 @@ export interface CartState {
   globalDiscount?: number;
   globalDiscountType?: 'percentage' | 'fixed';
   oldBalance?: number;
+  isManualOldBalance?: boolean; // true if oldBalance was manually entered, false if dynamically calculated
   isPaid?: boolean;
   amountPaid?: number;
   newBalance?: number;
@@ -116,6 +118,7 @@ export interface FirebaseReceiptData {
   updatedAt: Date;
   // Balance and payment tracking
   oldBalance?: number;
+  isManualOldBalance?: boolean; // true if oldBalance was manually entered, false if dynamically calculated
   isPaid?: boolean;
   amountPaid?: number;
   newBalance?: number;

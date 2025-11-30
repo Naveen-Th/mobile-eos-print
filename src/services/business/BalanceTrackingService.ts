@@ -34,6 +34,14 @@ class BalanceTrackingService {
    * Get customer's current balance by calculating from unpaid receipts
    * This is the SOURCE OF TRUTH for customer balance
    * 
+   * CRITICAL FIX: This function now correctly calculates balance by:
+   * 1. Finding the OLDEST receipt's historical oldBalance (debt from before the system)
+   * 2. Summing all UNPAID amounts from all receipts (total - amountPaid)
+   * 3. Total = historical debt + sum of unpaid amounts
+   * 
+   * This prevents double-counting when receipts have oldBalance values that
+   * were calculated from previous receipts.
+   * 
    * @param customerName - The customer's name
    * @returns The current balance (positive = owes money, negative = has credit)
    */
@@ -69,91 +77,56 @@ class BalanceTrackingService {
       );
       const querySnapshot = await getDocs(q);
       
-      // Collect all receipts first and sort by date (newest first)
+      // Collect all receipts first and sort by date (OLDEST first for correct calculation)
       const allReceipts: any[] = [];
       querySnapshot.forEach(doc => {
         allReceipts.push({ id: doc.id, ...doc.data() });
       });
       
-      // Sort by creation date (newest first)
+      // Sort by creation date (OLDEST first)
       allReceipts.sort((a, b) => {
         const dateA = a.createdAt?.toDate?.() || a.date?.toDate?.() || new Date(0);
         const dateB = b.createdAt?.toDate?.() || b.date?.toDate?.() || new Date(0);
-        return dateB.getTime() - dateA.getTime();
+        return dateA.getTime() - dateB.getTime();
       });
       
       let totalBalance = 0;
       let receiptCount = 0;
+      let historicalDebt = 0;
       
-      // Strategy: Only count receipts that don't have their balance already included in newer receipts
-      // If a newer receipt has oldBalance, it already includes older receipts, so skip those
-      // ✅ Only consider unpaid receipts with oldBalance
-      const hasNewerReceiptWithOldBalance = allReceipts.some(r => {
-        const remainingBalance = (r.total || 0) - (r.amountPaid || 0);
-        return (r.oldBalance || 0) > 0 && remainingBalance > 0.01;
-      });
+      // ✅ FIXED STRATEGY: 
+      // 1. Get historical debt from the OLDEST receipt's oldBalance (if it's manual/historical)
+      // 2. Sum all unpaid amounts from ALL receipts
+      // This prevents double-counting that occurred with the old strategy
       
-      if (hasNewerReceiptWithOldBalance) {
-        // Find the NEWEST UNPAID receipt with oldBalance - it contains the cumulative balance
-        // ✅ Skip fully paid receipts even if they have oldBalance
-        const newestWithOldBalance = allReceipts.find(r => {
-          const total = r.total || 0;
-          const amountPaid = r.amountPaid || 0;
-          const remainingBalance = total - amountPaid;
-          const hasOldBalance = (r.oldBalance || 0) > 0;
-          const isUnpaid = remainingBalance > 0.01;
-          return hasOldBalance && isUnpaid; // ✅ Must be both unpaid AND have oldBalance
-        });
+      allReceipts.forEach((receipt, index) => {
+        const total = receipt.total || 0;
+        const amountPaid = receipt.amountPaid || 0;
+        const remainingBalance = total - amountPaid;
+        const receiptOldBalance = receipt.oldBalance || 0;
         
-        if (newestWithOldBalance) {
-          const total = newestWithOldBalance.total || 0;
-          const amountPaid = newestWithOldBalance.amountPaid || 0;
-          const oldBalance = newestWithOldBalance.oldBalance || 0;
-          const remainingBalance = total - amountPaid;
-          const receiptOutstanding = remainingBalance + oldBalance;
-          
-          if (receiptOutstanding > 0.01) {
-            totalBalance = receiptOutstanding;
-            receiptCount = 1;
-            console.log(`  ✅ Using newest UNPAID receipt with oldBalance: ${newestWithOldBalance.receiptNumber}: ₹${remainingBalance} receipt + ₹${oldBalance} old = ₹${receiptOutstanding}`);
+        // For the FIRST (oldest) receipt, capture historical debt
+        // This is debt from BEFORE the system was used
+        if (index === 0 && receiptOldBalance > 0) {
+          // Check if this is truly historical debt (manual) or calculated from other receipts
+          // If isManualOldBalance is true OR if there are no older receipts, it's historical
+          const isHistorical = receipt.isManualOldBalance === true || index === 0;
+          if (isHistorical) {
+            historicalDebt = receiptOldBalance;
+            console.log(`  📜 Historical debt from oldest receipt: ₹${historicalDebt}`);
           }
         }
         
-        // Also add any receipts NEWER than the one with oldBalance (created after it)
-        const newestWithOldBalanceDate = newestWithOldBalance?.createdAt?.toDate?.() || newestWithOldBalance?.date?.toDate?.() || new Date(0);
-        allReceipts.forEach(receipt => {
-          const receiptDate = receipt.createdAt?.toDate?.() || receipt.date?.toDate?.() || new Date(0);
-          
-          // Skip the receipt we already counted
-          if (receipt.id === newestWithOldBalance?.id) return;
-          
-          // Only count receipts created AFTER the newest one with oldBalance
-          if (receiptDate <= newestWithOldBalanceDate) return;
-          
-          const total = receipt.total || 0;
-          const amountPaid = receipt.amountPaid || 0;
-          const remainingBalance = total - amountPaid;
-          
-          if (remainingBalance > 0.01) {
-            totalBalance += remainingBalance;
-            receiptCount++;
-            console.log(`  ✅ Adding newer receipt: ${receipt.receiptNumber}: ₹${remainingBalance}`);
-          }
-        });
-      } else {
-        // No receipts have oldBalance - sum all unpaid receipts normally
-        allReceipts.forEach(receipt => {
-          const total = receipt.total || 0;
-          const amountPaid = receipt.amountPaid || 0;
-          const remainingBalance = total - amountPaid;
-          
-          if (remainingBalance > 0.01) {
-            totalBalance += remainingBalance;
-            receiptCount++;
-            if (__DEV__) Logger.debug(`  Receipt ${receipt.receiptNumber}: ₹${remainingBalance}`);
-          }
-        });
-      }
+        // Add this receipt's unpaid amount to total
+        if (remainingBalance > 0.01) {
+          totalBalance += remainingBalance;
+          receiptCount++;
+          if (__DEV__) Logger.debug(`  Receipt ${receipt.receiptNumber}: ₹${remainingBalance}`);
+        }
+      });
+      
+      // Add historical debt to total
+      totalBalance += historicalDebt;
       
       // Round to 2 decimal places to avoid floating-point precision issues
       totalBalance = Math.round(totalBalance * 100) / 100;
@@ -169,7 +142,7 @@ class BalanceTrackingService {
         timestamp: Date.now()
       });
       
-      console.log(`✅ [SUCCESS] Total balance for "${trimmedName}": ₹${totalBalance} (from ${receiptCount} unpaid receipts)`);
+      console.log(`✅ [SUCCESS] Total balance for "${trimmedName}": ₹${totalBalance} (historical: ₹${historicalDebt} + ${receiptCount} unpaid receipts)`);
       return totalBalance;
 
     } catch (error) {

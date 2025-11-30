@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ReceiptAlerts } from './common';
 import { useReceiptIntegration } from '../hooks/useReceiptIntegration';
 import CustomerService, { UniqueCustomer } from '../services/data/CustomerService';
-import BalanceTrackingService from '../services/business/BalanceTrackingService';
+import { useBalanceStore } from '../stores/balanceStore';
 import PartyManagementScreen from '../screens/PartyManagementScreen';
 import TaxSettingsModal from './TaxSettingsModal';
 import { PrintOptionsScreen } from './PrintOptionsScreen';
@@ -105,7 +105,7 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({ onClose, 
 
     // Reset balance when clearing customer name
     if (!text.trim()) {
-      updateBalanceInfo({ oldBalance: 0, amountPaid: 0 });
+      updateBalanceInfo({ oldBalance: 0, isManualOldBalance: false, amountPaid: 0 });
       setIsLoadingBalance(false);
       return;
     }
@@ -156,14 +156,15 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({ onClose, 
     clearError('customer');
     setShowCustomerDropdown(false);
 
-    // Fetch balance with loading state
+    // ✅ Fetch balance using Zustand BalanceStore
     setIsLoadingBalance(true);
     try {
-      const oldBalance = await BalanceTrackingService.getCustomerBalance(cust.customerName);
-      updateBalanceInfo({ oldBalance });
+      const oldBalance = await useBalanceStore.getState().calculateBalance(cust.customerName);
+      // Auto-fetched balance is NOT manual - it's dynamically calculated from existing receipts
+      updateBalanceInfo({ oldBalance, isManualOldBalance: false });
     } catch (error) {
       console.error('Error fetching customer balance:', error);
-      updateBalanceInfo({ oldBalance: 0 });
+      updateBalanceInfo({ oldBalance: 0, isManualOldBalance: false });
     } finally {
       setIsLoadingBalance(false);
     }
@@ -189,7 +190,9 @@ const ReceiptCreationScreen: React.FC<ReceiptCreationScreenProps> = ({ onClose, 
   }, []);
 
   const handleManualBalanceChange = useCallback((value: number) => {
-    updateBalanceInfo({ oldBalance: value });
+    // When user manually enters a balance, mark it as manual
+    // This affects how payment cascade works - manual balance is consumed on this receipt
+    updateBalanceInfo({ oldBalance: value, isManualOldBalance: true });
   }, [updateBalanceInfo]);
 
   // Item handlers

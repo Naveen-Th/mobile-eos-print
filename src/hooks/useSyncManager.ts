@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient, QueryKey } from '@tanstack/react-query';
 import { useEffect, useRef, useCallback, useMemo } from 'react';
-import { 
-  collection, 
-  doc, 
-  onSnapshot, 
+import {
+  collection,
+  doc,
+  onSnapshot,
   Unsubscribe,
   updateDoc,
   addDoc,
@@ -29,7 +29,7 @@ export const queryKeys = {
   collections: () => [...queryKeys.all, 'collections'] as const,
   collection: (name: string) => [...queryKeys.collections(), name] as const,
   document: (collection: string, id: string) => [...queryKeys.collection(collection), id] as const,
-  
+
   // Specific collections
   items: () => [...queryKeys.collection('item_details')] as const,
   receipts: () => [...queryKeys.collection('receipts')] as const,
@@ -51,40 +51,40 @@ export function useRealtimeCollection<T = any>(
 ) {
   const queryClient = useQueryClient();
   const unsubscribeRef = useRef<Unsubscribe>();
-  
+
   // Generate a stable listener ID that won't change unless collectionName changes
   const listenerIdRef = useRef<string>();
   if (!listenerIdRef.current) {
     listenerIdRef.current = `${collectionName}-${Date.now()}`;
   }
-  
+
   // Memoize the queryKey to prevent re-creation
   const queryKey = useMemo(() => queryKeys.collection(collectionName), [collectionName]);
   const enabled = options.enabled ?? true;
-  
+
   // Memoize callback references to prevent infinite re-renders
   const onSuccessRef = useRef(options.onSuccess);
   const onErrorRef = useRef(options.onError);
-  
+
   useEffect(() => {
     onSuccessRef.current = options.onSuccess;
     onErrorRef.current = options.onError;
   });
-  
+
   // Real-time listener setup - CRITICAL: Don't put store in dependencies
   useEffect(() => {
     // ✅ Reduced verbose setup logs
     if (!enabled) return;
-    
+
     // Check if Firebase is initialized (offline check)
     if (!isFirebaseInitialized() || !db) return;
-    
+
     const listenerId = listenerIdRef.current!;
     let isActive = true; // Flag to prevent state updates after cleanup
-    
+
     // Get store functions directly inside effect to avoid dependency issues
     const { addActiveListener, removeActiveListener, setConnectionState, updateMetrics } = useSyncStore.getState();
-    
+
     addActiveListener(listenerId);
 
     // Prefill cache from offline storage on mount (non-blocking)
@@ -94,83 +94,83 @@ export function useRealtimeCollection<T = any>(
         if (cached && cached.length > 0) {
           queryClient.setQueryData(queryKey, cached);
         }
-      } catch {}
+      } catch { }
     })();
-    
+
     try {
       const colRef = collection(db, collectionName);
-      
+
       // Build query with optional limit and ordering for better performance
       let queryRef: any = colRef;
       if (options.orderByField) {
         queryRef = query(queryRef, orderBy(options.orderByField, options.orderDirection || 'asc'));
       }
-      
+
       // CRITICAL: Always limit queries for large collections
-      const queryLimit = options.limitCount || (collectionName === 'receipts' ? 50 : undefined);
+      const queryLimit = options.limitCount || (collectionName === 'receipts' ? 25 : undefined);
       if (queryLimit) {
         queryRef = query(queryRef, limit(queryLimit));
       }
-      
+
       const startTime = Date.now();
       performanceTime(`realtime_${collectionName}`);
-      
+
       // Circuit breaker for this collection
       const circuitBreaker = getCircuitBreaker(`firebase_${collectionName}`);
-      
+
       // ✅ Track last update to prevent duplicate logs and batch operations
       let lastUpdateTime = 0;
       let lastDocCount = 0;
       let updateTimeout: NodeJS.Timeout | null = null;
-      
+
       unsubscribeRef.current = onSnapshot(
         queryRef,
         async (snapshot) => {
           if (!isActive) return; // Prevent updates after cleanup
-          
+
           const syncTime = Date.now() - startTime;
           const docCount = snapshot.docs.length;
           const now = Date.now();
-          
+
           // ✅ Detect batch operations (rapid count changes)
           const countChanged = Math.abs(docCount - lastDocCount) >= 1;
           const timeSinceLastUpdate = now - lastUpdateTime;
           const isBatchOperation = countChanged && timeSinceLastUpdate < 1000;
-          
+
           // ✅ Skip duplicate updates (same count within 500ms)
           const isDuplicate = (timeSinceLastUpdate < 500) && (docCount === lastDocCount);
           if (isDuplicate) {
             return;
           }
-          
+
           // ✅ Debounce batch operations (wait for them to finish)
           if (isBatchOperation) {
             // Clear previous timeout
             if (updateTimeout) clearTimeout(updateTimeout);
-            
+
             // Wait 800ms for batch to complete
             updateTimeout = setTimeout(() => {
               if (!isActive) return;
-              
+
               // Process the final batch update
               const documents = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data(),
               } as T));
-              
+
               queryClient.setQueryData(queryKey, documents);
-              setCache<T[]>(`collection:${collectionName}`, documents).catch(() => {});
-              
+              setCache<T[]>(`collection:${collectionName}`, documents).catch(() => { });
+
               lastUpdateTime = Date.now();
               lastDocCount = documents.length;
             }, 800);
-            
+
             return;
           }
-          
+
           lastUpdateTime = now;
           lastDocCount = docCount;
-          
+
           try {
             const documents = snapshot.docs.map(doc => {
               const data = doc.data();
@@ -179,21 +179,21 @@ export function useRealtimeCollection<T = any>(
                 ...data,
               } as T;
             });
-            
+
             // Update React Query cache with error handling
             try {
               queryClient.setQueryData(queryKey, documents);
-              
+
               // Persist to offline storage
               setCache<T[]>(`collection:${collectionName}`, documents)
-                .catch(() => {});
+                .catch(() => { });
             } catch (cacheError) {
               console.error('❌ Error updating React Query cache:', cacheError);
             }
-            
+
             // Record success in circuit breaker
-            circuitBreaker.execute(async () => documents).catch(() => {});
-            
+            circuitBreaker.execute(async () => documents).catch(() => { });
+
             // Update connection state (get fresh store reference)
             const { setConnectionState: setConnState, updateMetrics: updateMets } = useSyncStore.getState();
             setConnState({
@@ -201,9 +201,9 @@ export function useRealtimeCollection<T = any>(
               lastSync: new Date(),
               connectionQuality: syncTime < 1000 ? 'excellent' : syncTime < 3000 ? 'good' : 'poor'
             });
-            
+
             updateMets(syncTime);
-            
+
             // Call success callback if provided
             if (onSuccessRef.current) {
               try {
@@ -214,7 +214,7 @@ export function useRealtimeCollection<T = any>(
             }
           } catch (processError) {
             console.error(`❌ Error processing documents for ${collectionName}:`, processError);
-            
+
             // Call error callback if provided
             if (onErrorRef.current) {
               try {
@@ -227,18 +227,18 @@ export function useRealtimeCollection<T = any>(
         },
         (error) => {
           if (!isActive) return; // Prevent updates after cleanup
-          
+
           performanceTimeEnd(`realtime_${collectionName}`);
-          
+
           console.error(`❌ Real-time listener error for ${collectionName}:`, error);
-          
+
           // Record failure in circuit breaker
           circuitBreaker.execute(async () => {
             throw error;
           }).catch(() => {
             // Circuit breaker handles the error
           });
-          
+
           // Get fresh store reference for error handling
           const { setConnectionState: setConnState, updateMetrics: updateMets } = useSyncStore.getState();
           setConnState({
@@ -246,7 +246,7 @@ export function useRealtimeCollection<T = any>(
             connectionQuality: 'offline'
           });
           updateMets(undefined, true);
-          
+
           // Call error callback if provided
           if (onErrorRef.current) {
             try {
@@ -257,7 +257,7 @@ export function useRealtimeCollection<T = any>(
           }
         }
       );
-      
+
       // ✅ Listener ready
     } catch (error) {
       console.error(`❌ Failed to create listener for ${collectionName}:`, error);
@@ -269,10 +269,10 @@ export function useRealtimeCollection<T = any>(
         }
       }
     }
-    
+
     return () => {
       isActive = false; // Prevent any pending callbacks from executing
-      
+
       if (unsubscribeRef.current) {
         try {
           unsubscribeRef.current();
@@ -281,48 +281,48 @@ export function useRealtimeCollection<T = any>(
           console.warn('Error during unsubscribe:', unsubscribeError);
         }
       }
-      
+
       // Get fresh store reference for cleanup
       const { removeActiveListener: removeListener } = useSyncStore.getState();
       removeListener(listenerId);
     };
   }, [collectionName, enabled, queryClient, queryKey]); // Removed store from dependencies
-  
+
   return useQuery({
     queryKey,
     queryFn: async () => {
       // Fallback query function - should RARELY run since real-time listener is primary
       if (__DEV__) console.log(`🔄 Fallback: ${collectionName}`);
-      
+
       // Check if Firebase is initialized
       if (!isFirebaseInitialized() || !db) {
         const cached = await getCache<T[]>(`collection:${collectionName}`);
         return cached || [];
       }
-      
+
       try {
         const colRef = collection(db, collectionName);
-        
+
         // ✅ CRITICAL: Apply same limit as real-time listener
         let queryRef: any = colRef;
         if (options.orderByField) {
           queryRef = query(queryRef, orderBy(options.orderByField, options.orderDirection || 'asc'));
         }
-        
-        // ✅ Apply limit for receipts (50 docs max)
-        const queryLimit = options.limitCount || (collectionName === 'receipts' ? 50 : undefined);
+
+        // ✅ Apply limit for receipts (25 docs max)
+        const queryLimit = options.limitCount || (collectionName === 'receipts' ? 25 : undefined);
         if (queryLimit) {
           queryRef = query(queryRef, limit(queryLimit));
         }
-        
+
         const snapshot = await getDocs(queryRef);
         const documents = snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data(),
         } as T));
-        
+
         if (__DEV__) console.log(`✅ Fallback: ${collectionName} (${documents.length} docs)`);
-        setCache<T[]>(`collection:${collectionName}`, documents).catch(() => {});
+        setCache<T[]>(`collection:${collectionName}`, documents).catch(() => { });
         return documents;
       } catch (error) {
         console.error(`❌ Fallback failed for ${collectionName}:`, error);
@@ -358,34 +358,34 @@ export function useOptimisticMutation<TData = any, TVariables = any>({
   optimisticUpdate?: (variables: TVariables) => OptimisticUpdate;
 }) {
   const queryClient = useQueryClient();
-  const { 
-    addOptimisticUpdate, 
-    removeOptimisticUpdate, 
+  const {
+    addOptimisticUpdate,
+    removeOptimisticUpdate,
     moveToFailed,
-    updateMetrics 
+    updateMetrics
   } = useSyncStore();
-  
+
   return useMutation({
     mutationFn,
     onMutate: async (variables) => {
       const startTime = Date.now();
-      
+
       // Create optimistic update if provided
       if (optimisticUpdate) {
         const update = optimisticUpdate(variables);
         addOptimisticUpdate(update);
-        
+
         // Cancel outgoing refetches
         const queryKey = queryKeys.collection(update.collection);
         await queryClient.cancelQueries({ queryKey });
-        
+
         // Snapshot previous value
         const previousData = queryClient.getQueryData(queryKey);
-        
+
         // Optimistically update cache
         queryClient.setQueryData(queryKey, (oldData: any[]) => {
           if (!oldData) return [];
-          
+
           switch (update.operation) {
             case 'create':
               return [...oldData, { id: update.documentId, ...update.data }];
@@ -408,35 +408,35 @@ export function useOptimisticMutation<TData = any, TVariables = any>({
               return oldData;
           }
         });
-        
+
         return { previousData, update, startTime };
       }
-      
+
       return { startTime };
     },
     onSuccess: (data, variables, context) => {
       const syncTime = Date.now() - (context?.startTime || 0);
       updateMetrics(syncTime);
-      
+
       // Remove optimistic update on success
       if (context?.update) {
         removeOptimisticUpdate(context.update.id);
       }
-      
+
       onSuccess?.(data, variables);
     },
     onError: (error, variables, context) => {
       console.error('❌ Mutation failed:', error);
-      
+
       // Handle failed optimistic update
       if (context?.update) {
         moveToFailed(context.update.id);
-        
+
         // Rollback optimistic update
         const queryKey = queryKeys.collection(context.update.collection);
         queryClient.setQueryData(queryKey, context.previousData);
       }
-      
+
       updateMetrics(undefined, true);
       onError?.(error, variables);
     },
@@ -446,7 +446,7 @@ export function useOptimisticMutation<TData = any, TVariables = any>({
         const queryKey = queryKeys.collection(context.update.collection);
         queryClient.invalidateQueries({ queryKey });
       }
-      
+
       onSettled?.(data, error, variables);
     },
   });
@@ -467,7 +467,7 @@ export function useItems() {
       console.error('❌ Items loading error:', error);
     },
   });
-  
+
   return queryResult;
 }
 
@@ -476,12 +476,12 @@ const selectReceipts = (data: any[]) => {
   if (!Array.isArray(data)) {
     return [];
   }
-  
+
   const sorted = data.sort((a: any, b: any) => {
     try {
       // Safely handle different date formats
       let dateA: Date, dateB: Date;
-      
+
       if (a.createdAt?.toDate) {
         dateA = a.createdAt.toDate();
       } else if (a.createdAt instanceof Date) {
@@ -491,7 +491,7 @@ const selectReceipts = (data: any[]) => {
       } else {
         dateA = new Date(0);
       }
-      
+
       if (b.createdAt?.toDate) {
         dateB = b.createdAt.toDate();
       } else if (b.createdAt instanceof Date) {
@@ -501,14 +501,14 @@ const selectReceipts = (data: any[]) => {
       } else {
         dateB = new Date(0);
       }
-      
+
       return dateB.getTime() - dateA.getTime();
     } catch (error) {
       console.error('Error sorting receipts:', error);
       return 0;
     }
   });
-  
+
   return sorted;
 };
 
@@ -522,22 +522,22 @@ export function useReceipts() {
 // Stock update mutations
 export function useUpdateStock() {
   const queryClient = useQueryClient();
-  
+
   return useOptimisticMutation({
     mutationFn: async ({ itemId, stockChange }: { itemId: string; stockChange: number }) => {
       const docRef = doc(db, 'item_details', itemId);
-      
+
       // Get current stock from cache
       const itemsData = queryClient.getQueryData(queryKeys.items()) as any[];
       const currentItem = itemsData?.find(item => item.id === itemId);
       const currentStock = currentItem?.stocks || 0;
       const newStock = Math.max(0, currentStock + stockChange);
-      
+
       await updateDoc(docRef, {
         stocks: newStock,
         updatedAt: serverTimestamp(),
       });
-      
+
       return { itemId, newStock };
     },
     optimisticUpdate: ({ itemId, stockChange }) => ({
@@ -656,50 +656,50 @@ export function useDeleteReceipt() {
 // Connection monitoring
 export function useConnectionMonitor() {
   const { setConnectionState } = useSyncStore();
-  
+
   useEffect(() => {
     // Check if we're in a React Native environment
     const isReactNative = typeof window === 'undefined' || !window.addEventListener;
-    
+
     if (isReactNative) {
       // For React Native, we can't use window.addEventListener
       console.log('🌐 Connection monitoring not available in React Native environment');
-      setConnectionState({ 
-        isOnline: true, 
+      setConnectionState({
+        isOnline: true,
         connectionQuality: 'excellent',
-        retryCount: 0 
+        retryCount: 0
       });
       return;
     }
-    
+
     const handleOnline = () => {
       console.log('🌐 Network: Online');
-      setConnectionState({ 
-        isOnline: true, 
+      setConnectionState({
+        isOnline: true,
         connectionQuality: 'excellent',
-        retryCount: 0 
+        retryCount: 0
       });
     };
-    
+
     const handleOffline = () => {
       console.log('🌐 Network: Offline');
-      setConnectionState({ 
+      setConnectionState({
         isOnline: false,
-        isConnected: false, 
-        connectionQuality: 'offline' 
+        isConnected: false,
+        connectionQuality: 'offline'
       });
     };
-    
+
     // Initial check
-    setConnectionState({ 
+    setConnectionState({
       isOnline: navigator?.onLine ?? true,
       connectionQuality: navigator?.onLine ? 'excellent' : 'offline',
-      retryCount: 0 
+      retryCount: 0
     });
-    
+
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-    
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);

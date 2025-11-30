@@ -30,6 +30,7 @@ export interface FirebaseReceipt extends Omit<Receipt, 'date'> {
   status: 'draft' | 'printed' | 'exported';
   // Balance and payment tracking
   oldBalance?: number;
+  isManualOldBalance?: boolean; // true if oldBalance was manually entered, false if dynamically calculated
   isPaid?: boolean;
   amountPaid?: number;
   newBalance?: number;
@@ -108,6 +109,7 @@ class ReceiptFirebaseService {
         status: printMethod === 'pdf' ? 'exported' : 'printed',
         // Balance and payment tracking
         oldBalance: receipt.oldBalance !== undefined ? receipt.oldBalance : 0,
+        isManualOldBalance: receipt.isManualOldBalance !== undefined ? receipt.isManualOldBalance : false,
         isPaid: receipt.isPaid !== undefined ? receipt.isPaid : false,
         amountPaid: receipt.amountPaid !== undefined ? receipt.amountPaid : 0,
         newBalance: receipt.newBalance !== undefined ? receipt.newBalance : 0,

@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useMemo } from 'react';
 import { useReceiptStore } from '../stores/receiptStore';
+import { useShallow } from 'zustand/react/shallow';
 import ItemService from '../services/data/ItemService';
 
 /**
@@ -7,16 +8,66 @@ import ItemService from '../services/data/ItemService';
  * This provides backward compatibility and cleaner integration
  */
 export const useReceiptIntegration = (visible: boolean) => {
-  const {
-    setAvailableItems,
-    setItemsLoading,
-    setItemsError,
-    calculateTotals,
-    loadTaxRate
-  } = useReceiptStore();
+  // Select only the actions we need (these are stable references)
+  const actions = useReceiptStore(
+    useShallow((state) => ({
+      setAvailableItems: state.setAvailableItems,
+      setItemsLoading: state.setItemsLoading,
+      setItemsError: state.setItemsError,
+      calculateTotals: state.calculateTotals,
+      loadTaxRate: state.loadTaxRate,
+      addFormItem: state.addFormItem,
+      removeFormItem: state.removeFormItem,
+      updateFormItem: state.updateFormItem,
+      selectItem: state.selectItem,
+      updateCustomerInfo: state.updateCustomerInfo,
+      updateBalanceInfo: state.updateBalanceInfo,
+      validateForm: state.validateForm,
+      createReceipt: state.createReceipt,
+      clearForm: state.clearForm,
+      setError: state.setError,
+      clearError: state.clearError,
+    }))
+  );
 
-  // Get store data
-  const store = useReceiptStore();
+  // Select state slices separately with useShallow to prevent unnecessary re-renders
+  const formItems = useReceiptStore((state) => state.formItems);
+  const customer = useReceiptStore(useShallow((state) => state.customer));
+  const balance = useReceiptStore(useShallow((state) => state.balance));
+  const availableItems = useReceiptStore((state) => state.availableItems);
+  const isLoadingItems = useReceiptStore((state) => state.isLoadingItems);
+  const itemsError = useReceiptStore((state) => state.itemsError);
+  const isProcessing = useReceiptStore((state) => state.isProcessing);
+  const errors = useReceiptStore(useShallow((state) => state.errors));
+  const receiptTotals = useReceiptStore(useShallow((state) => state.receiptTotals));
+  const taxRate = useReceiptStore((state) => state.taxRate);
+
+  // Combine into store object for backward compatibility
+  const store = useMemo(() => ({
+    formItems,
+    customer,
+    balance,
+    availableItems,
+    isLoadingItems,
+    itemsError,
+    isProcessing,
+    errors,
+    receiptTotals,
+    taxRate,
+    ...actions,
+  }), [
+    formItems,
+    customer,
+    balance,
+    availableItems,
+    isLoadingItems,
+    itemsError,
+    isProcessing,
+    errors,
+    receiptTotals,
+    taxRate,
+    actions,
+  ]);
   
   // Note: Totals calculation is handled automatically by the store when data changes
   // No need to trigger it manually here to avoid infinite loops
@@ -25,28 +76,28 @@ export const useReceiptIntegration = (visible: boolean) => {
   useEffect(() => {
     if (visible) {
       console.log('📱 Receipt screen became visible - loading items...');
-      setItemsLoading(true);
-      setItemsError(null);
+      actions.setItemsLoading(true);
+      actions.setItemsError(null);
       
       // Load current tax rate
-      loadTaxRate();
+      actions.loadTaxRate();
       
       // Add timeout to prevent indefinite loading
       const timeoutId = setTimeout(() => {
         console.warn('⚠️ Items loading timeout - forcing error state');
-        setItemsError('Loading items took too long. Please try again.');
+        actions.setItemsError('Loading items took too long. Please try again.');
       }, 10000); // 10 second timeout
       
       const unsubscribe = ItemService.subscribeToItems(
         (items) => {
           clearTimeout(timeoutId);
           console.log('✅ Received real-time items update:', items.length, 'items');
-          setAvailableItems(items);
+          actions.setAvailableItems(items);
         },
         (error) => {
           clearTimeout(timeoutId);
           console.error('❌ Error subscribing to items:', error);
-          setItemsError('Failed to load items. Please try again.');
+          actions.setItemsError('Failed to load items. Please try again.');
         }
       );
 
@@ -58,15 +109,16 @@ export const useReceiptIntegration = (visible: boolean) => {
     } else {
       // Reset state when modal closes to prevent stale data
       console.log('👋 Receipt screen hidden - resetting items state');
-      setItemsLoading(true);
-      setItemsError(null);
+      actions.setItemsLoading(true);
+      actions.setItemsError(null);
     }
-  }, [visible, setAvailableItems, setItemsLoading, setItemsError, loadTaxRate]);
+  }, [visible, actions]);
 
   // Provide compatibility layer for existing cart-like functionality
-  const cartCompatibility = {
-    items: store.formItems.map(formItem => {
-      const selectedItem = store.availableItems.find(item => item.id === formItem.selectedItemId);
+  // Memoize to prevent unnecessary recalculations
+  const cartCompatibility = useMemo(() => ({
+    items: formItems.map(formItem => {
+      const selectedItem = availableItems.find(item => item.id === formItem.selectedItemId);
       return {
         id: formItem.id,
         name: selectedItem?.item_name || '',
@@ -75,14 +127,14 @@ export const useReceiptIntegration = (visible: boolean) => {
       };
     }).filter(item => item.name && item.price > 0 && item.quantity > 0),
     
-    subtotal: store.receiptTotals.subtotal,
-    tax: store.receiptTotals.tax,
-    total: store.receiptTotals.total,
+    subtotal: receiptTotals.subtotal,
+    tax: receiptTotals.tax,
+    total: receiptTotals.total,
     
-    customerName: store.customer.customerName,
-    businessName: store.customer.businessName,
-    businessPhone: store.customer.businessPhone,
-  };
+    customerName: customer.customerName,
+    businessName: (customer as any).businessName,
+    businessPhone: (customer as any).businessPhone,
+  }), [formItems, availableItems, receiptTotals, customer]);
 
   return {
     store,
