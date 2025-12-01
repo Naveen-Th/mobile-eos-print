@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,16 +8,24 @@ import {
   ActivityIndicator,
   ScrollView,
   Alert,
-  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { FirebaseReceipt } from '../services/business/ReceiptFirebaseService';
 import PaymentService, { PaymentTransaction } from '../services/business/PaymentService';
 import { formatCurrency } from '../utils';
-import { CacheInvalidation } from '../utils/cacheInvalidation';
-import { usePaymentStore, useIsPaymentProcessing, usePaymentCascadePreview } from '../stores/paymentStore';
+import {
+  usePaymentStore,
+  useIsPaymentProcessing,
+  usePaymentCascadePreview,
+  usePaymentError,
+} from '../stores/paymentStore';
 import { useBalanceStore } from '../stores/balanceStore';
+import {
+  calculateReceiptBalance,
+  calculateCustomerTotalBalance,
+  formatPaymentCurrency,
+} from '../utils/paymentCalculations';
 
 interface RecordPaymentModalProps {
   visible: boolean;
@@ -32,21 +40,13 @@ const PAYMENT_METHODS: { value: PaymentMethod; label: string; icon: string }[] =
   { value: 'cash', label: 'Cash', icon: 'cash-outline' },
   { value: 'card', label: 'Card', icon: 'card-outline' },
   { value: 'upi', label: 'UPI', icon: 'phone-portrait-outline' },
-  { value: 'bank_transfer', label: 'Bank Transfer', icon: 'business-outline' },
+  { value: 'bank_transfer', label: 'Bank', icon: 'business-outline' },
   { value: 'other', label: 'Other', icon: 'ellipsis-horizontal-outline' },
 ];
 
-interface CascadePreview {
-  receiptNumber: string;
-  currentBalance: number;
-  paymentToApply: number;
-  newBalance: number;
-}
-
 /**
  * Record Payment Modal Component
- * 
- * TODO: Rebuild payment recording and cascade calculation logic from scratch
+ * Handles payment recording with cascade support
  */
 const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
   visible,
@@ -55,231 +55,212 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
   onPaymentRecorded,
 }) => {
   const queryClient = useQueryClient();
+  
+  // Local form state
   const [amount, setAmount] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [notes, setNotes] = useState<string>('');
-  const [error, setError] = useState<string>('');
+  const [formError, setFormError] = useState<string>('');
   
-  // Zustand stores
-  const recordPayment = usePaymentStore(state => state.recordPayment);
-  const clearPayment = usePaymentStore(state => state.clearPayment);
+  // Zustand store
+  const {
+    setCurrentReceipt,
+    loadCustomerReceipts,
+    previewCascade,
+    recordPayment,
+    clearPayment,
+    customerReceipts,
+  } = usePaymentStore();
+  
   const isProcessing = useIsPaymentProcessing();
-  const updateBalance = useBalanceStore(state => state.calculateBalance);
-  
-  // State
-  const [unpaidReceipts, setUnpaidReceipts] = useState<FirebaseReceipt[]>([]);
-  const [loadingUnpaid, setLoadingUnpaid] = useState(false);
-  const [showCascadePreview, setShowCascadePreview] = useState(false);
-  const [cascadePreview, setCascadePreview] = useState<CascadePreview[]>([]);
-  
-  // Progress tracking
-  const [cascadeProgress, setCascadeProgress] = useState<{
-    visible: boolean;
-    current: number;
-    total: number;
-    message: string;
-  }>({ visible: false, current: 0, total: 0, message: '' });
-  
-  const progressAnim = useRef(new Animated.Value(0)).current;
+  const cascadePreview = usePaymentCascadePreview();
+  const storeError = usePaymentError();
+  const invalidateBalance = useBalanceStore(state => state.invalidateBalance);
 
   // Calculate balance information
-  // TODO: Implement proper balance calculation
-  const balance = useMemo(() => {
+  const balanceInfo = useMemo(() => {
     if (!receipt) return null;
     
-    const total = receipt.total || 0;
-    const paid = receipt.amountPaid || 0;
+    const receiptBalance = calculateReceiptBalance(receipt);
     const oldBalance = receipt.oldBalance || 0;
+    const totalOwed = oldBalance + receiptBalance;
     
-    const receiptBalance = total - paid;
-    const totalBalance = receiptBalance + oldBalance;
+    // Calculate customer total balance
+    // If customerReceipts is empty or doesn't include current receipt, use current receipt data
+    let customerTotalBalance: number;
+    
+    if (customerReceipts.length === 0) {
+      // No receipts loaded yet - use current receipt's total owed
+      customerTotalBalance = totalOwed;
+    } else if (!customerReceipts.find(r => r.id === receipt.id)) {
+      // Current receipt not in list - add it to calculation
+      customerTotalBalance = calculateCustomerTotalBalance([...customerReceipts, receipt]);
+    } else {
+      // Normal case - calculate from all customer receipts
+      customerTotalBalance = calculateCustomerTotalBalance(customerReceipts);
+    }
     
     return {
-      oldBalance,
-      receiptTotal: total,
-      amountPaid: paid,
+      receiptTotal: receipt.total || 0,
+      amountPaid: receipt.amountPaid || 0,
       receiptBalance,
-      remainingBalance: totalBalance,
+      oldBalance,
+      totalOwed,
+      customerTotalBalance,
     };
-  }, [receipt?.oldBalance, receipt?.total, receipt?.amountPaid]);
+  }, [receipt, customerReceipts]);
 
-  // Reset form when modal opens/closes
+  // Count other unpaid receipts
+  const otherUnpaidCount = useMemo(() => {
+    if (!receipt) return 0;
+    return customerReceipts.filter(r => 
+      r.id !== receipt.id && calculateReceiptBalance(r) > 0.01
+    ).length;
+  }, [receipt, customerReceipts]);
+
+  // Initialize when modal opens
   useEffect(() => {
-    if (visible && receipt?.customerName) {
-      loadUnpaidReceipts();
-      clearPayment();
-    } else {
+    if (visible && receipt) {
+      setCurrentReceipt(receipt);
+      loadCustomerReceipts(receipt.customerName || '');
+      // Reset form
       setAmount('');
       setPaymentMethod('cash');
       setNotes('');
-      setError('');
-      setUnpaidReceipts([]);
-      setCascadePreview([]);
-      setShowCascadePreview(false);
+      setFormError('');
+    } else if (!visible) {
       clearPayment();
     }
-  }, [visible, receipt?.id, clearPayment]);
+  }, [visible, receipt?.id]);
 
-  const loadUnpaidReceipts = async () => {
-    if (!receipt?.customerName) return;
-
-    setLoadingUnpaid(true);
-    try {
-      const receipts = await PaymentService.getCustomerUnpaidReceipts(receipt.customerName);
-      const otherUnpaid = receipts
-        .filter(r => r.id !== receipt.id)
-        .sort((a, b) => {
-          const dateA = a.createdAt?.toDate?.() || new Date(0);
-          const dateB = b.createdAt?.toDate?.() || new Date(0);
-          return dateA.getTime() - dateB.getTime();
-        });
-      setUnpaidReceipts(otherUnpaid);
-    } catch (error) {
-      console.error('Error loading unpaid receipts:', error);
-    } finally {
-      setLoadingUnpaid(false);
-    }
-  };
-
-  /**
-   * Calculate cascade preview
-   * TODO: Implement proper cascade calculation logic
-   */
-  const calculateCascadePreview = useCallback((paymentAmount: number) => {
-    if (!balance) return;
-
-    // TODO: Implement cascade preview calculation
-    // For now, just show the current receipt
-    const preview: CascadePreview[] = [];
-    
-    if (receipt) {
-      preview.push({
-        receiptNumber: receipt.receiptNumber || '',
-        currentBalance: balance.receiptBalance,
-        paymentToApply: Math.min(paymentAmount, balance.receiptBalance),
-        newBalance: Math.max(0, balance.receiptBalance - paymentAmount),
-      });
-    }
-
-    setCascadePreview(preview);
-    setShowCascadePreview(false); // Disable cascade preview until logic is rebuilt
-  }, [balance, receipt]);
-
-  // Calculate cascade preview when amount changes
+  // Update cascade preview when amount changes
   useEffect(() => {
-    if (!amount || !balance) {
-      setCascadePreview([]);
-      setShowCascadePreview(false);
-      return;
-    }
-
+    if (!receipt || !amount) return;
+    
     const paymentAmount = parseFloat(amount);
-    if (isNaN(paymentAmount) || paymentAmount <= 0) {
-      setCascadePreview([]);
-      setShowCascadePreview(false);
-      return;
-    }
-
-    calculateCascadePreview(paymentAmount);
-  }, [amount, balance, calculateCascadePreview]);
+    if (isNaN(paymentAmount) || paymentAmount <= 0) return;
+    
+    // Debounce preview calculation
+    const timer = setTimeout(() => {
+      previewCascade(receipt.id, paymentAmount);
+    }, 300);
+    
+    return () => clearTimeout(timer);
+  }, [amount, receipt?.id, previewCascade]);
 
   const handleAmountChange = (text: string) => {
+    // Allow only numbers and one decimal point
     const cleanText = text.replace(/[^0-9.]/g, '');
     const parts = cleanText.split('.');
     if (parts.length > 2) return;
+    if (parts[1]?.length > 2) return; // Max 2 decimal places
     
     setAmount(cleanText);
-    setError('');
+    setFormError('');
   };
 
   const handleSetFullAmount = () => {
-    if (balance) {
-      setAmount(balance.remainingBalance.toFixed(2));
-      setError('');
+    if (balanceInfo) {
+      // Set to customer's total balance (all unpaid receipts)
+      // Use totalOwed as fallback if customerTotalBalance is 0 (receipts not loaded yet)
+      const fullAmount = balanceInfo.customerTotalBalance > 0 
+        ? balanceInfo.customerTotalBalance 
+        : balanceInfo.totalOwed;
+      setAmount(fullAmount.toFixed(2));
+      setFormError('');
+    }
+  };
+
+  const handleSetReceiptAmount = () => {
+    if (balanceInfo) {
+      // Set to just this receipt's balance
+      setAmount(balanceInfo.receiptBalance.toFixed(2));
+      setFormError('');
     }
   };
 
   const validateForm = (): boolean => {
     if (!receipt) {
-      setError('Receipt not found');
+      setFormError('Receipt not found');
       return false;
     }
 
-    if (!amount || parseFloat(amount) <= 0) {
-      setError('Please enter a valid payment amount');
+    const paymentAmount = parseFloat(amount);
+    
+    if (!amount || isNaN(paymentAmount)) {
+      setFormError('Please enter a valid payment amount');
+      return false;
+    }
+
+    if (paymentAmount <= 0) {
+      setFormError('Payment amount must be greater than zero');
       return false;
     }
 
     return true;
   };
 
-  /**
-   * Handle payment recording
-   * TODO: Implement proper payment recording logic
-   */
   const handleRecordPayment = async () => {
     if (!validateForm() || !receipt) return;
 
     const paymentAmount = parseFloat(amount);
 
     try {
-      // TODO: Implement payment recording
-      // For now, show a message that the feature is being rebuilt
-      Alert.alert(
-        '🚧 Feature Under Reconstruction',
-        'Payment recording logic is being rebuilt from scratch. Please wait for the new implementation.',
-        [{ text: 'OK' }]
-      );
-      
+      const result = await recordPayment({
+        receiptId: receipt.id,
+        amount: paymentAmount,
+        method: paymentMethod,
+        notes: notes.trim() || undefined,
+      });
+
+      if (result.success && result.transaction) {
+        // Invalidate balance cache for this customer
+        invalidateBalance(receipt.customerName || '');
+        
+        // Invalidate React Query cache
+        queryClient.invalidateQueries({ queryKey: ['firebase', 'collections', 'receipts'] });
+        
+        // Notify parent
+        onPaymentRecorded?.(result.transaction);
+        
+        // Close modal
+        onClose();
+      } else {
+        setFormError(result.error || 'Failed to record payment');
+      }
     } catch (error) {
       console.error('Error recording payment:', error);
-      setCascadeProgress({ visible: false, current: 0, total: 0, message: '' });
-      
-      Alert.alert(
-        'Payment Failed',
-        error instanceof Error ? error.message : 'An error occurred',
-        [{ text: 'OK' }]
-      );
+      setFormError(error instanceof Error ? error.message : 'An error occurred');
+    }
+  };
+
+  const handleClose = () => {
+    if (!isProcessing) {
+      clearPayment();
+      onClose();
     }
   };
 
   if (!visible || !receipt) return null;
+
+  const displayError = formError || storeError;
 
   return (
     <Modal
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
     >
       <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
         {/* Header */}
-        <View
-          style={{
-            backgroundColor: 'white',
-            paddingHorizontal: 24,
-            paddingTop: 20,
-            paddingBottom: 16,
-            borderBottomWidth: 1,
-            borderBottomColor: '#e5e7eb',
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.05,
-            shadowRadius: 2,
-            elevation: 2,
-          }}
-        >
+        <View style={styles.header}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={{ fontSize: 20, fontWeight: '700', color: '#111827' }}>Record Payment</Text>
+            <Text style={styles.headerTitle}>Record Payment</Text>
             <TouchableOpacity
-              onPress={onClose}
-              disabled={isProcessing || cascadeProgress.visible}
-              style={{
-                padding: 8,
-                backgroundColor: '#f3f4f6',
-                borderRadius: 8,
-                opacity: (isProcessing || cascadeProgress.visible) ? 0.5 : 1,
-              }}
+              onPress={handleClose}
+              disabled={isProcessing}
+              style={[styles.closeButton, isProcessing && { opacity: 0.5 }]}
             >
               <Ionicons name="close" size={24} color="#111827" />
             </TouchableOpacity>
@@ -290,79 +271,68 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
           contentContainerStyle={{ padding: 24 }}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Rebuild Notice */}
-          <View
-            style={{
-              backgroundColor: '#fef3c7',
-              borderRadius: 16,
-              padding: 20,
-              marginBottom: 20,
-              borderWidth: 2,
-              borderColor: '#f59e0b',
-            }}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-              <Ionicons name="construct-outline" size={24} color="#f59e0b" />
-              <Text style={{ fontSize: 16, fontWeight: '700', color: '#92400e', marginLeft: 8 }}>
-                Under Reconstruction
-              </Text>
-            </View>
-            <Text style={{ fontSize: 14, color: '#92400e' }}>
-              Payment recording and calculation logic is being rebuilt from scratch to fix logic issues.
-            </Text>
-          </View>
-
           {/* Receipt Information */}
-          <View
-            style={{
-              backgroundColor: 'white',
-              borderRadius: 16,
-              padding: 20,
-              marginBottom: 20,
-              borderWidth: 1,
-              borderColor: '#e5e7eb',
-            }}
-          >
-            <Text style={{ fontSize: 12, fontWeight: '700', color: '#6b7280', marginBottom: 12, letterSpacing: 0.5 }}>
-              RECEIPT DETAILS
-            </Text>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>RECEIPT DETAILS</Text>
             
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Text style={{ fontSize: 14, color: '#6b7280' }}>Receipt No:</Text>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827' }}>
-                {receipt.receiptNumber}
-              </Text>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Receipt No:</Text>
+              <Text style={styles.rowValue}>{receipt.receiptNumber}</Text>
             </View>
             
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Text style={{ fontSize: 14, color: '#6b7280' }}>Customer:</Text>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827' }}>
-                {receipt.customerName || 'Walk-in Customer'}
-              </Text>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Customer:</Text>
+              <Text style={styles.rowValue}>{receipt.customerName || 'Walk-in Customer'}</Text>
             </View>
 
-            {balance && (
+            {balanceInfo && (
               <>
-                <View style={{ height: 1, backgroundColor: '#e5e7eb', marginVertical: 12 }} />
+                <View style={styles.divider} />
                 
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827' }}>Remaining Balance:</Text>
-                  <Text style={{ fontSize: 20, fontWeight: '700', color: '#dc2626' }}>
-                    {formatCurrency(balance.remainingBalance)}
+                <View style={styles.row}>
+                  <Text style={styles.rowLabel}>Receipt Total:</Text>
+                  <Text style={styles.rowValue}>{formatCurrency(balanceInfo.receiptTotal)}</Text>
+                </View>
+                
+                <View style={styles.row}>
+                  <Text style={styles.rowLabel}>Amount Paid:</Text>
+                  <Text style={[styles.rowValue, { color: '#10b981' }]}>
+                    {formatCurrency(balanceInfo.amountPaid)}
+                  </Text>
+                </View>
+                
+                <View style={styles.row}>
+                  <Text style={styles.rowLabel}>Receipt Balance:</Text>
+                  <Text style={[styles.rowValue, { color: '#dc2626', fontWeight: '700' }]}>
+                    {formatCurrency(balanceInfo.receiptBalance)}
                   </Text>
                 </View>
 
-                {unpaidReceipts.length > 0 && (
-                  <View style={{ 
-                    marginTop: 12, 
-                    padding: 12, 
-                    backgroundColor: '#fef3c7', 
-                    borderRadius: 8,
-                    borderLeftWidth: 3,
-                    borderLeftColor: '#f59e0b',
-                  }}>
-                    <Text style={{ fontSize: 12, color: '#92400e', fontWeight: '600' }}>
-                      ℹ️ Customer has {unpaidReceipts.length} other unpaid receipt{unpaidReceipts.length > 1 ? 's' : ''}
+                {balanceInfo.oldBalance > 0 && (
+                  <View style={styles.row}>
+                    <Text style={styles.rowLabel}>Previous Balance:</Text>
+                    <Text style={[styles.rowValue, { color: '#f59e0b' }]}>
+                      {formatCurrency(balanceInfo.oldBalance)}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.divider} />
+                
+                <View style={styles.row}>
+                  <Text style={[styles.rowLabel, { fontWeight: '700', fontSize: 16 }]}>
+                    Total Outstanding:
+                  </Text>
+                  <Text style={{ fontSize: 20, fontWeight: '700', color: '#dc2626' }}>
+                    {formatCurrency(balanceInfo.customerTotalBalance > 0 ? balanceInfo.customerTotalBalance : balanceInfo.totalOwed)}
+                  </Text>
+                </View>
+
+                {otherUnpaidCount > 0 && (
+                  <View style={styles.infoBox}>
+                    <Ionicons name="information-circle" size={16} color="#92400e" />
+                    <Text style={styles.infoText}>
+                      Customer has {otherUnpaidCount} other unpaid receipt{otherUnpaidCount > 1 ? 's' : ''}
                     </Text>
                   </View>
                 )}
@@ -371,91 +341,108 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
           </View>
 
           {/* Payment Amount */}
-          <View
-            style={{
-              backgroundColor: 'white',
-              borderRadius: 16,
-              padding: 20,
-              marginBottom: 20,
-              borderWidth: 1,
-              borderColor: '#e5e7eb',
-            }}
-          >
+          <View style={styles.card}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151' }}>
+              <Text style={styles.inputLabel}>
                 Payment Amount <Text style={{ color: '#ef4444' }}>*</Text>
               </Text>
-              <TouchableOpacity
-                onPress={handleSetFullAmount}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  backgroundColor: '#dbeafe',
-                  borderRadius: 8,
-                }}
-              >
-                <Text style={{ fontSize: 12, color: '#1e40af', fontWeight: '600' }}>Full Amount</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {balanceInfo && balanceInfo.receiptBalance !== balanceInfo.customerTotalBalance && (
+                  <TouchableOpacity
+                    onPress={handleSetReceiptAmount}
+                    style={styles.quickAmountButton}
+                  >
+                    <Text style={styles.quickAmountText}>This Receipt</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  onPress={handleSetFullAmount}
+                  style={[styles.quickAmountButton, { backgroundColor: '#dbeafe' }]}
+                >
+                  <Text style={[styles.quickAmountText, { color: '#1e40af' }]}>Full Amount</Text>
+                </TouchableOpacity>
+              </View>
             </View>
             
-            <TextInput
-              value={amount}
-              onChangeText={handleAmountChange}
-              placeholder="0.00"
-              keyboardType="decimal-pad"
-              editable={!isProcessing && !cascadeProgress.visible}
-              style={{
-                borderWidth: error ? 2 : 1,
-                borderColor: error ? '#ef4444' : '#d1d5db',
-                borderRadius: 12,
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                fontSize: 24,
-                fontWeight: '700',
-                backgroundColor: 'white',
-                color: '#111827',
-              }}
-            />
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={{ fontSize: 24, fontWeight: '700', color: '#6b7280', marginRight: 4 }}>₹</Text>
+              <TextInput
+                value={amount}
+                onChangeText={handleAmountChange}
+                placeholder="0.00"
+                keyboardType="decimal-pad"
+                editable={!isProcessing}
+                style={[
+                  styles.amountInput,
+                  displayError ? { borderColor: '#ef4444', borderWidth: 2 } : undefined
+                ]}
+              />
+            </View>
             
-            {error ? (
-              <Text style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>{error}</Text>
+            {displayError ? (
+              <Text style={styles.errorText}>{displayError}</Text>
             ) : null}
           </View>
 
+          {/* Cascade Preview */}
+          {cascadePreview && cascadePreview.totalReceipts > 0 && (
+            <View style={[styles.card, { backgroundColor: '#f0fdf4', borderColor: '#10b981' }]}>
+              <Text style={[styles.cardLabel, { color: '#166534' }]}>PAYMENT DISTRIBUTION</Text>
+              
+              {cascadePreview.receiptsAffected.map((item, index) => (
+                <View key={item.receipt.id} style={[styles.row, { paddingVertical: 8 }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827' }}>
+                      {item.receipt.receiptNumber}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#6b7280' }}>
+                      Balance: {formatCurrency(item.currentBalance)} → {formatCurrency(item.newBalance)}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#10b981' }}>
+                      -{formatCurrency(item.paymentToApply)}
+                    </Text>
+                    {item.willBeFullyPaid && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                        <Ionicons name="checkmark-circle" size={12} color="#10b981" />
+                        <Text style={{ fontSize: 10, color: '#10b981', marginLeft: 2 }}>Paid</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              ))}
+              
+              <View style={styles.divider} />
+              
+              <View style={styles.row}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: '#166534' }}>
+                  New Balance:
+                </Text>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: '#166534' }}>
+                  {formatCurrency(cascadePreview.newCustomerBalance)}
+                </Text>
+              </View>
+            </View>
+          )}
+
           {/* Payment Method */}
-          <View
-            style={{
-              backgroundColor: 'white',
-              borderRadius: 16,
-              padding: 20,
-              marginBottom: 20,
-              borderWidth: 1,
-              borderColor: '#e5e7eb',
-            }}
-          >
-            <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 12 }}>
+          <View style={styles.card}>
+            <Text style={styles.inputLabel}>
               Payment Method <Text style={{ color: '#ef4444' }}>*</Text>
             </Text>
             
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
               {PAYMENT_METHODS.map((method) => (
                 <TouchableOpacity
                   key={method.value}
                   onPress={() => setPaymentMethod(method.value)}
-                  disabled={isProcessing || cascadeProgress.visible}
-                  style={{
-                    flex: 1,
-                    minWidth: '45%',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    paddingVertical: 12,
-                    paddingHorizontal: 16,
-                    borderRadius: 12,
-                    borderWidth: 2,
-                    borderColor: paymentMethod === method.value ? '#111827' : '#e5e7eb',
-                    backgroundColor: paymentMethod === method.value ? '#f3f4f6' : 'white',
-                    opacity: (isProcessing || cascadeProgress.visible) ? 0.5 : 1,
-                  }}
+                  disabled={isProcessing}
+                  style={[
+                    styles.methodButton,
+                    paymentMethod === method.value && styles.methodButtonActive,
+                    isProcessing && { opacity: 0.5 },
+                  ]}
                 >
                   <Ionicons
                     name={method.icon as any}
@@ -464,11 +451,10 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
                     style={{ marginRight: 8 }}
                   />
                   <Text
-                    style={{
-                      fontSize: 14,
-                      fontWeight: paymentMethod === method.value ? '600' : '500',
-                      color: paymentMethod === method.value ? '#111827' : '#6b7280',
-                    }}
+                    style={[
+                      styles.methodText,
+                      paymentMethod === method.value && styles.methodTextActive,
+                    ]}
                   >
                     {method.label}
                   </Text>
@@ -478,19 +464,8 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
           </View>
 
           {/* Notes */}
-          <View
-            style={{
-              backgroundColor: 'white',
-              borderRadius: 16,
-              padding: 20,
-              marginBottom: 20,
-              borderWidth: 1,
-              borderColor: '#e5e7eb',
-            }}
-          >
-            <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 12 }}>
-              Notes (Optional)
-            </Text>
+          <View style={styles.card}>
+            <Text style={styles.inputLabel}>Notes (Optional)</Text>
             
             <TextInput
               value={notes}
@@ -499,65 +474,210 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
               multiline
               numberOfLines={3}
               textAlignVertical="top"
-              editable={!isProcessing && !cascadeProgress.visible}
-              style={{
-                borderWidth: 1,
-                borderColor: '#d1d5db',
-                borderRadius: 12,
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                fontSize: 14,
-                backgroundColor: 'white',
-                color: '#111827',
-                minHeight: 80,
-              }}
+              editable={!isProcessing}
+              style={styles.notesInput}
             />
           </View>
         </ScrollView>
 
-        {/* Action Buttons */}
-        <View
-          style={{
-            backgroundColor: 'white',
-            borderTopWidth: 1,
-            borderTopColor: '#e5e7eb',
-            padding: 24,
-          }}
-        >
+        {/* Action Button */}
+        <View style={styles.footer}>
           <TouchableOpacity
             onPress={handleRecordPayment}
-            disabled={isProcessing || cascadeProgress.visible}
-            style={{
-              backgroundColor: '#9ca3af', // Gray to indicate disabled
-              borderRadius: 16,
-              paddingVertical: 18,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: (isProcessing || cascadeProgress.visible) ? 0.7 : 1,
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.1,
-              shadowRadius: 4,
-              elevation: 3,
-            }}
+            disabled={isProcessing || !amount || parseFloat(amount) <= 0}
+            style={[
+              styles.submitButton,
+              (isProcessing || !amount || parseFloat(amount) <= 0) && { opacity: 0.6 },
+            ]}
           >
-            <Ionicons name="construct" size={20} color="white" style={{ marginRight: 8 }} />
-            <Text
-              style={{
-                color: 'white',
-                fontWeight: '600',
-                fontSize: 16,
-                letterSpacing: 0.5,
-              }}
-            >
-              Feature Being Rebuilt
-            </Text>
+            {isProcessing ? (
+              <ActivityIndicator color="white" size="small" />
+            ) : (
+              <>
+                <Ionicons name="checkmark-circle" size={20} color="white" style={{ marginRight: 8 }} />
+                <Text style={styles.submitButtonText}>
+                  Record Payment {amount && parseFloat(amount) > 0 ? `(${formatPaymentCurrency(parseFloat(amount))})` : ''}
+                </Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
       </View>
     </Modal>
   );
+};
+
+const styles = {
+  header: {
+    backgroundColor: 'white',
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700' as const,
+    color: '#111827',
+  },
+  closeButton: {
+    padding: 8,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+  },
+  card: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  cardLabel: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    color: '#6b7280',
+    marginBottom: 12,
+    letterSpacing: 0.5,
+  },
+  row: {
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'center' as const,
+    marginBottom: 8,
+  },
+  rowLabel: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  rowValue: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: '#111827',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#e5e7eb',
+    marginVertical: 12,
+  },
+  infoBox: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#fef3c7',
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#f59e0b',
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+  },
+  infoText: {
+    fontSize: 12,
+    color: '#92400e',
+    fontWeight: '600' as const,
+    flex: 1,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: '#374151',
+  },
+  quickAmountButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+  },
+  quickAmountText: {
+    fontSize: 11,
+    color: '#374151',
+    fontWeight: '600' as const,
+  },
+  amountInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 24,
+    fontWeight: '700' as const,
+    backgroundColor: 'white',
+    color: '#111827',
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#ef4444',
+    marginTop: 8,
+  },
+  methodButton: {
+    flex: 1,
+    minWidth: '45%' as any,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    backgroundColor: 'white',
+  },
+  methodButtonActive: {
+    borderColor: '#111827',
+    backgroundColor: '#f3f4f6',
+  },
+  methodText: {
+    fontSize: 14,
+    fontWeight: '500' as const,
+    color: '#6b7280',
+  },
+  methodTextActive: {
+    fontWeight: '600' as const,
+    color: '#111827',
+  },
+  notesInput: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 14,
+    backgroundColor: 'white',
+    color: '#111827',
+    minHeight: 80,
+    marginTop: 12,
+  },
+  footer: {
+    backgroundColor: 'white',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    padding: 24,
+  },
+  submitButton: {
+    backgroundColor: '#10b981',
+    borderRadius: 16,
+    paddingVertical: 18,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  submitButtonText: {
+    color: 'white',
+    fontWeight: '600' as const,
+    fontSize: 16,
+    letterSpacing: 0.5,
+  },
 };
 
 export default RecordPaymentModal;

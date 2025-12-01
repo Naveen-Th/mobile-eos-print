@@ -1,17 +1,20 @@
 /**
  * Payment Store - Zustand
  * Centralized state management for payment operations
- * 
- * TODO: Rebuild payment recording and cascade logic from scratch
  */
 
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { devtools } from 'zustand/middleware';
 import { FirebaseReceipt } from '../services/business/ReceiptFirebaseService';
-import { collection, query, where, getDocs, writeBatch, serverTimestamp, doc, getDoc } from 'firebase/firestore';
-import { getFirebaseDb } from '../config/firebase';
-import { useBalanceStore } from './balanceStore';
+import PaymentService, { PaymentTransaction, RecordPaymentData } from '../services/business/PaymentService';
+import {
+  calculatePaymentCascade,
+  calculateReceiptBalance,
+  calculateCustomerTotalBalance,
+  CascadeResult,
+  CascadeReceipt,
+} from '../utils/paymentCalculations';
 
 export interface PaymentState {
   receiptId: string;
@@ -20,18 +23,13 @@ export interface PaymentState {
   notes?: string;
 }
 
-export interface CascadeReceipt {
-  receipt: FirebaseReceipt;
-  paymentToApply: number;
-  currentBalance: number;
-  newBalance: number;
-}
-
 export interface CascadePreview {
   receiptsAffected: CascadeReceipt[];
   totalReceipts: number;
-  oldBalanceCleared: number;
+  totalApplied: number;
   remainingPayment: number;
+  customerTotalBalance: number;
+  newCustomerBalance: number;
 }
 
 interface PaymentStoreState {
@@ -40,11 +38,18 @@ interface PaymentStoreState {
   currentPayment: PaymentState | null;
   cascadePreview: CascadePreview | null;
   error: string | null;
+  lastTransaction: PaymentTransaction | null;
+  
+  // Cached data for current payment session
+  currentReceipt: FirebaseReceipt | null;
+  customerReceipts: FirebaseReceipt[];
   
   // Actions
   setPaymentDetails: (payment: PaymentState) => void;
+  setCurrentReceipt: (receipt: FirebaseReceipt | null) => void;
+  loadCustomerReceipts: (customerName: string) => Promise<void>;
   previewCascade: (receiptId: string, amount: number) => Promise<CascadePreview | null>;
-  recordPayment: (payment: PaymentState) => Promise<{ success: boolean; error?: string }>;
+  recordPayment: (payment: PaymentState) => Promise<{ success: boolean; error?: string; transaction?: PaymentTransaction }>;
   clearPayment: () => void;
   clearError: () => void;
   
@@ -52,6 +57,8 @@ interface PaymentStoreState {
   getIsProcessing: () => boolean;
   getCascadePreview: () => CascadePreview | null;
   getError: () => string | null;
+  getReceiptBalance: () => number;
+  getCustomerTotalBalance: () => number;
 }
 
 export const usePaymentStore = create<PaymentStoreState>()(
@@ -61,6 +68,9 @@ export const usePaymentStore = create<PaymentStoreState>()(
       currentPayment: null,
       cascadePreview: null,
       error: null,
+      lastTransaction: null,
+      currentReceipt: null,
+      customerReceipts: [],
       
       /**
        * Set payment details for preview/recording
@@ -73,41 +83,71 @@ export const usePaymentStore = create<PaymentStoreState>()(
       },
       
       /**
+       * Set current receipt being paid
+       */
+      setCurrentReceipt: (receipt: FirebaseReceipt | null) => {
+        set((state) => {
+          state.currentReceipt = receipt;
+          if (!receipt) {
+            state.customerReceipts = [];
+            state.cascadePreview = null;
+          }
+        });
+      },
+      
+      /**
+       * Load all receipts for a customer
+       */
+      loadCustomerReceipts: async (customerName: string) => {
+        if (!customerName?.trim()) {
+          set((state) => { state.customerReceipts = []; });
+          return;
+        }
+
+        try {
+          const receipts = await PaymentService.getCustomerAllReceipts(customerName);
+          set((state) => {
+            state.customerReceipts = receipts;
+          });
+        } catch (error) {
+          console.error('[PaymentStore] Error loading customer receipts:', error);
+          set((state) => { state.customerReceipts = []; });
+        }
+      },
+      
+      /**
        * Preview how payment will cascade across receipts
-       * TODO: Implement cascade preview logic
        */
       previewCascade: async (receiptId: string, amount: number): Promise<CascadePreview | null> => {
+        const { currentReceipt, customerReceipts } = get();
+
+        if (!currentReceipt || amount <= 0) {
+          set((state) => {
+            state.cascadePreview = null;
+            state.error = amount <= 0 ? 'Payment amount must be greater than zero' : 'No receipt selected';
+          });
+          return null;
+        }
+
         try {
-          const db = getFirebaseDb();
-          if (!db) {
-            set((state) => { state.error = 'Firebase not initialized'; });
-            return null;
-          }
+          // Calculate cascade using pure function
+          const cascadeResult = calculatePaymentCascade(
+            currentReceipt,
+            amount,
+            customerReceipts
+          );
 
-          // Get current receipt
-          const receiptRef = doc(db, 'receipts', receiptId);
-          const receiptDoc = await getDoc(receiptRef);
+          // Calculate customer balance info
+          const customerTotalBalance = calculateCustomerTotalBalance(customerReceipts);
+          const newCustomerBalance = Math.max(0, customerTotalBalance - cascadeResult.totalApplied);
 
-          if (!receiptDoc.exists()) {
-            set((state) => { state.error = 'Receipt not found'; });
-            return null;
-          }
-
-          const receipt = { id: receiptDoc.id, ...receiptDoc.data() } as FirebaseReceipt;
-
-          // Basic validation
-          if (amount <= 0) {
-            set((state) => { state.error = 'Payment amount must be greater than zero'; });
-            return null;
-          }
-
-          // TODO: Implement proper cascade preview calculation
-          // For now, return empty preview
           const preview: CascadePreview = {
-            receiptsAffected: [],
-            totalReceipts: 0,
-            oldBalanceCleared: 0,
-            remainingPayment: amount,
+            receiptsAffected: cascadeResult.affectedReceipts,
+            totalReceipts: cascadeResult.affectedReceipts.length,
+            totalApplied: cascadeResult.totalApplied,
+            remainingPayment: cascadeResult.remainingPayment,
+            customerTotalBalance,
+            newCustomerBalance,
           };
 
           set((state) => {
@@ -116,7 +156,7 @@ export const usePaymentStore = create<PaymentStoreState>()(
           });
 
           if (__DEV__) {
-            console.log(`⚠️ [PaymentStore] Cascade preview not implemented`);
+            console.log(`💰 [PaymentStore] Cascade preview: ₹${amount} → ${preview.totalReceipts} receipt(s)`);
           }
 
           return preview;
@@ -130,34 +170,50 @@ export const usePaymentStore = create<PaymentStoreState>()(
       
       /**
        * Record payment with cascade to Firebase
-       * TODO: Implement payment recording logic
        */
-      recordPayment: async (payment: PaymentState): Promise<{ success: boolean; error?: string }> => {
+      recordPayment: async (payment: PaymentState): Promise<{ success: boolean; error?: string; transaction?: PaymentTransaction }> => {
         set((state) => {
           state.isProcessing = true;
           state.error = null;
         });
 
         try {
-          // TODO: Implement payment recording logic
-          // This should:
-          // 1. Validate input
-          // 2. Get the receipt
-          // 3. Calculate payment distribution (cascade if needed)
-          // 4. Update receipt(s) with payment
-          // 5. Create payment transaction record
-          // 6. Update customer balance
+          // Validate
+          if (!payment.receiptId?.trim()) {
+            throw new Error('Receipt ID is required');
+          }
+          if (payment.amount <= 0) {
+            throw new Error('Payment amount must be greater than zero');
+          }
 
-          if (__DEV__) {
-            console.log(`⚠️ [PaymentStore] Payment recording not implemented`);
+          // Record payment via service
+          const result = await PaymentService.recordPayment({
+            receiptId: payment.receiptId,
+            amount: payment.amount,
+            paymentMethod: payment.method,
+            notes: payment.notes,
+          });
+
+          if (!result.success) {
+            throw new Error(result.error || 'Failed to record payment');
           }
 
           set((state) => {
             state.isProcessing = false;
-            state.error = 'Payment recording not implemented - rebuild in progress';
+            state.lastTransaction = result.paymentTransaction || null;
+            state.currentPayment = null;
+            state.cascadePreview = null;
+            state.error = null;
           });
 
-          return { success: false, error: 'Payment recording not implemented - rebuild in progress' };
+          if (__DEV__) {
+            console.log(`✅ [PaymentStore] Payment recorded: ₹${payment.amount}`);
+          }
+
+          return { 
+            success: true, 
+            transaction: result.paymentTransaction 
+          };
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to record payment';
           
@@ -179,6 +235,8 @@ export const usePaymentStore = create<PaymentStoreState>()(
           state.currentPayment = null;
           state.cascadePreview = null;
           state.error = null;
+          state.currentReceipt = null;
+          state.customerReceipts = [];
         });
       },
       
@@ -211,6 +269,23 @@ export const usePaymentStore = create<PaymentStoreState>()(
       getError: () => {
         return get().error;
       },
+      
+      /**
+       * Selector: Get current receipt balance
+       */
+      getReceiptBalance: () => {
+        const { currentReceipt } = get();
+        if (!currentReceipt) return 0;
+        return calculateReceiptBalance(currentReceipt);
+      },
+      
+      /**
+       * Selector: Get customer total balance
+       */
+      getCustomerTotalBalance: () => {
+        const { customerReceipts } = get();
+        return calculateCustomerTotalBalance(customerReceipts);
+      },
     })),
     { name: 'PaymentStore' }
   )
@@ -227,4 +302,8 @@ export const usePaymentCascadePreview = () => {
 
 export const usePaymentError = () => {
   return usePaymentStore((state) => state.error);
+};
+
+export const useLastPaymentTransaction = () => {
+  return usePaymentStore((state) => state.lastTransaction);
 };

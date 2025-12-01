@@ -1,8 +1,6 @@
 /**
  * Balance Store - Zustand
  * Centralized reactive state management for customer balances
- * 
- * TODO: Rebuild balance calculation logic from scratch
  */
 
 import { create } from 'zustand';
@@ -11,12 +9,16 @@ import { devtools } from 'zustand/middleware';
 import { FirebaseReceipt } from '../services/business/ReceiptFirebaseService';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { getFirebaseDb } from '../config/firebase';
+import {
+  calculateReceiptBalance,
+  calculateCustomerTotalBalance,
+  getUnpaidReceipts,
+} from '../utils/paymentCalculations';
 
 export interface CustomerBalance {
-  balance: number;
-  oldBalance: number;
+  balance: number;           // Total outstanding balance
+  receiptCount: number;      // Number of unpaid receipts
   lastUpdated: Date;
-  receiptCount: number;
   isCalculating: boolean;
 }
 
@@ -33,10 +35,9 @@ interface BalanceState {
   
   // Selectors
   getBalance: (customerName: string) => number;
-  getOldBalance: (customerName: string) => number;
   isCalculating: (customerName: string) => boolean;
   getReceiptCount: (customerName: string) => number;
-  getAllBalances: () => Array<{ customerName: string; balance: number }>;
+  getAllBalances: () => Array<{ customerName: string; balance: number; receiptCount: number }>;
   getTotalOutstanding: () => number;
 }
 
@@ -47,7 +48,6 @@ export const useBalanceStore = create<BalanceState>()(
       
       /**
        * Calculate balance from Firebase receipts
-       * TODO: Implement proper balance calculation logic
        */
       calculateBalance: async (customerName: string): Promise<number> => {
         if (!customerName?.trim()) return 0;
@@ -58,29 +58,25 @@ export const useBalanceStore = create<BalanceState>()(
         set((state) => {
           const existing = state.balances.get(trimmedName);
           state.balances.set(trimmedName, {
-            ...existing,
             balance: existing?.balance || 0,
-            oldBalance: existing?.oldBalance || 0,
-            lastUpdated: existing?.lastUpdated || new Date(),
             receiptCount: existing?.receiptCount || 0,
+            lastUpdated: existing?.lastUpdated || new Date(),
             isCalculating: true,
           });
         });
 
         try {
-          // Fetch receipts from Firebase
           const db = getFirebaseDb();
           if (!db) {
             console.warn('Firebase not initialized');
             set((state) => {
               const existing = state.balances.get(trimmedName);
-              if (existing) {
-                existing.isCalculating = false;
-              }
+              if (existing) existing.isCalculating = false;
             });
             return 0;
           }
 
+          // Fetch all receipts for this customer
           const receiptsRef = collection(db, 'receipts');
           const q = query(receiptsRef, where('customerName', '==', trimmedName));
           const querySnapshot = await getDocs(q);
@@ -90,24 +86,22 @@ export const useBalanceStore = create<BalanceState>()(
             receipts.push({ id: doc.id, ...doc.data() } as FirebaseReceipt);
           });
 
-          // TODO: Implement proper balance calculation
-          // For now, return 0 - logic needs to be rebuilt
-          const balance = 0;
-          const unpaidCount = 0;
+          // Calculate total balance using pure function
+          const balance = calculateCustomerTotalBalance(receipts);
+          const unpaidReceipts = getUnpaidReceipts(receipts);
 
           // Update state
           set((state) => {
             state.balances.set(trimmedName, {
               balance,
-              oldBalance: balance,
+              receiptCount: unpaidReceipts.length,
               lastUpdated: new Date(),
-              receiptCount: unpaidCount,
               isCalculating: false,
             });
           });
 
           if (__DEV__) {
-            console.log(`⚠️ [BalanceStore] Balance calculation not implemented - returning 0 for "${trimmedName}"`);
+            console.log(`💰 [BalanceStore] ${trimmedName}: ₹${balance} (${unpaidReceipts.length} unpaid)`);
           }
 
           return balance;
@@ -116,9 +110,7 @@ export const useBalanceStore = create<BalanceState>()(
           
           set((state) => {
             const existing = state.balances.get(trimmedName);
-            if (existing) {
-              existing.isCalculating = false;
-            }
+            if (existing) existing.isCalculating = false;
           });
 
           return 0;
@@ -126,56 +118,51 @@ export const useBalanceStore = create<BalanceState>()(
       },
 
       /**
-       * Update balance from provided receipts
-       * TODO: Implement proper balance calculation logic
+       * Update balance from provided receipts (no Firebase call)
        */
       updateFromReceipts: (customerName: string, receipts: FirebaseReceipt[]) => {
         if (!customerName?.trim()) return;
 
         const trimmedName = customerName.trim();
         
-        // TODO: Implement proper balance calculation
-        const balance = 0;
-        const unpaidCount = 0;
+        // Calculate using pure functions
+        const balance = calculateCustomerTotalBalance(receipts);
+        const unpaidReceipts = getUnpaidReceipts(receipts);
 
         set((state) => {
           state.balances.set(trimmedName, {
             balance,
-            oldBalance: balance,
+            receiptCount: unpaidReceipts.length,
             lastUpdated: new Date(),
-            receiptCount: unpaidCount,
             isCalculating: false,
           });
         });
 
         if (__DEV__) {
-          console.log(`⚠️ [BalanceStore] Balance calculation not implemented for "${trimmedName}"`);
+          console.log(`💰 [BalanceStore] Updated ${trimmedName}: ₹${balance}`);
         }
       },
 
       /**
-       * Update multiple customers at once
-       * TODO: Implement proper balance calculation logic
+       * Update multiple customers at once (batch operation)
        */
       updateMultipleCustomers: (receiptsMap: Map<string, FirebaseReceipt[]>) => {
         set((state) => {
           receiptsMap.forEach((receipts, customerName) => {
-            // TODO: Implement proper balance calculation
-            const balance = 0;
-            const unpaidCount = 0;
+            const balance = calculateCustomerTotalBalance(receipts);
+            const unpaidReceipts = getUnpaidReceipts(receipts);
 
             state.balances.set(customerName, {
               balance,
-              oldBalance: balance,
+              receiptCount: unpaidReceipts.length,
               lastUpdated: new Date(),
-              receiptCount: unpaidCount,
               isCalculating: false,
             });
           });
         });
 
         if (__DEV__) {
-          console.log(`⚠️ [BalanceStore] Balance calculation not implemented for ${receiptsMap.size} customers`);
+          console.log(`💰 [BalanceStore] Updated ${receiptsMap.size} customers`);
         }
       },
 
@@ -191,7 +178,7 @@ export const useBalanceStore = create<BalanceState>()(
         });
 
         if (__DEV__) {
-          console.log(`🗑️ [BalanceStore] Invalidated balance for "${trimmedName}"`);
+          console.log(`🗑️ [BalanceStore] Invalidated ${trimmedName}`);
         }
       },
 
@@ -213,17 +200,7 @@ export const useBalanceStore = create<BalanceState>()(
        */
       getBalance: (customerName: string): number => {
         if (!customerName?.trim()) return 0;
-        const trimmedName = customerName.trim();
-        return get().balances.get(trimmedName)?.balance || 0;
-      },
-
-      /**
-       * Get oldBalance for receipt creation (selector)
-       */
-      getOldBalance: (customerName: string): number => {
-        if (!customerName?.trim()) return 0;
-        const trimmedName = customerName.trim();
-        return get().balances.get(trimmedName)?.oldBalance || 0;
+        return get().balances.get(customerName.trim())?.balance || 0;
       },
 
       /**
@@ -231,8 +208,7 @@ export const useBalanceStore = create<BalanceState>()(
        */
       isCalculating: (customerName: string): boolean => {
         if (!customerName?.trim()) return false;
-        const trimmedName = customerName.trim();
-        return get().balances.get(trimmedName)?.isCalculating || false;
+        return get().balances.get(customerName.trim())?.isCalculating || false;
       },
 
       /**
@@ -240,23 +216,27 @@ export const useBalanceStore = create<BalanceState>()(
        */
       getReceiptCount: (customerName: string): number => {
         if (!customerName?.trim()) return 0;
-        const trimmedName = customerName.trim();
-        return get().balances.get(trimmedName)?.receiptCount || 0;
+        return get().balances.get(customerName.trim())?.receiptCount || 0;
       },
 
       /**
        * Get all customer balances as array (selector)
        */
-      getAllBalances: (): Array<{ customerName: string; balance: number }> => {
+      getAllBalances: (): Array<{ customerName: string; balance: number; receiptCount: number }> => {
         const balances = get().balances;
-        const result: Array<{ customerName: string; balance: number }> = [];
+        const result: Array<{ customerName: string; balance: number; receiptCount: number }> = [];
 
         balances.forEach((value, customerName) => {
           if (value.balance > 0) {
-            result.push({ customerName, balance: value.balance });
+            result.push({
+              customerName,
+              balance: value.balance,
+              receiptCount: value.receiptCount,
+            });
           }
         });
 
+        // Sort by balance descending
         result.sort((a, b) => b.balance - a.balance);
 
         return result;
@@ -280,15 +260,20 @@ export const useBalanceStore = create<BalanceState>()(
   )
 );
 
-// Export convenience hooks for common use cases
+// Export convenience hooks
 export const useCustomerBalance = (customerName: string) => {
   return useBalanceStore((state) => state.getBalance(customerName));
 };
 
 export const useCustomerOldBalance = (customerName: string) => {
-  return useBalanceStore((state) => state.getOldBalance(customerName));
+  // Old balance is the same as current balance for display purposes
+  return useBalanceStore((state) => state.getBalance(customerName));
 };
 
 export const useIsBalanceCalculating = (customerName: string) => {
   return useBalanceStore((state) => state.isCalculating(customerName));
+};
+
+export const useTotalOutstanding = () => {
+  return useBalanceStore((state) => state.getTotalOutstanding());
 };

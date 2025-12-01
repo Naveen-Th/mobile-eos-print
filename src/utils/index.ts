@@ -520,3 +520,23 @@ export const subtractMoneyAmounts = (
 ): number => {
   return MoneyUtils.subtract(minuend, subtrahend);
 };
+
+
+// Re-export payment calculation utilities
+export {
+  calculateReceiptBalance,
+  calculateCustomerTotalBalance,
+  calculateTotalOwed,
+  calculatePaymentCascade,
+  applyPaymentToReceipt,
+  validatePaymentAmount as validatePayment,
+  formatPaymentCurrency,
+  calculateNewCustomerBalance,
+  sortReceiptsByDateAsc,
+  getUnpaidReceipts,
+} from './paymentCalculations';
+
+export type {
+  CascadeReceipt,
+  CascadeResult,
+} from './paymentCalculations';
