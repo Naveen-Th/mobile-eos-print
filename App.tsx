@@ -1,7 +1,9 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { enableScreens } from 'react-native-screens';
+import { useFonts } from 'expo-font';
+import { Ionicons } from '@expo/vector-icons';
 import MobileApp from './src/MobileApp';
 import { AlertProvider } from './src/components/common/Alert';
 import { enableMapSet } from 'immer';
@@ -19,14 +21,26 @@ enableMapSet();
 SplashScreen.preventAutoHideAsync();
 
 export default function App() {
+  const [fontsLoaded] = useFonts({
+    ...Ionicons.font,
+  });
+
+  const onLayoutRootView = useCallback(async () => {
+    if (fontsLoaded) {
+      await SplashScreen.hideAsync();
+    }
+  }, [fontsLoaded]);
+
   useEffect(() => {
     // Initialize the mobile app
     const initializeApp = async () => {
       try {
         console.log('Starting Thermal Receipt Printer Mobile App...');
         
-        // Hide splash screen immediately for fast perceived load time
-        await SplashScreen.hideAsync();
+        // Hide splash screen when fonts are loaded
+        if (fontsLoaded) {
+          await SplashScreen.hideAsync();
+        }
         
         console.log('Mobile app initialized successfully');
       } catch (error) {
@@ -37,7 +51,12 @@ export default function App() {
     };
 
     initializeApp();
-  }, []);
+  }, [fontsLoaded]);
+
+  // Don't render until fonts are loaded
+  if (!fontsLoaded) {
+    return null;
+  }
 
   return (
     <SafeAreaProvider>

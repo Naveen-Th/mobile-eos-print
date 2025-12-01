@@ -1,20 +1,20 @@
 /**
  * Balance Store - Zustand
  * Centralized reactive state management for customer balances
- * Replaces manual cache invalidation with automatic UI updates
+ * 
+ * TODO: Rebuild balance calculation logic from scratch
  */
 
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { devtools } from 'zustand/middleware';
 import { FirebaseReceipt } from '../services/business/ReceiptFirebaseService';
-import { calculateCustomerBalance } from '../utils/paymentCalculations';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { getFirebaseDb } from '../config/firebase';
 
 export interface CustomerBalance {
   balance: number;
-  oldBalance: number; // For receipt creation
+  oldBalance: number;
   lastUpdated: Date;
   receiptCount: number;
   isCalculating: boolean;
@@ -47,7 +47,7 @@ export const useBalanceStore = create<BalanceState>()(
       
       /**
        * Calculate balance from Firebase receipts
-       * This is the source of truth calculation
+       * TODO: Implement proper balance calculation logic
        */
       calculateBalance: async (customerName: string): Promise<number> => {
         if (!customerName?.trim()) return 0;
@@ -90,18 +90,16 @@ export const useBalanceStore = create<BalanceState>()(
             receipts.push({ id: doc.id, ...doc.data() } as FirebaseReceipt);
           });
 
-          // Calculate balance using pure function
-          const balance = calculateCustomerBalance(receipts);
-          const unpaidCount = receipts.filter(r => {
-            const remaining = (r.total || 0) - (r.amountPaid || 0);
-            return remaining > 0.01;
-          }).length;
+          // TODO: Implement proper balance calculation
+          // For now, return 0 - logic needs to be rebuilt
+          const balance = 0;
+          const unpaidCount = 0;
 
           // Update state
           set((state) => {
             state.balances.set(trimmedName, {
               balance,
-              oldBalance: balance, // For receipt creation
+              oldBalance: balance,
               lastUpdated: new Date(),
               receiptCount: unpaidCount,
               isCalculating: false,
@@ -109,14 +107,13 @@ export const useBalanceStore = create<BalanceState>()(
           });
 
           if (__DEV__) {
-            console.log(`✅ [BalanceStore] Calculated balance for "${trimmedName}": ₹${balance} (${unpaidCount} unpaid receipts)`);
+            console.log(`⚠️ [BalanceStore] Balance calculation not implemented - returning 0 for "${trimmedName}"`);
           }
 
           return balance;
         } catch (error) {
           console.error('[BalanceStore] Error calculating balance:', error);
           
-          // Clear calculating state
           set((state) => {
             const existing = state.balances.get(trimmedName);
             if (existing) {
@@ -130,17 +127,16 @@ export const useBalanceStore = create<BalanceState>()(
 
       /**
        * Update balance from provided receipts
-       * Used for real-time updates from listeners
+       * TODO: Implement proper balance calculation logic
        */
       updateFromReceipts: (customerName: string, receipts: FirebaseReceipt[]) => {
         if (!customerName?.trim()) return;
 
         const trimmedName = customerName.trim();
-        const balance = calculateCustomerBalance(receipts);
-        const unpaidCount = receipts.filter(r => {
-          const remaining = (r.total || 0) - (r.amountPaid || 0);
-          return remaining > 0.01;
-        }).length;
+        
+        // TODO: Implement proper balance calculation
+        const balance = 0;
+        const unpaidCount = 0;
 
         set((state) => {
           state.balances.set(trimmedName, {
@@ -153,22 +149,20 @@ export const useBalanceStore = create<BalanceState>()(
         });
 
         if (__DEV__) {
-          console.log(`🔄 [BalanceStore] Updated balance for "${trimmedName}": ₹${balance}`);
+          console.log(`⚠️ [BalanceStore] Balance calculation not implemented for "${trimmedName}"`);
         }
       },
 
       /**
        * Update multiple customers at once
-       * Efficient for bulk updates from real-time listeners
+       * TODO: Implement proper balance calculation logic
        */
       updateMultipleCustomers: (receiptsMap: Map<string, FirebaseReceipt[]>) => {
         set((state) => {
           receiptsMap.forEach((receipts, customerName) => {
-            const balance = calculateCustomerBalance(receipts);
-            const unpaidCount = receipts.filter(r => {
-              const remaining = (r.total || 0) - (r.amountPaid || 0);
-              return remaining > 0.01;
-            }).length;
+            // TODO: Implement proper balance calculation
+            const balance = 0;
+            const unpaidCount = 0;
 
             state.balances.set(customerName, {
               balance,
@@ -181,13 +175,12 @@ export const useBalanceStore = create<BalanceState>()(
         });
 
         if (__DEV__) {
-          console.log(`🔄 [BalanceStore] Updated ${receiptsMap.size} customer balances`);
+          console.log(`⚠️ [BalanceStore] Balance calculation not implemented for ${receiptsMap.size} customers`);
         }
       },
 
       /**
        * Invalidate balance (force recalculation on next access)
-       * Optional - you may not need this with reactive updates
        */
       invalidateBalance: (customerName: string) => {
         if (!customerName?.trim()) return;
@@ -264,7 +257,6 @@ export const useBalanceStore = create<BalanceState>()(
           }
         });
 
-        // Sort by balance (highest first)
         result.sort((a, b) => b.balance - a.balance);
 
         return result;
@@ -300,4 +292,3 @@ export const useCustomerOldBalance = (customerName: string) => {
 export const useIsBalanceCalculating = (customerName: string) => {
   return useBalanceStore((state) => state.isCalculating(customerName));
 };
-

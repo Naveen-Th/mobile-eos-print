@@ -5,23 +5,17 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
   ActivityIndicator,
   Switch,
-  TextInput,
-  Dimensions,
-  Platform,
   Animated,
   Easing,
+  StatusBar,
+  Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ReceiptAlerts } from '../components/common/SpecializedAlerts';
 import ThermalPrinterService, { ThermalPrinter } from '../services/printing/ThermalPrinterService';
-
-const { width, height } = Dimensions.get('window');
 
 type Printer = ThermalPrinter;
 
@@ -40,37 +34,27 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectingPrinterId, setConnectingPrinterId] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [bluetoothEnabled, setBluetoothEnabled] = useState(true);
+  const [bluetoothEnabled, setBluetoothEnabled] = useState(false);
   
-  // Configuration settings
-  const [paperWidth, setPaperWidth] = useState('80'); // 58mm or 80mm
-  const [printDensity, setPrintDensity] = useState('3'); // 0-4
+  const [paperWidth, setPaperWidth] = useState('80');
+  const [printDensity, setPrintDensity] = useState('3');
   const [autoCutEnabled, setAutoCutEnabled] = useState(true);
   const [testPrintEnabled, setTestPrintEnabled] = useState(true);
   
   const printerService = ThermalPrinterService.getInstance();
   
-  // Animation values
-  const scanPulse1 = useRef(new Animated.Value(0)).current;
-  const scanPulse2 = useRef(new Animated.Value(0)).current;
-  const scanPulse3 = useRef(new Animated.Value(0)).current;
-  const scanRotation = useRef(new Animated.Value(0)).current;
+  const scanPulse = useRef(new Animated.Value(0)).current;
   const connectionMonitorRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Load saved printer configuration and start connection monitoring
   useEffect(() => {
     loadSavedConfiguration();
-    
-    // Start real-time connection monitoring
     connectionMonitorRef.current = printerService.startConnectionMonitoring((isConnected) => {
       if (!isConnected && selectedPrinter) {
         setSelectedPrinter(null);
         ReceiptAlerts.printerDisconnected();
       }
     });
-    
     return () => {
-      // Cleanup monitoring on unmount
       if (connectionMonitorRef.current) {
         printerService.stopConnectionMonitoring(connectionMonitorRef.current);
       }
@@ -84,88 +68,91 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({
       setPrintDensity(config.printDensity.toString());
       setAutoCutEnabled(config.autoCutEnabled);
       setTestPrintEnabled(config.testPrintEnabled);
-      
       const connectedPrinter = printerService.getConnectedPrinter();
       if (connectedPrinter) {
         setSelectedPrinter(connectedPrinter);
+        setBluetoothEnabled(true);
       }
     } catch (error) {
       console.error('Failed to load printer configuration:', error);
     }
   };
 
-
-  // Animation for scanning
   useEffect(() => {
     if (isScanning) {
-      // Start pulsing animations
-      const pulseAnimation = (animValue: Animated.Value, delay: number) => {
-        return Animated.loop(
-          Animated.sequence([
-            Animated.delay(delay),
-            Animated.timing(animValue, {
-              toValue: 1,
-              duration: 2000,
-              easing: Easing.out(Easing.ease),
-              useNativeDriver: true,
-            }),
-            Animated.timing(animValue, {
-              toValue: 0,
-              duration: 0,
-              useNativeDriver: true,
-            }),
-          ])
-        );
-      };
-      
-      const rotation = Animated.loop(
-        Animated.timing(scanRotation, {
-          toValue: 1,
-          duration: 3000,
-          easing: Easing.linear,
-          useNativeDriver: true,
-        })
-      );
-      
-      pulseAnimation(scanPulse1, 0).start();
-      pulseAnimation(scanPulse2, 400).start();
-      pulseAnimation(scanPulse3, 800).start();
-      rotation.start();
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(scanPulse, { toValue: 1, duration: 1000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(scanPulse, { toValue: 0, duration: 1000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        ])
+      ).start();
     } else {
-      scanPulse1.setValue(0);
-      scanPulse2.setValue(0);
-      scanPulse3.setValue(0);
-      scanRotation.setValue(0);
+      scanPulse.setValue(0);
     }
   }, [isScanning]);
 
-  const scanForPrinters = async () => {
-    setIsScanning(true);
-    setPrinters([]); // Clear previous results
-    
-    try {
-      const discoveredPrinters = await printerService.scanForPrinters();
-      setPrinters(discoveredPrinters);
-      
-      if (discoveredPrinters.length > 0) {
-        ReceiptAlerts.printerConnected(`Found ${discoveredPrinters.length} printer(s)`);
-      } else {
-        ReceiptAlerts.printerError('No printers found. Make sure Bluetooth is enabled.');
-      }
-    } catch (error: any) {
-      ReceiptAlerts.printerError(error?.message || 'Failed to scan for printers');
-      setBluetoothEnabled(false);
-    } finally {
-      setIsScanning(false);
+  const stopScanRef = useRef<(() => void) | null>(null);
+
+  const handleBluetoothToggle = async (value: boolean) => {
+    setBluetoothEnabled(value);
+    if (value) {
+      scanForPrinters();
+    } else {
+      stopScanRef.current?.();
+      if (selectedPrinter) await disconnectPrinter();
+      setPrinters([]);
     }
   };
-  
+
+  const scanForPrinters = () => {
+    // Stop any existing scan
+    stopScanRef.current?.();
+    
+    setIsScanning(true);
+    setPrinters([]);
+    
+    // Use progressive scanning - devices appear as they're found
+    stopScanRef.current = printerService.scanForPrintersProgressive(
+      // onDeviceFound - called for each device discovered
+      (device) => {
+        setPrinters(prev => {
+          const exists = prev.some(p => p.address === device.address);
+          if (exists) return prev;
+          return [...prev, device];
+        });
+      },
+      // onScanComplete
+      () => {
+        setIsScanning(false);
+        setPrinters(prev => {
+          if (prev.length === 0) {
+            ReceiptAlerts.printerError('No printers found nearby');
+          }
+          return prev;
+        });
+      },
+      // onError
+      (error) => {
+        setIsScanning(false);
+        ReceiptAlerts.printerError(error?.message || 'Scan failed');
+        setBluetoothEnabled(false);
+      }
+    );
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopScanRef.current?.();
+    };
+  }, []);
+
   const clearStoredDevices = async () => {
     try {
       await printerService.clearStoredDevices();
       setSelectedPrinter(null);
       setPrinters([]);
-      ReceiptAlerts.receiptSaveSuccess('Cleared stored devices');
+      ReceiptAlerts.receiptSaveSuccess('Devices cleared');
     } catch (error) {
       ReceiptAlerts.printerError('Failed to clear devices');
     }
@@ -174,45 +161,18 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({
   const connectToPrinter = async (printer: Printer) => {
     setIsConnecting(true);
     setConnectingPrinterId(printer.id);
-    
     try {
-      // Skip test print on connection
       const connected = await printerService.connectToPrinter(printer, true);
-      
       if (connected) {
         const connectedPrinter = { ...printer, status: 'connected' as const };
         setSelectedPrinter(connectedPrinter);
-        
-        // Update printer list to show connected status
-        setPrinters(prev => 
-          prev.map(p => 
-            p.id === printer.id 
-              ? connectedPrinter
-              : { ...p, status: 'disconnected' as const }
-          )
-        );
-        
-        // Show success message
-        ReceiptAlerts.printerConnected(`Successfully connected to ${printer.name}`);
-        
-        // Update configuration
-        await printerService.updateConfiguration({
-          paperWidth: parseInt(paperWidth),
-          printDensity: parseInt(printDensity),
-          autoCutEnabled,
-          testPrintEnabled,
-        });
-        
-        if (onPrinterSelected) {
-          onPrinterSelected(connectedPrinter);
-        }
+        setPrinters(prev => prev.map(p => p.id === printer.id ? connectedPrinter : { ...p, status: 'disconnected' as const }));
+        ReceiptAlerts.printerConnected(`Connected to ${printer.name}`);
+        await printerService.updateConfiguration({ paperWidth: parseInt(paperWidth), printDensity: parseInt(printDensity), autoCutEnabled, testPrintEnabled });
+        onPrinterSelected?.(connectedPrinter);
       }
-      
     } catch (error: any) {
-      console.error('Connection error:', error);
-      ReceiptAlerts.printerError(
-        error?.message || 'Failed to connect to printer. Check printer is on and in range.'
-      );
+      ReceiptAlerts.printerError(error?.message || 'Connection failed');
     } finally {
       setIsConnecting(false);
       setConnectingPrinterId(null);
@@ -221,32 +181,18 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({
 
   const disconnectPrinter = async () => {
     if (!selectedPrinter) return;
-    
     try {
       await printerService.disconnect();
-      
-      const disconnectedPrinter = { ...selectedPrinter, status: 'disconnected' as const };
-      
-      setPrinters(prev => 
-        prev.map(p => 
-          p.id === selectedPrinter.id ? disconnectedPrinter : p
-        )
-      );
-      
+      setPrinters(prev => prev.map(p => p.id === selectedPrinter.id ? { ...p, status: 'disconnected' as const } : p));
       setSelectedPrinter(null);
       ReceiptAlerts.printerDisconnected();
-      
     } catch (error) {
-      ReceiptAlerts.printerError('Failed to disconnect printer');
+      ReceiptAlerts.printerError('Disconnect failed');
     }
   };
 
   const testPrint = async () => {
-    if (!selectedPrinter) {
-      ReceiptAlerts.printerError('No printer selected');
-      return;
-    }
-    
+    if (!selectedPrinter) return;
     try {
       await printerService.testPrint();
       ReceiptAlerts.receiptPrintSuccess();
@@ -255,765 +201,468 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({
     }
   };
 
-  const renderScanningAnimation = () => {
-    const spin = scanRotation.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['0deg', '360deg'],
-    });
-    
-    const createPulseStyle = (animValue: Animated.Value) => ({
-      transform: [
-        {
-          scale: animValue.interpolate({
-            inputRange: [0, 1],
-            outputRange: [1, 2.5],
-          }),
-        },
-      ],
-      opacity: animValue.interpolate({
-        inputRange: [0, 0.5, 1],
-        outputRange: [0.6, 0.3, 0],
-      }),
-    });
-    
-    return (
-      <View style={styles.scanningContainer}>
-        {/* Animated pulse circles */}
-        <Animated.View style={[styles.pulseCircle, styles.pulse1, createPulseStyle(scanPulse1)]} />
-        <Animated.View style={[styles.pulseCircle, styles.pulse2, createPulseStyle(scanPulse2)]} />
-        <Animated.View style={[styles.pulseCircle, styles.pulse3, createPulseStyle(scanPulse3)]} />
-        
-        {/* Center Bluetooth icon */}
-        <View style={styles.bluetoothIconContainer}>
-          <Animated.View style={{ transform: [{ rotate: spin }] }}>
-            <Ionicons name="bluetooth" size={48} color="#4F46E5" />
-          </Animated.View>
-        </View>
-        
-        <Text style={styles.scanningText}>Searching for devices...</Text>
-      </View>
-    );
+  const saveConfig = async () => {
+    await printerService.updateConfiguration({ paperWidth: parseInt(paperWidth), printDensity: parseInt(printDensity), autoCutEnabled, testPrintEnabled });
+    ReceiptAlerts.receiptSaveSuccess('Settings saved');
+    onClose();
   };
 
-  const renderPrinterItem = (printer: Printer) => (
-    <Animated.View
-      key={printer.id}
-      style={[
-        styles.printerItem,
-        {
-          transform: [{ scale: 1 }],
-        },
-      ]}
-    >
-      <View style={styles.printerInfo}>
-        <View style={styles.printerHeader}>
-          <View style={[
-            styles.printerIconContainer,
-            { backgroundColor: printer.status === 'connected' ? '#10B98120' : '#6B728020' }
-          ]}>
-            <Ionicons
-              name={
-                printer.type === 'bluetooth' ? 'bluetooth' :
-                printer.type === 'wifi' ? 'wifi' : 'cable'
-              }
-              size={24}
-              color={printer.status === 'connected' ? '#10B981' : '#6B7280'}
-            />
-          </View>
-          <View style={styles.printerDetails}>
-            <Text style={styles.printerName}>{printer.name}</Text>
-            <Text style={styles.printerAddress}>{printer.address}</Text>
-          </View>
-        </View>
-      </View>
-      
-      <TouchableOpacity
-        style={[
-          styles.connectButton,
-          printer.status === 'connected' && styles.disconnectButton,
-          connectingPrinterId === printer.id && styles.connectingButton
-        ]}
-        onPress={() => 
-          printer.status === 'connected' 
-            ? disconnectPrinter()
-            : connectToPrinter(printer)
-        }
-        disabled={isConnecting}
-      >
-        {connectingPrinterId === printer.id ? (
-          <ActivityIndicator size="small" color="#FFFFFF" />
-        ) : (
-          <Text style={styles.connectButtonText}>
-            {printer.status === 'connected' ? 'Disconnect' : 'Connect'}
-          </Text>
-        )}
-      </TouchableOpacity>
-    </Animated.View>
-  );
+  const pulseScale = scanPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.2] });
+  const pulseOpacity = scanPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 0.6] });
+
 
   return (
-    <View style={styles.fullScreenContainer}>
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        <LinearGradient
-          colors={['#DC2626', '#EF4444', '#F97316']}
-          style={styles.gradientBackground}
-        >
+    <View style={styles.container}>
+      <View style={styles.safeArea}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={onClose} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+          <TouchableOpacity onPress={onClose} style={styles.backBtn}>
+            <Ionicons name="chevron-back" size={24} color="#1F2937" />
           </TouchableOpacity>
-          
-          <View style={styles.headerContent}>
-            <View style={styles.iconContainer}>
-              <Ionicons name="settings" size={32} color="#FFFFFF" />
-            </View>
-            <View style={styles.headerText}>
-              <Text style={styles.headerTitle}>Printer Setup</Text>
-              <Text style={styles.headerSubtitle}>Configure printer</Text>
-            </View>
-          </View>
+          <Text style={styles.headerTitle}>Bluetooth Printer</Text>
+          <TouchableOpacity onPress={clearStoredDevices} style={styles.clearBtn}>
+            <Ionicons name="trash-outline" size={20} color="#EF4444" />
+          </TouchableOpacity>
         </View>
 
-        {/* Content */}
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          <View style={styles.contentCard}>
-            {/* Clear Devices Button */}
-            <TouchableOpacity
-              style={styles.clearButton}
-              onPress={clearStoredDevices}
-            >
-              <Ionicons name="trash-outline" size={18} color="#DC2626" />
-              <Text style={styles.clearButtonText}>Clear Stored Devices</Text>
-            </TouchableOpacity>
-            {/* Connected Device Section - Shows when printer is connected */}
-            {selectedPrinter && (
-              <View style={styles.currentPrinterSection}>
-                <Text style={styles.sectionTitle}>✓ Connected Device</Text>
-                <View style={styles.currentPrinter}>
-                  <View style={styles.connectedIconContainer}>
-                    <Ionicons name="checkmark-circle" size={28} color="#10B981" />
-                  </View>
-                  <View style={styles.currentPrinterInfo}>
-                    <Text style={styles.currentPrinterName}>{selectedPrinter.name}</Text>
-                    <Text style={styles.currentPrinterStatus}>✓ Connected & Ready to Print</Text>
-                    <Text style={styles.currentPrinterAddress}>{selectedPrinter.address}</Text>
-                  </View>
-                  <TouchableOpacity 
-                    style={styles.testButton}
-                    onPress={testPrint}
-                  >
-                    <Text style={styles.testButtonText}>Test Print</Text>
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+          {/* Bluetooth Toggle Card */}
+          <View style={styles.card}>
+            <View style={styles.btRow}>
+              <View style={styles.btIconWrap}>
+                <Animated.View style={[styles.btIconBg, isScanning && { transform: [{ scale: pulseScale }], opacity: pulseOpacity }]}>
+                  <Ionicons name="bluetooth" size={24} color={bluetoothEnabled ? '#3B82F6' : '#9CA3AF'} />
+                </Animated.View>
+              </View>
+              <View style={styles.btInfo}>
+                <Text style={styles.btTitle}>Bluetooth</Text>
+                <Text style={styles.btStatus}>
+                  {isScanning ? 'Scanning...' : bluetoothEnabled ? (selectedPrinter ? 'Connected' : 'Ready') : 'Off'}
+                </Text>
+              </View>
+              <Switch
+                value={bluetoothEnabled}
+                onValueChange={handleBluetoothToggle}
+                trackColor={{ false: '#E5E7EB', true: '#3B82F6' }}
+                thumbColor="#FFFFFF"
+                disabled={isScanning}
+              />
+            </View>
+            {bluetoothEnabled && !isScanning && (
+              <TouchableOpacity style={styles.scanBtn} onPress={scanForPrinters}>
+                <Ionicons name="refresh" size={16} color="#3B82F6" />
+                <Text style={styles.scanBtnText}>Scan Again</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Connected Device */}
+          {selectedPrinter && (
+            <View style={styles.card}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="checkmark-circle" size={18} color="#10B981" />
+                <Text style={styles.sectionTitle}>Connected</Text>
+              </View>
+              <View style={styles.deviceRow}>
+                <View style={[styles.deviceIcon, styles.deviceIconConnected]}>
+                  <Ionicons name="print" size={20} color="#10B981" />
+                </View>
+                <View style={styles.deviceInfo}>
+                  <Text style={styles.deviceName}>{selectedPrinter.name}</Text>
+                  <Text style={styles.deviceAddr}>{selectedPrinter.address}</Text>
+                </View>
+                <View style={styles.deviceActions}>
+                  <TouchableOpacity style={styles.testBtn} onPress={testPrint}>
+                    <Text style={styles.testBtnText}>Test</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.disconnectBtn} onPress={disconnectPrinter}>
+                    <Ionicons name="close" size={16} color="#EF4444" />
                   </TouchableOpacity>
                 </View>
               </View>
-            )}
+            </View>
+          )}
 
-            {/* Bluetooth Scanning Section */}
-            <View style={styles.scanSection}>
-              {isScanning ? (
-                renderScanningAnimation()
-              ) : printers.length === 0 ? (
-                <View style={styles.emptyState}>
-                  <View style={styles.emptyIconContainer}>
-                    <Ionicons name="bluetooth" size={64} color="#4F46E5" />
+          {/* Available Devices */}
+          {bluetoothEnabled && printers.length > 0 && (
+            <View style={styles.card}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="radio-outline" size={18} color="#6B7280" />
+                <Text style={styles.sectionTitle}>Available ({printers.filter(p => p.status !== 'connected').length})</Text>
+              </View>
+              {printers.filter(p => p.id !== selectedPrinter?.id).map((printer) => (
+                <TouchableOpacity
+                  key={printer.id}
+                  style={styles.deviceRow}
+                  onPress={() => connectToPrinter(printer)}
+                  disabled={isConnecting}
+                >
+                  <View style={styles.deviceIcon}>
+                    <Ionicons name={printer.type === 'wifi' ? 'wifi' : 'bluetooth'} size={20} color="#6B7280" />
                   </View>
-                  <Text style={styles.emptyStateTitle}>Turn Bluetooth</Text>
-                  <TouchableOpacity
-                    style={styles.turnBluetoothButton}
-                    onPress={scanForPrinters}
-                  >
-                    <View style={styles.toggleContainer}>
-                      <View style={[styles.toggleButton, bluetoothEnabled && styles.toggleButtonOn]}>
-                        <View style={[styles.toggleCircle, bluetoothEnabled && styles.toggleCircleOn]} />
-                      </View>
-                      <View style={styles.toggleLabels}>
-                        <Text style={[styles.toggleLabel, styles.toggleLabelOn]}>ON</Text>
-                        <Text style={[styles.toggleLabel, styles.toggleLabelOff]}>OFF</Text>
-                      </View>
+                  <View style={styles.deviceInfo}>
+                    <Text style={styles.deviceName}>{printer.name}</Text>
+                    <Text style={styles.deviceAddr}>{printer.address}</Text>
+                  </View>
+                  {connectingPrinterId === printer.id ? (
+                    <ActivityIndicator size="small" color="#3B82F6" />
+                  ) : (
+                    <View style={styles.connectChip}>
+                      <Text style={styles.connectChipText}>Connect</Text>
                     </View>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <View style={styles.printersFoundSection}>
-                  <View style={styles.scanHeader}>
-                    <Text style={styles.sectionTitle}>Available Devices ({printers.length})</Text>
-                    <TouchableOpacity
-                      style={styles.rescanButton}
-                      onPress={scanForPrinters}
-                    >
-                      <Ionicons name="refresh" size={18} color="#4F46E5" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {/* Empty State */}
+          {bluetoothEnabled && !isScanning && printers.length === 0 && !selectedPrinter && (
+            <View style={styles.emptyCard}>
+              <Ionicons name="bluetooth-outline" size={48} color="#D1D5DB" />
+              <Text style={styles.emptyText}>No devices found</Text>
+              <Text style={styles.emptySubtext}>Make sure your printer is on and nearby</Text>
+            </View>
+          )}
+
+          {/* Scanning State */}
+          {isScanning && (
+            <View style={styles.emptyCard}>
+              <ActivityIndicator size="large" color="#3B82F6" />
+              <Text style={styles.emptyText}>Searching for printers...</Text>
+            </View>
+          )}
+
+          {/* Advanced Settings */}
+          <TouchableOpacity style={styles.advancedHeader} onPress={() => setShowAdvanced(!showAdvanced)}>
+            <View style={styles.advancedLeft}>
+              <Ionicons name="settings-outline" size={18} color="#6B7280" />
+              <Text style={styles.advancedTitle}>Advanced Settings</Text>
+            </View>
+            <Ionicons name={showAdvanced ? 'chevron-up' : 'chevron-down'} size={20} color="#9CA3AF" />
+          </TouchableOpacity>
+
+          {showAdvanced && (
+            <View style={styles.card}>
+              {/* Paper Width */}
+              <View style={styles.settingRow}>
+                <Text style={styles.settingLabel}>Paper Width</Text>
+                <View style={styles.segmented}>
+                  {['58', '80'].map((w) => (
+                    <TouchableOpacity key={w} style={[styles.segmentBtn, paperWidth === w && styles.segmentBtnActive]} onPress={() => setPaperWidth(w)}>
+                      <Text style={[styles.segmentText, paperWidth === w && styles.segmentTextActive]}>{w}mm</Text>
                     </TouchableOpacity>
-                  </View>
-                  <View style={styles.printersList}>
-                    {printers.map(renderPrinterItem)}
-                  </View>
+                  ))}
                 </View>
-              )}
-            </View>
+              </View>
 
-            {/* Configuration Section */}
-            <View style={styles.configSection}>
-              <TouchableOpacity
-                style={styles.advancedToggle}
-                onPress={() => setShowAdvanced(!showAdvanced)}
-              >
-                <Text style={styles.sectionTitle}>Advanced Settings</Text>
-                <Ionicons
-                  name={showAdvanced ? 'chevron-up' : 'chevron-down'}
-                  size={20}
-                  color="#6B7280"
-                />
-              </TouchableOpacity>
-
-              {showAdvanced && (
-                <View style={styles.advancedSettings}>
-                  
-                  {/* Paper Width */}
-                  <View style={styles.settingItem}>
-                    <Text style={styles.settingLabel}>Paper Width</Text>
-                    <View style={styles.segmentedControl}>
-                      {['58', '80'].map((width) => (
-                        <TouchableOpacity
-                          key={width}
-                          style={[
-                            styles.segmentedButton,
-                            paperWidth === width && styles.segmentedButtonActive
-                          ]}
-                          onPress={() => setPaperWidth(width)}
-                        >
-                          <Text style={[
-                            styles.segmentedButtonText,
-                            paperWidth === width && styles.segmentedButtonTextActive
-                          ]}>
-                            {width}mm
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
-
-                  {/* Print Density */}
-                  <View style={styles.settingItem}>
-                    <Text style={styles.settingLabel}>Print Density</Text>
-                    <View style={styles.segmentedControl}>
-                      {['1', '2', '3', '4'].map((density) => (
-                        <TouchableOpacity
-                          key={density}
-                          style={[
-                            styles.segmentedButton,
-                            printDensity === density && styles.segmentedButtonActive
-                          ]}
-                          onPress={() => setPrintDensity(density)}
-                        >
-                          <Text style={[
-                            styles.segmentedButtonText,
-                            printDensity === density && styles.segmentedButtonTextActive
-                          ]}>
-                            {density}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
-
-                  {/* Auto Cut */}
-                  <View style={styles.settingItem}>
-                    <Text style={styles.settingLabel}>Auto Cut Paper</Text>
-                    <Switch
-                      value={autoCutEnabled}
-                      onValueChange={setAutoCutEnabled}
-                      trackColor={{ false: '#E5E7EB', true: '#DC2626' }}
-                      thumbColor={autoCutEnabled ? '#FFFFFF' : '#9CA3AF'}
-                    />
-                  </View>
-
-                  {/* Test Print on Connect */}
-                  <View style={styles.settingItem}>
-                    <Text style={styles.settingLabel}>Test Print on Connect</Text>
-                    <Switch
-                      value={testPrintEnabled}
-                      onValueChange={setTestPrintEnabled}
-                      trackColor={{ false: '#E5E7EB', true: '#DC2626' }}
-                      thumbColor={testPrintEnabled ? '#FFFFFF' : '#9CA3AF'}
-                    />
-                  </View>
+              {/* Print Density */}
+              <View style={styles.settingRow}>
+                <Text style={styles.settingLabel}>Density</Text>
+                <View style={styles.segmented}>
+                  {['1', '2', '3', '4'].map((d) => (
+                    <TouchableOpacity key={d} style={[styles.segmentBtn, printDensity === d && styles.segmentBtnActive]} onPress={() => setPrintDensity(d)}>
+                      <Text style={[styles.segmentText, printDensity === d && styles.segmentTextActive]}>{d}</Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
-              )}
+              </View>
+
+              {/* Toggles */}
+              <View style={styles.toggleRow}>
+                <Text style={styles.settingLabel}>Auto Cut</Text>
+                <Switch value={autoCutEnabled} onValueChange={setAutoCutEnabled} trackColor={{ false: '#E5E7EB', true: '#3B82F6' }} thumbColor="#FFF" />
+              </View>
+              <View style={styles.toggleRow}>
+                <Text style={styles.settingLabel}>Test on Connect</Text>
+                <Switch value={testPrintEnabled} onValueChange={setTestPrintEnabled} trackColor={{ false: '#E5E7EB', true: '#3B82F6' }} thumbColor="#FFF" />
+              </View>
             </View>
+          )}
 
-            {/* Save Button */}
-            <TouchableOpacity
-              style={styles.saveButton}
-              onPress={async () => {
-                await printerService.updateConfiguration({
-                  paperWidth: parseInt(paperWidth),
-                  printDensity: parseInt(printDensity),
-                  autoCutEnabled,
-                  testPrintEnabled,
-                });
-                ReceiptAlerts.receiptSaveSuccess('Printer configuration');
-                onClose();
-              }}
-            >
-              <Text style={styles.saveButtonText}>Save Configuration</Text>
-            </TouchableOpacity>
-
-          </View>
+          {/* Save Button */}
+          <TouchableOpacity style={styles.saveBtn} onPress={saveConfig}>
+            <Text style={styles.saveBtnText}>Save Settings</Text>
+          </TouchableOpacity>
         </ScrollView>
-      </LinearGradient>
-    </SafeAreaView>
+      </View>
     </View>
   );
 };
 
+
 const styles = StyleSheet.create({
-  fullScreenContainer: {
+  container: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    width: width,
-    height: height,
+    backgroundColor: '#F8FAFC',
     zIndex: 1000,
-    backgroundColor: '#000000',
   },
-  container: {
+  safeArea: {
     flex: 1,
-  },
-  gradientBackground: {
-    flex: 1,
-  },
-  clearButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FEE2E2',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
-  },
-  clearButtonText: {
-    color: '#DC2626',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 8,
   },
   header: {
-    paddingTop: Platform.OS === 'ios' ? 0 : 10,
-    paddingBottom: 24,
-    paddingHorizontal: 20,
-  },
-  backButton: {
-    alignSelf: 'flex-start',
-    marginBottom: 20,
-    padding: 8,
-    borderRadius: 8,
-  },
-  headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 8 : 50,
+    paddingBottom: 12,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
-  iconContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
-    marginRight: 16,
-  },
-  headerText: {
-    flex: 1,
+    justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 4,
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#1F2937',
   },
-  headerSubtitle: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
+  clearBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   content: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
   },
-  contentCard: {
-    padding: 20,
+  scrollContent: {
+    padding: 16,
     paddingBottom: 40,
   },
-  currentPrinterSection: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 12,
-  },
-  currentPrinter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0FDF4',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#10B981',
-    shadowColor: '#10B981',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  connectedIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  card: {
     backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#10B981',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
     shadowRadius: 3,
     elevation: 2,
   },
-  currentPrinterInfo: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  currentPrinterName: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 4,
-  },
-  currentPrinterStatus: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#10B981',
-    marginTop: 2,
-  },
-  currentPrinterAddress: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 4,
-  },
-  testButton: {
-    backgroundColor: '#DC2626',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  testButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  scanSection: {
-    marginBottom: 24,
-    minHeight: 400,
-  },
-  scanningContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 80,
-    position: 'relative',
-  },
-  pulseCircle: {
-    position: 'absolute',
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    backgroundColor: '#A78BFA',
-  },
-  pulse1: {
-    backgroundColor: '#A78BFA',
-  },
-  pulse2: {
-    backgroundColor: '#8B5CF6',
-  },
-  pulse3: {
-    backgroundColor: '#7C3AED',
-  },
-  bluetoothIconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#4F46E5',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 12,
-    zIndex: 10,
-  },
-  scanHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  scanButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#DC2626',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-    shadowColor: '#DC2626',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  scanButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 6,
-  },
-  scanButtonDisabled: {
-    backgroundColor: '#9CA3AF',
-    shadowOpacity: 0.1,
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 60,
-    backgroundColor: '#3B3B57',
-    borderRadius: 20,
-  },
-  emptyIconContainer: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 32,
-    shadowColor: '#4F46E5',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 12,
-  },
-  emptyStateTitle: {
-    fontSize: 22,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginBottom: 32,
-  },
-  turnBluetoothButton: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  toggleContainer: {
-    alignItems: 'center',
-  },
-  toggleButton: {
-    width: 140,
-    height: 60,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 30,
-    padding: 4,
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  toggleButtonOn: {
-    backgroundColor: '#10B981',
-  },
-  toggleCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#D1D5DB',
-    alignSelf: 'flex-end',
-  },
-  toggleCircleOn: {
-    backgroundColor: '#FFFFFF',
-    alignSelf: 'flex-start',
-  },
-  toggleLabels: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: 140,
-    paddingHorizontal: 20,
-  },
-  toggleLabel: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  toggleLabelOn: {
-    color: '#10B981',
-  },
-  toggleLabelOff: {
-    color: '#FFFFFF',
-  },
-  printersFoundSection: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-  },
-  scanningText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#4F46E5',
-    marginTop: 32,
-    textAlign: 'center',
-  },
-  printersList: {
-    gap: 12,
-  },
-  printerItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-  },
-  printerInfo: {
-    flex: 1,
-  },
-  printerHeader: {
+  btRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  printerIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
+  btIconWrap: {
     marginRight: 12,
   },
-  printerDetails: {
+  btIconBg: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btInfo: {
     flex: 1,
   },
-  printerName: {
+  btTitle: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 4,
   },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-    marginLeft: 8,
-  },
-  statusText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  printerAddress: {
+  btStatus: {
     fontSize: 13,
     color: '#6B7280',
+    marginTop: 2,
   },
-  rescanButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#EEF2FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  connectButton: {
-    backgroundColor: '#4F46E5',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-    marginLeft: 12,
-    minWidth: 100,
-    alignItems: 'center',
-  },
-  connectingButton: {
-    backgroundColor: '#F59E0B',
-  },
-  disconnectButton: {
-    backgroundColor: '#EF4444',
-  },
-  connectButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  configSection: {
-    marginBottom: 24,
-  },
-  advancedToggle: {
+  scanBtn: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-    borderRadius: 12,
+    justifyContent: 'center',
+    marginTop: 12,
+    paddingVertical: 10,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 10,
+  },
+  scanBtnText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#3B82F6',
+    marginLeft: 6,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 12,
   },
-  advancedSettings: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginLeft: 6,
   },
-  settingItem: {
+  deviceRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  deviceIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  deviceIconConnected: {
+    backgroundColor: '#ECFDF5',
+  },
+  deviceInfo: {
+    flex: 1,
+  },
+  deviceName: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#1F2937',
+  },
+  deviceAddr: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+  deviceActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  testBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 8,
+  },
+  testBtnText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#3B82F6',
+  },
+  disconnectBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  connectChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    backgroundColor: '#3B82F6',
+    borderRadius: 20,
+  },
+  connectChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  emptyCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 32,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#6B7280',
+    marginTop: 12,
+  },
+  emptySubtext: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    marginTop: 4,
+  },
+  advancedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+  },
+  advancedLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  advancedTitle: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#374151',
+    marginLeft: 8,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 16,
   },
   settingLabel: {
-    fontSize: 16,
-    color: '#1F2937',
-    flex: 1,
+    fontSize: 14,
+    color: '#4B5563',
   },
-  segmentedControl: {
+  segmented: {
     flexDirection: 'row',
     backgroundColor: '#F3F4F6',
     borderRadius: 8,
     padding: 2,
   },
-  segmentedButton: {
-    paddingHorizontal: 12,
+  segmentBtn: {
+    paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 6,
-    minWidth: 50,
-    alignItems: 'center',
   },
-  segmentedButtonActive: {
-    backgroundColor: '#DC2626',
+  segmentBtnActive: {
+    backgroundColor: '#3B82F6',
   },
-  segmentedButtonText: {
-    fontSize: 14,
+  segmentText: {
+    fontSize: 13,
+    fontWeight: '500',
     color: '#6B7280',
-    fontWeight: '600',
   },
-  segmentedButtonTextActive: {
+  segmentTextActive: {
     color: '#FFFFFF',
   },
-  saveButton: {
-    backgroundColor: '#DC2626',
-    paddingVertical: 16,
-    borderRadius: 12,
+  toggleRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 20,
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
   },
-  saveButtonText: {
-    color: '#FFFFFF',
+  saveBtn: {
+    backgroundColor: '#3B82F6',
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  saveBtnText: {
     fontSize: 16,
     fontWeight: '600',
+    color: '#FFFFFF',
   },
 });
 

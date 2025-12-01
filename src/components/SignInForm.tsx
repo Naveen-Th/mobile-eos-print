@@ -7,7 +7,8 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  ScrollView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MobileAuthService from '../services/auth/MobileAuthService';
@@ -117,7 +118,7 @@ const SignInForm: React.FC<SignInFormProps> = ({
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F5C563' }}>
       <KeyboardAvoidingView 
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={{
           flex: 1,
@@ -177,9 +178,6 @@ const SignInForm: React.FC<SignInFormProps> = ({
               backgroundColor: '#FFFFFF',
               borderTopLeftRadius: 32,
               borderTopRightRadius: 32,
-              paddingHorizontal: 32,
-              paddingTop: 48,
-              paddingBottom: 48,
               flex: 1,
               shadowColor: '#000',
               shadowOffset: { width: 0, height: -4 },
@@ -187,6 +185,16 @@ const SignInForm: React.FC<SignInFormProps> = ({
               shadowRadius: 24,
               elevation: 10
             }}>
+              <ScrollView 
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{
+                  paddingHorizontal: 32,
+                  paddingTop: 48,
+                  paddingBottom: 48,
+                  flexGrow: 1
+                }}
+              >
               {/* Username Input */}
               <View style={{ marginBottom: 20 }}>
                 <TextInput
@@ -413,6 +421,7 @@ const SignInForm: React.FC<SignInFormProps> = ({
                 </View>
                 <Text style={{ fontSize: 20, color: '#1F1F1F' }}>→</Text>
               </TouchableOpacity>
+              </ScrollView>
             </View>
         </View>
       </KeyboardAvoidingView>

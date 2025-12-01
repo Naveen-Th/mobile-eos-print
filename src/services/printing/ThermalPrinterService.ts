@@ -1,4 +1,4 @@
-import { Platform, PermissionsAndroid } from 'react-native';
+import { Platform, PermissionsAndroid, DeviceEventEmitter, EmitterSubscription } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Platform detection for web/mobile compatibility
@@ -20,6 +20,9 @@ if (isReactNative) {
     console.warn('Bluetooth printer module not available:', error);
   }
 }
+
+// Scan timeout in milliseconds
+const SCAN_TIMEOUT = 8000;
 
 interface ThermalPrinter {
   id: string;
@@ -133,95 +136,152 @@ class ThermalPrinterService {
   }
 
   /**
-   * Scan for available thermal printers
+   * Scan for available thermal printers (legacy - waits for full scan)
    */
   async scanForPrinters(): Promise<ThermalPrinter[]> {
-    try {
-      if (!BluetoothManager) {
-        throw new Error('Bluetooth module not available. Please rebuild the app after installing the package.');
-      }
-
-      const hasPermissions = await this.requestPermissions();
-      if (!hasPermissions) {
-        throw new Error('Required permissions not granted');
-      }
-
-      // Check if Bluetooth is enabled
-      const isEnabled = await BluetoothManager.isBluetoothEnabled();
-      if (!isEnabled) {
-        // Try to enable Bluetooth
-        await BluetoothManager.enableBluetooth();
-      }
-
+    return new Promise((resolve, reject) => {
       const printers: ThermalPrinter[] = [];
-
-      // Scan for Bluetooth printers
-      try {
-        const bluetoothPrinters = await this.scanBluetoothPrinters();
-        printers.push(...bluetoothPrinters);
-      } catch (error) {
-        console.warn('Bluetooth scan failed:', error);
-      }
-
-      return printers;
-    } catch (error) {
-      console.error('Printer scan failed:', error);
-      throw error;
-    }
+      this.scanForPrintersProgressive(
+        (device) => {
+          const exists = printers.some(p => p.address === device.address);
+          if (!exists) printers.push(device);
+        },
+        () => resolve(printers),
+        (error) => reject(error)
+      );
+    });
   }
 
   /**
-   * Scan for Bluetooth thermal printers
+   * Progressive scan - shows devices as they're discovered (FAST)
+   * @param onDeviceFound - Called each time a device is found
+   * @param onScanComplete - Called when scan finishes
+   * @param onError - Called on error
+   * @returns Cleanup function to stop scanning
    */
-  private async scanBluetoothPrinters(): Promise<ThermalPrinter[]> {
-    try {
-      if (!BluetoothManager) {
-        throw new Error('Bluetooth module not available');
-      }
+  scanForPrintersProgressive(
+    onDeviceFound: (device: ThermalPrinter) => void,
+    onScanComplete: () => void,
+    onError?: (error: Error) => void
+  ): () => void {
+    const subscriptions: EmitterSubscription[] = [];
+    let timeoutId: NodeJS.Timeout | null = null;
+    let isCleanedUp = false;
 
-      // Scan for paired and nearby Bluetooth devices
-      const pairedDevices = await BluetoothManager.scanDevices();
-      const devices = typeof pairedDevices === 'string' 
-        ? JSON.parse(pairedDevices) 
-        : pairedDevices;
+    const cleanup = () => {
+      if (isCleanedUp) return;
+      isCleanedUp = true;
+      subscriptions.forEach(sub => sub.remove());
+      if (timeoutId) clearTimeout(timeoutId);
+    };
 
-      const printers: ThermalPrinter[] = [];
+    const startScan = async () => {
+      try {
+        if (!BluetoothManager) {
+          throw new Error('Bluetooth module not available');
+        }
 
-      // Filter for likely printer devices
-      if (Array.isArray(devices.paired)) {
-        devices.paired.forEach((device: any) => {
-          printers.push({
-            id: `bt_${device.address.replace(/:/g, '_')}`,
-            name: device.name || 'Unknown Printer',
-            address: device.address,
-            type: 'bluetooth',
-            status: 'disconnected',
-          });
-        });
-      }
+        const hasPermissions = await this.requestPermissions();
+        if (!hasPermissions) {
+          throw new Error('Required permissions not granted');
+        }
 
-      // Add found (unpaired) devices
-      if (Array.isArray(devices.found)) {
-        devices.found.forEach((device: any) => {
-          // Check if not already in paired list
-          const exists = printers.some(p => p.address === device.address);
-          if (!exists) {
-            printers.push({
-              id: `bt_${device.address.replace(/:/g, '_')}`,
-              name: device.name || 'Unknown Device',
-              address: device.address,
-              type: 'bluetooth',
-              status: 'disconnected',
+        // Check/enable Bluetooth
+        const isEnabled = await BluetoothManager.isBluetoothEnabled();
+        if (!isEnabled) {
+          const pairedFromEnable = await BluetoothManager.enableBluetooth();
+          // enableBluetooth returns paired devices on Android - show them immediately!
+          if (pairedFromEnable && Array.isArray(pairedFromEnable)) {
+            pairedFromEnable.forEach((deviceStr: string) => {
+              try {
+                const device = typeof deviceStr === 'string' ? JSON.parse(deviceStr) : deviceStr;
+                if (device.address) {
+                  onDeviceFound({
+                    id: `bt_${device.address.replace(/:/g, '_')}`,
+                    name: device.name || 'Bluetooth Device',
+                    address: device.address,
+                    type: 'bluetooth',
+                    status: 'disconnected',
+                  });
+                }
+              } catch (e) { /* ignore parse errors */ }
             });
           }
-        });
-      }
+        }
 
-      return printers;
-    } catch (error) {
-      console.error('Bluetooth scan error:', error);
-      throw error;
-    }
+        // Listen for paired devices (shows immediately)
+        const pairedSub = DeviceEventEmitter.addListener(
+          BluetoothManager.EVENT_DEVICE_ALREADY_PAIRED,
+          (rsp: any) => {
+            try {
+              const devices = typeof rsp.devices === 'string' ? JSON.parse(rsp.devices) : rsp.devices;
+              if (Array.isArray(devices)) {
+                devices.forEach((device: any) => {
+                  if (device.address) {
+                    onDeviceFound({
+                      id: `bt_${device.address.replace(/:/g, '_')}`,
+                      name: device.name || 'Paired Device',
+                      address: device.address,
+                      type: 'bluetooth',
+                      status: 'disconnected',
+                    });
+                  }
+                });
+              }
+            } catch (e) { /* ignore */ }
+          }
+        );
+        subscriptions.push(pairedSub);
+
+        // Listen for newly found devices (progressive)
+        const foundSub = DeviceEventEmitter.addListener(
+          BluetoothManager.EVENT_DEVICE_FOUND,
+          (rsp: any) => {
+            try {
+              const device = typeof rsp.device === 'string' ? JSON.parse(rsp.device) : rsp.device;
+              if (device?.address) {
+                onDeviceFound({
+                  id: `bt_${device.address.replace(/:/g, '_')}`,
+                  name: device.name || 'Unknown Device',
+                  address: device.address,
+                  type: 'bluetooth',
+                  status: 'disconnected',
+                });
+              }
+            } catch (e) { /* ignore */ }
+          }
+        );
+        subscriptions.push(foundSub);
+
+        // Listen for scan complete
+        const doneSub = DeviceEventEmitter.addListener(
+          BluetoothManager.EVENT_DEVICE_DISCOVER_DONE,
+          () => {
+            cleanup();
+            onScanComplete();
+          }
+        );
+        subscriptions.push(doneSub);
+
+        // Set timeout to auto-complete scan
+        timeoutId = setTimeout(() => {
+          cleanup();
+          onScanComplete();
+        }, SCAN_TIMEOUT);
+
+        // Start the scan
+        BluetoothManager.scanDevices().catch(() => {
+          // Scan might throw but events still work
+        });
+
+      } catch (error: any) {
+        cleanup();
+        onError?.(error);
+      }
+    };
+
+    startScan();
+    return cleanup;
   }
 
 

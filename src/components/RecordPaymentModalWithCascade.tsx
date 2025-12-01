@@ -43,6 +43,11 @@ interface CascadePreview {
   newBalance: number;
 }
 
+/**
+ * Record Payment Modal Component
+ * 
+ * TODO: Rebuild payment recording and cascade calculation logic from scratch
+ */
 const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
   visible,
   receipt,
@@ -55,21 +60,19 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
   const [notes, setNotes] = useState<string>('');
   const [error, setError] = useState<string>('');
   
-  // ✅ Zustand stores
+  // Zustand stores
   const recordPayment = usePaymentStore(state => state.recordPayment);
-  const previewCascade = usePaymentStore(state => state.previewCascade);
   const clearPayment = usePaymentStore(state => state.clearPayment);
   const isProcessing = useIsPaymentProcessing();
-  const storePreview = usePaymentCascadePreview();
   const updateBalance = useBalanceStore(state => state.calculateBalance);
   
-  // Cascade preview state
+  // State
   const [unpaidReceipts, setUnpaidReceipts] = useState<FirebaseReceipt[]>([]);
   const [loadingUnpaid, setLoadingUnpaid] = useState(false);
   const [showCascadePreview, setShowCascadePreview] = useState(false);
   const [cascadePreview, setCascadePreview] = useState<CascadePreview[]>([]);
   
-  // Progress tracking for cascade updates
+  // Progress tracking
   const [cascadeProgress, setCascadeProgress] = useState<{
     visible: boolean;
     current: number;
@@ -77,43 +80,35 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
     message: string;
   }>({ visible: false, current: 0, total: 0, message: '' });
   
-  // Animation for progress
   const progressAnim = useRef(new Animated.Value(0)).current;
 
-  // Calculate balance information (memoized to prevent infinite loops)
+  // Calculate balance information
+  // TODO: Implement proper balance calculation
   const balance = useMemo(() => {
     if (!receipt) return null;
     
     const total = receipt.total || 0;
     const paid = receipt.amountPaid || 0;
     const oldBalance = receipt.oldBalance || 0;
-    const isManualOldBalance = receipt.isManualOldBalance || false;
     
-    // ✅ receiptBalance = just this receipt's items
-    // ✅ totalBalance = receipt + oldBalance (oldBalance will be paid via cascade to older receipts)
     const receiptBalance = total - paid;
     const totalBalance = receiptBalance + oldBalance;
     
-    console.log(`💰 [MODAL BALANCE] Receipt ${receipt.receiptNumber}: total=₹${total}, paid=₹${paid}, oldBalance=₹${oldBalance}, isManualOldBalance=${isManualOldBalance}, receiptBalance=₹${receiptBalance}, totalBalance=₹${totalBalance}`);
-    
     return {
       oldBalance,
-      isManualOldBalance, // ✅ Track if oldBalance was manually entered
       receiptTotal: total,
       amountPaid: paid,
-      receiptBalance, // Just this receipt
-      remainingBalance: totalBalance, // Total to pay (may cascade)
+      receiptBalance,
+      remainingBalance: totalBalance,
     };
-  }, [receipt?.oldBalance, receipt?.isManualOldBalance, receipt?.total, receipt?.amountPaid]);
+  }, [receipt?.oldBalance, receipt?.total, receipt?.amountPaid]);
 
-  // Load unpaid receipts for cascade preview
+  // Reset form when modal opens/closes
   useEffect(() => {
     if (visible && receipt?.customerName) {
       loadUnpaidReceipts();
-      // Clear previous payment state
       clearPayment();
     } else {
-      // Reset form when modal closes
       setAmount('');
       setPaymentMethod('cash');
       setNotes('');
@@ -131,7 +126,6 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
     setLoadingUnpaid(true);
     try {
       const receipts = await PaymentService.getCustomerUnpaidReceipts(receipt.customerName);
-      // Filter out current receipt and sort by date (oldest first)
       const otherUnpaid = receipts
         .filter(r => r.id !== receipt.id)
         .sort((a, b) => {
@@ -147,133 +141,29 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
     }
   };
 
-  // Calculate cascade preview function (memoized to prevent recreation)
+  /**
+   * Calculate cascade preview
+   * TODO: Implement proper cascade calculation logic
+   */
   const calculateCascadePreview = useCallback((paymentAmount: number) => {
     if (!balance) return;
 
+    // TODO: Implement cascade preview calculation
+    // For now, just show the current receipt
     const preview: CascadePreview[] = [];
-    let remaining = paymentAmount;
-
-    // Calculate balances
-    const receiptBalance = balance.receiptTotal - balance.amountPaid;
-    const oldBalance = balance.oldBalance;
-    let isManualOldBalance = balance.isManualOldBalance;
     
-    // ✅ BACKWARD COMPATIBILITY: For receipts created before isManualOldBalance was added,
-    // infer whether oldBalance was manual or dynamic by checking if OLDER receipts exist
-    // that could account for the oldBalance amount
-    if (oldBalance > 0 && receipt?.isManualOldBalance === undefined) {
-      // Get the current receipt's creation date
-      const currentReceiptDate = receipt?.createdAt?.toDate?.() || receipt?.date?.toDate?.() || new Date();
-      
-      // Filter to only receipts created BEFORE the current receipt
-      const olderReceipts = unpaidReceipts.filter(r => {
-        const rDate = r.createdAt?.toDate?.() || r.date?.toDate?.() || new Date(0);
-        return rDate < currentReceiptDate;
-      });
-      
-      // Calculate total unpaid balance from OLDER receipts only
-      const totalOlderUnpaidBalance = olderReceipts.reduce((sum, r) => {
-        const rBalance = (r.total || 0) - (r.amountPaid || 0);
-        return sum + (rBalance > 0.01 ? rBalance : 0);
-      }, 0);
-      
-      // If older receipts' total unpaid balance is LESS than this receipt's oldBalance,
-      // then the oldBalance must include some manually entered historical debt
-      if (totalOlderUnpaidBalance < oldBalance - 0.01) {
-        // The oldBalance includes manual entry - treat as manual
-        isManualOldBalance = true;
-        console.log(`  🔍 [INFERRED] oldBalance ₹${oldBalance} > OLDER receipts total ₹${totalOlderUnpaidBalance} → treating as MANUAL`);
-      } else {
-        // The oldBalance matches older receipts - treat as dynamic
-        isManualOldBalance = false;
-        console.log(`  🔍 [INFERRED] oldBalance ₹${oldBalance} matches OLDER receipts total ₹${totalOlderUnpaidBalance} → treating as DYNAMIC`);
-      }
-    }
-    
-    // ✅ CRITICAL FIX: Handle manual vs dynamic oldBalance differently
-    // - Manual oldBalance: Historical debt not in system, consume on THIS receipt
-    // - Dynamic oldBalance: Debt from older receipts, cascade payment to them
-    const totalReceiptDebt = receiptBalance + oldBalance;
-    
-    // ✅ If oldBalance was manually entered, it should be consumed on this receipt (no cascade for that portion)
-    // If oldBalance was dynamically calculated, only apply to receiptBalance and cascade the rest
-    const consumableOnCurrentReceipt = isManualOldBalance 
-      ? receiptBalance + oldBalance  // Manual: consume both receipt items + manual old balance
-      : receiptBalance;              // Dynamic: only consume receipt items, cascade to older receipts
-    
-    console.log(`💵 [CASCADE PREVIEW] Payment: ₹${paymentAmount}, Receipt balance: ₹${receiptBalance}, Old balance: ₹${oldBalance}, isManualOldBalance: ${isManualOldBalance}, Consumable on current: ₹${consumableOnCurrentReceipt}`);
-
-    // Apply to current receipt first
-    const currentReceiptPayment = Math.min(remaining, consumableOnCurrentReceipt);
-    if (currentReceiptPayment > 0.01) {
-      // For display, show the receipt balance (items only)
-      // But the payment can cover both items + manual oldBalance
-      const newReceiptBalance = Math.max(0, receiptBalance - Math.min(currentReceiptPayment, receiptBalance));
-      const isPaid = newReceiptBalance <= 0.01;
-      
-      console.log(`  ✅ Current receipt ${receipt?.receiptNumber}: ₹${currentReceiptPayment} applied, new receipt balance: ₹${newReceiptBalance}, isPaid: ${isPaid}`);
-      if (oldBalance > 0) {
-        if (isManualOldBalance) {
-          console.log(`    ℹ️ Receipt has ₹${oldBalance} MANUAL oldBalance - consuming on this receipt (no cascade)`);
-        } else {
-          console.log(`    ℹ️ Receipt has ₹${oldBalance} DYNAMIC oldBalance - remaining payment will cascade to older receipts`);
-        }
-      }
-      
+    if (receipt) {
       preview.push({
-        receiptNumber: receipt?.receiptNumber || '',
-        currentBalance: receiptBalance, // ✅ Show only THIS receipt's balance (items)
-        paymentToApply: currentReceiptPayment,
-        newBalance: newReceiptBalance,
+        receiptNumber: receipt.receiptNumber || '',
+        currentBalance: balance.receiptBalance,
+        paymentToApply: Math.min(paymentAmount, balance.receiptBalance),
+        newBalance: Math.max(0, balance.receiptBalance - paymentAmount),
       });
-      remaining -= currentReceiptPayment;
-    } else {
-      console.log(`  ⚠️ Current receipt already paid, cascading full amount`);
-    }
-
-    // ✅ Only cascade if:
-    // 1. There's remaining payment after paying current receipt
-    // 2. There are older unpaid receipts to cascade to
-    // 3. oldBalance was NOT manually entered (manual oldBalance is consumed on current receipt)
-    const shouldCascade = remaining > 0.01 && unpaidReceipts.length > 0;
-    
-    if (shouldCascade) {
-      console.log(`  🔄 Cascading ₹${remaining} to older receipts...`);
-      
-      for (const oldReceipt of unpaidReceipts) {
-        if (remaining <= 0.01) break;
-
-        // ✅ Calculate only THIS older receipt's balance (not cumulative)
-        const oldReceiptTotal = oldReceipt.total || 0;
-        const oldReceiptPaid = oldReceipt.amountPaid || 0;
-        const oldReceiptBalance = oldReceiptTotal - oldReceiptPaid;
-        const payment = Math.min(remaining, oldReceiptBalance);
-
-        console.log(`    📦 Cascading ₹${payment} to ${oldReceipt.receiptNumber}`);
-        
-        preview.push({
-          receiptNumber: oldReceipt.receiptNumber,
-          currentBalance: oldReceiptBalance, // ✅ Only this receipt's balance
-          paymentToApply: payment,
-          newBalance: oldReceiptBalance - payment, // ✅ Only this receipt's remaining
-        });
-
-        remaining -= payment;
-      }
-
-      setShowCascadePreview(true);
-    } else {
-      if (remaining > 0.01) {
-        console.log(`  ℹ️ No older receipts to cascade to. Excess payment: ₹${remaining}`);
-      } else {
-        console.log(`  ✅ Payment fully consumed by current receipt. No cascade needed.`);
-      }
-      setShowCascadePreview(false);
     }
 
     setCascadePreview(preview);
-  }, [balance, unpaidReceipts, receipt?.receiptNumber]);
+    setShowCascadePreview(false); // Disable cascade preview until logic is rebuilt
+  }, [balance, receipt]);
 
   // Calculate cascade preview when amount changes
   useEffect(() => {
@@ -293,15 +183,8 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
     calculateCascadePreview(paymentAmount);
   }, [amount, balance, calculateCascadePreview]);
 
-  const willCascade = useMemo(() => {
-    return cascadePreview.length > 1;
-  }, [cascadePreview]);
-
   const handleAmountChange = (text: string) => {
-    // Allow only numbers and decimal point
     const cleanText = text.replace(/[^0-9.]/g, '');
-    
-    // Ensure only one decimal point
     const parts = cleanText.split('.');
     if (parts.length > 2) return;
     
@@ -330,357 +213,24 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
     return true;
   };
 
+  /**
+   * Handle payment recording
+   * TODO: Implement proper payment recording logic
+   */
   const handleRecordPayment = async () => {
     if (!validateForm() || !receipt) return;
 
     const paymentAmount = parseFloat(amount);
-    const currentBalance = balance?.remainingBalance || 0;
-    const receiptsToUpdate = cascadePreview.length;
-
-    // Optimistic transaction for callback
-    const optimisticTransaction = {
-      id: 'temp-' + Date.now(),
-      receiptId: receipt.id,
-      receiptNumber: receipt.receiptNumber,
-      customerName: receipt.customerName || 'Walk-in Customer',
-      amount: paymentAmount,
-      paymentMethod,
-      notes: notes.trim() || undefined,
-      previousBalance: currentBalance,
-      newBalance: Math.max(0, currentBalance - paymentAmount),
-      timestamp: { seconds: Date.now() / 1000 } as any,
-      affectedReceipts: cascadePreview.map(p => p.receiptNumber),
-    };
 
     try {
-      console.log(`🔄 [PAYMENT] Processing payment of ₹${paymentAmount} across ${receiptsToUpdate} receipt(s)`);
-      console.log(`📋 [PAYMENT] Cascade preview:`, cascadePreview);
+      // TODO: Implement payment recording
+      // For now, show a message that the feature is being rebuilt
+      Alert.alert(
+        '🚧 Feature Under Reconstruction',
+        'Payment recording logic is being rebuilt from scratch. Please wait for the new implementation.',
+        [{ text: 'OK' }]
+      );
       
-      // Show progress modal BEFORE starting if cascade
-      if (receiptsToUpdate > 1) {
-        setCascadeProgress({
-          visible: true,
-          current: 0,
-          total: receiptsToUpdate,
-          message: `Preparing to update ${receiptsToUpdate} receipts...`,
-        });
-        
-        // Reset animation
-        progressAnim.setValue(0);
-        
-        // Small delay to ensure modal renders
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-
-      // Start progress animation WHILE processing
-      if (receiptsToUpdate > 1) {
-        // Simulate incremental progress during Firebase operation
-        const progressInterval = setInterval(() => {
-          setCascadeProgress(prev => {
-            if (prev.current < prev.total) {
-              const newCurrent = Math.min(prev.current + 1, prev.total);
-              const percentage = (newCurrent / prev.total) * 100;
-              
-              // Animate progress bar
-              Animated.timing(progressAnim, {
-                toValue: percentage,
-                duration: 150,
-                useNativeDriver: false,
-              }).start();
-              
-              return {
-                ...prev,
-                current: newCurrent,
-                message: newCurrent === prev.total
-                  ? 'Finalizing payment...'
-                  : `Updating receipt ${newCurrent} of ${prev.total}...`,
-              };
-            }
-            return prev;
-          });
-        }, 200); // Update every 200ms
-
-        // ✅ Process payment using Zustand PaymentStore
-        const result = await recordPayment({
-          receiptId: receipt.id,
-          amount: paymentAmount,
-          method: paymentMethod,
-          notes: notes.trim() || undefined,
-        });
-
-        // Clear interval and complete progress
-        clearInterval(progressInterval);
-        
-        // Ensure we reach 100%
-        setCascadeProgress(prev => ({
-          ...prev,
-          current: prev.total,
-          message: 'Payment completed!',
-        }));
-        
-        progressAnim.setValue(100);
-        
-        // Brief pause to show completion
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Close progress modal
-        setCascadeProgress({ visible: false, current: 0, total: 0, message: '' });
-
-        if (result.success) {
-          // ✅ Balance automatically updated by PaymentStore!
-          console.log('✅ [CASCADE SUCCESS] Payment distributed across ${receiptsToUpdate} receipts.');
-          
-          // Invalidate queries to force refetch if needed
-          queryClient.invalidateQueries({ queryKey: ['firebase', 'collections', 'receipts'] });
-          
-          /*
-          // OLD CODE: Optimistic update (causes double-counting)
-          queryClient.setQueryData<FirebaseReceipt[]>(['firebase', 'collections', 'receipts'], (oldData) => {
-            if (!oldData) return oldData;
-            
-            let updated = false;
-            const updatedData = oldData.map(receipt => {
-              // Find the affected receipt in cascade preview
-              const cascadeItem = cascadePreview.find(p => p.receiptNumber === receipt.receiptNumber);
-              if (!cascadeItem) return receipt;
-              
-              console.log(`  💳 Updating ${receipt.receiptNumber}: paid ${cascadeItem.paymentToApply}, new balance ${cascadeItem.newBalance}`);
-              updated = true;
-              
-              // Update with new balance from cascade preview
-              const isPaid = cascadeItem.newBalance <= 0.01;
-              return {
-                ...receipt,
-                newBalance: cascadeItem.newBalance,
-                amountPaid: (receipt.amountPaid || 0) + cascadeItem.paymentToApply,
-                isPaid, // ✅ Update isPaid flag
-                status: isPaid ? 'printed' as const : receipt.status,
-              };
-            });
-            
-            // Add missing receipts to cache if not found
-            if (!updated) {
-              console.log('  ⚠️ [CACHE] No receipts updated in cascade - adding manually');
-              const newReceipts = cascadePreview.map(cascadeItem => {
-                const isPaid = cascadeItem.newBalance <= 0.01;
-                return {
-                  ...receipt,
-                  receiptNumber: cascadeItem.receiptNumber,
-                  newBalance: cascadeItem.newBalance,
-                  amountPaid: (receipt.amountPaid || 0) + cascadeItem.paymentToApply,
-                  isPaid,
-                  status: isPaid ? 'printed' as const : receipt.status,
-                };
-              });
-              return [...newReceipts, ...updatedData];
-            }
-            
-            return updatedData;
-          });
-          */
-          
-          // Trigger callback for receipts screen to refresh
-          if (onPaymentRecorded) {
-            onPaymentRecorded(optimisticTransaction);
-          }
-
-          // Show success message
-          Alert.alert(
-            '✅ Payment Recorded',
-            `₹${paymentAmount.toFixed(2)} distributed across ${receiptsToUpdate} receipt(s)`,
-            [{ text: 'OK', onPress: onClose }]
-          );
-        } else {
-          Alert.alert(
-            'Payment Failed',
-            result.error || 'Failed to record payment. Please try again.',
-            [{ text: 'OK' }]
-          );
-        }
-      } else {
-        // Single receipt - instant processing (receiptsToUpdate === 0 or 1)
-        console.log('⚡ [SINGLE RECEIPT PATH] Processing single receipt payment');
-        
-        // ✅ Process payment using Zustand PaymentStore
-        const result = await recordPayment({
-          receiptId: receipt.id,
-          amount: paymentAmount,
-          method: paymentMethod,
-          notes: notes.trim() || undefined,
-        });
-
-        if (result.success) {
-          // ✅ INSTANT UI UPDATE: Update cache with new payment data using cascade preview
-          console.log('🔄 [OPTIMISTIC UPDATE - SINGLE] Applying cascade preview:', cascadePreview);
-          
-          queryClient.setQueryData<FirebaseReceipt[]>(['firebase', 'collections', 'receipts'], (oldData) => {
-            if (!oldData) {
-              console.log('  ⚠️ [CACHE] oldData is null/undefined!');
-              return oldData;
-            }
-            
-            console.log(`  📊 [CACHE] Found ${oldData.length} receipts in cache`);
-            console.log(`  🔍 [CACHE] Looking for receipt numbers:`, cascadePreview.map(p => p.receiptNumber));
-            console.log(`  🆔 [CACHE] Looking for receipt ID:`, receipt.id);
-            console.log(`  📋 [CACHE] First 5 receipt numbers in cache:`, oldData.slice(0, 5).map(r => r.receiptNumber));
-            console.log(`  🆔 [CACHE] First 5 receipt IDs in cache:`, oldData.slice(0, 5).map(r => r.id));
-            
-            // Check if the current receipt exists in cache
-            const currentReceiptInCache = oldData.find(r => r.receiptNumber === cascadePreview[0]?.receiptNumber);
-            const currentReceiptByIdInCache = oldData.find(r => r.id === receipt.id);
-            console.log(`  🎯 [CACHE] Current receipt ${cascadePreview[0]?.receiptNumber} in cache by receiptNumber?`, currentReceiptInCache ? 'YES' : 'NO');
-            console.log(`  🎯 [CACHE] Current receipt ${receipt.id} in cache by ID?`, currentReceiptByIdInCache ? 'YES' : 'NO');
-            if (!currentReceiptInCache && !currentReceiptByIdInCache) {
-              console.log(`  ⚠️ [CACHE] Receipt not found by either receiptNumber or ID! Receipt definitely not in cache.`);
-              console.log(`  🔍 [CACHE] This receipt was likely just created and hasn't synced to cache yet.`);
-            }
-            
-            let updated = false;
-            const updatedData = oldData.map(r => {
-              // Use cascade preview if available (more accurate)
-              const cascadeItem = cascadePreview.find(p => p.receiptNumber === r.receiptNumber);
-              
-              if (cascadeItem) {
-                console.log(`  💳 [CASCADE] ✅ FOUND & UPDATING ${r.receiptNumber}: paid ${cascadeItem.paymentToApply}, new balance ${cascadeItem.newBalance}`);
-                updated = true;
-                const isPaid = cascadeItem.newBalance <= 0.01;
-                
-                // ✅ Check if Firebase already updated this receipt (to avoid double-counting)
-                const originalAmountPaid = r.id === receipt.id ? (balance?.amountPaid || 0) : (r.amountPaid || 0);
-                const currentAmountPaid = r.amountPaid || 0;
-                const alreadyUpdated = currentAmountPaid > originalAmountPaid;
-                
-                if (alreadyUpdated) {
-                  console.log(`    ℹ️ Receipt ${r.receiptNumber} already updated by Firebase (amountPaid: ₹${currentAmountPaid}), skipping optimistic update`);
-                  return r; // Already updated by Firebase, don't double-count
-                }
-                
-                // ✅ Calculate new oldBalance / cleared amount for the current receipt
-                const currentOldBalance = r.oldBalance || 0;
-                let newOldBalance = currentOldBalance;
-                let oldBalanceCleared = 0;
-                
-                if (r.id === receipt.id && currentOldBalance > 0) {
-                  if (cascadePreview.length > 1) {
-                    // Payment cascaded to older receipts - clear by cascaded amount
-                    const totalCascaded = cascadePreview
-                      .filter(p => p.receiptNumber !== receipt.receiptNumber)
-                      .reduce((sum, p) => sum + p.paymentToApply, 0);
-                    oldBalanceCleared = Math.min(totalCascaded, currentOldBalance);
-                    newOldBalance = Math.max(0, currentOldBalance - oldBalanceCleared);
-                    console.log(`    ✅ Cascaded ₹${totalCascaded} to older receipts, clearing oldBalance: ₹${currentOldBalance} - ₹${oldBalanceCleared} = ₹${newOldBalance}`);
-                  } else {
-                    // Single receipt path: leftover reduces oldBalance
-                    const leftover = Math.max(0, paymentAmount - cascadeItem.paymentToApply);
-                    oldBalanceCleared = Math.min(leftover, currentOldBalance);
-                    newOldBalance = Math.max(0, currentOldBalance - oldBalanceCleared);
-                    console.log(`    ✅ Leftover ₹${leftover} cleared from oldBalance: ₹${currentOldBalance} - ₹${oldBalanceCleared} = ₹${newOldBalance}`);
-                  }
-                }
-                
-                return {
-                  ...r,
-                  newBalance: cascadeItem.newBalance,
-                  amountPaid: originalAmountPaid + cascadeItem.paymentToApply, // ✅ Use original, not current
-                  oldBalance: newOldBalance,
-                  // expose for UI chip
-                  oldBalanceCleared,
-                  isPaid,
-                  status: isPaid ? 'printed' as const : r.status,
-                };
-              }
-              
-              // Fallback: update by receipt ID (for receipts not yet synced by receiptNumber)
-              if (r.id === receipt.id) {
-                const cascadeItem = cascadePreview[0]; // Current receipt should be first
-                if (cascadeItem) {
-                  console.log(`  💳 [CASCADE] ✅ FOUND BY ID & UPDATING ${r.receiptNumber || r.id}: paid ${cascadeItem.paymentToApply}, new balance ${cascadeItem.newBalance}`);
-                  updated = true;
-                  const isPaid = cascadeItem.newBalance <= 0.01;
-                  
-                  // ✅ Check if Firebase already updated this receipt
-                  const originalAmountPaid = balance?.amountPaid || 0;
-                  const currentAmountPaid = r.amountPaid || 0;
-                  const alreadyUpdated = currentAmountPaid > originalAmountPaid;
-                  
-                  if (alreadyUpdated) {
-                    console.log(`    ℹ️ Receipt ${r.receiptNumber || r.id} already updated by Firebase (amountPaid: ₹${currentAmountPaid}), skipping optimistic update`);
-                    return r; // Already updated, don't double-count
-                  }
-                  
-                  // ✅ Calculate new oldBalance
-                  const currentOldBalance = r.oldBalance || 0;
-                  let newOldBalance = currentOldBalance;
-                  
-                  if (currentOldBalance > 0 && cascadePreview.length > 1) {
-                    // Payment cascaded - clear oldBalance
-                    const totalCascaded = cascadePreview
-                      .filter(p => p.receiptNumber !== receipt.receiptNumber)
-                      .reduce((sum, p) => sum + p.paymentToApply, 0);
-                    
-                    const oldBalanceConsumed = Math.min(totalCascaded, currentOldBalance);
-                    newOldBalance = Math.max(0, currentOldBalance - oldBalanceConsumed);
-                    console.log(`    ✅ Cascaded ₹${totalCascaded}, clearing oldBalance: ₹${currentOldBalance} - ₹${oldBalanceConsumed} = ₹${newOldBalance}`);
-                  } else if (currentOldBalance > 0) {
-                    console.log(`    ℹ️ oldBalance ₹${currentOldBalance} remains (no cascade)`);
-                  }
-                  
-                  return {
-                    ...r,
-                    newBalance: cascadeItem.newBalance,
-                    amountPaid: originalAmountPaid + cascadeItem.paymentToApply, // ✅ Use original
-                    oldBalance: newOldBalance, // ✅ Update oldBalance
-                    isPaid,
-                    status: isPaid ? 'printed' as const : r.status,
-                  };
-                }
-              }
-              
-              return r;
-            });
-            
-            // If receipt wasn't found in cache, add it manually (newly created receipt)
-              if (!updated) {
-              console.log('  ⚠️ [CACHE] Receipt not in cache - adding it manually with payment data');
-              const cascadeItem = cascadePreview[0];
-              if (cascadeItem && receipt) {
-                const isPaid = cascadeItem.newBalance <= 0.01;
-                // Compute oldBalance cleared using leftover (single path)
-                const currentOld = receipt.oldBalance || 0;
-                const leftover = Math.max(0, paymentAmount - cascadeItem.paymentToApply);
-                const oldBalanceCleared = Math.min(leftover, currentOld);
-                const newReceipt = {
-                  ...receipt,
-                  newBalance: cascadeItem.newBalance,
-                  amountPaid: (receipt.amountPaid || 0) + cascadeItem.paymentToApply,
-                  oldBalance: Math.max(0, currentOld - oldBalanceCleared),
-                  oldBalanceCleared,
-                  isPaid,
-                  status: isPaid ? 'printed' as const : receipt.status,
-                };
-                console.log(`  ✅ [CACHE] Added receipt ${receipt.receiptNumber} to cache with updated payment data`);
-                return [newReceipt, ...updatedData]; // Add to beginning (most recent)
-              }
-            }
-            
-            return updatedData;
-          });
-          
-          // Trigger callback for receipts screen to refresh
-          if (onPaymentRecorded) {
-            onPaymentRecorded(optimisticTransaction);
-          }
-
-          // Close immediately for single receipt
-          onClose();
-        } else {
-          Alert.alert(
-            'Payment Failed',
-            result.error || 'Failed to record payment. Please try again.',
-            [{ text: 'OK' }]
-          );
-        }
-      }
     } catch (error) {
       console.error('Error recording payment:', error);
       setCascadeProgress({ visible: false, current: 0, total: 0, message: '' });
@@ -740,6 +290,28 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
           contentContainerStyle={{ padding: 24 }}
           keyboardShouldPersistTaps="handled"
         >
+          {/* Rebuild Notice */}
+          <View
+            style={{
+              backgroundColor: '#fef3c7',
+              borderRadius: 16,
+              padding: 20,
+              marginBottom: 20,
+              borderWidth: 2,
+              borderColor: '#f59e0b',
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+              <Ionicons name="construct-outline" size={24} color="#f59e0b" />
+              <Text style={{ fontSize: 16, fontWeight: '700', color: '#92400e', marginLeft: 8 }}>
+                Under Reconstruction
+              </Text>
+            </View>
+            <Text style={{ fontSize: 14, color: '#92400e' }}>
+              Payment recording and calculation logic is being rebuilt from scratch to fix logic issues.
+            </Text>
+          </View>
+
           {/* Receipt Information */}
           <View
             style={{
@@ -780,7 +352,6 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
                   </Text>
                 </View>
 
-                {/* Show other unpaid receipts count */}
                 {unpaidReceipts.length > 0 && (
                   <View style={{ 
                     marginTop: 12, 
@@ -792,9 +363,6 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
                   }}>
                     <Text style={{ fontSize: 12, color: '#92400e', fontWeight: '600' }}>
                       ℹ️ Customer has {unpaidReceipts.length} other unpaid receipt{unpaidReceipts.length > 1 ? 's' : ''}
-                    </Text>
-                    <Text style={{ fontSize: 11, color: '#92400e', marginTop: 4 }}>
-                      Excess payment will cascade to older receipts
                     </Text>
                   </View>
                 )}
@@ -838,7 +406,7 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
               editable={!isProcessing && !cascadeProgress.visible}
               style={{
                 borderWidth: error ? 2 : 1,
-                borderColor: error ? '#ef4444' : willCascade ? '#f59e0b' : '#d1d5db',
+                borderColor: error ? '#ef4444' : '#d1d5db',
                 borderRadius: 12,
                 paddingHorizontal: 16,
                 paddingVertical: 14,
@@ -853,78 +421,6 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
               <Text style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>{error}</Text>
             ) : null}
           </View>
-
-          {/* Cascade Preview */}
-          {showCascadePreview && cascadePreview.length > 1 && (
-            <View
-              style={{
-                backgroundColor: '#fef3c7',
-                borderRadius: 16,
-                padding: 20,
-                marginBottom: 20,
-                borderWidth: 2,
-                borderColor: '#f59e0b',
-              }}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                <Ionicons name="git-network-outline" size={20} color="#f59e0b" />
-                <Text style={{ fontSize: 14, fontWeight: '700', color: '#92400e', marginLeft: 8 }}>
-                  PAYMENT CASCADE PREVIEW
-                </Text>
-              </View>
-              
-              <Text style={{ fontSize: 12, color: '#92400e', marginBottom: 16 }}>
-                This payment will be distributed across {cascadePreview.length} receipt(s):
-              </Text>
-
-              <ScrollView 
-                style={{ maxHeight: 200 }}
-                nestedScrollViewEnabled
-              >
-                {cascadePreview.map((item, index) => (
-                  <View
-                    key={index}
-                    style={{
-                      backgroundColor: 'white',
-                      padding: 12,
-                      borderRadius: 8,
-                      marginBottom: 8,
-                      borderLeftWidth: 3,
-                      borderLeftColor: index === 0 ? '#10b981' : '#f59e0b',
-                    }}
-                  >
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <Text style={{ fontSize: 12, fontWeight: '600', color: '#374151' }}>
-                        {index === 0 ? '📄 Current Receipt' : `📄 Receipt #${item.receiptNumber}`}
-                      </Text>
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: '#10b981' }}>
-                        -{formatCurrency(item.paymentToApply)}
-                      </Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                      <Text style={{ fontSize: 11, color: '#6b7280' }}>
-                        {formatCurrency(item.currentBalance)} → {formatCurrency(item.newBalance)}
-                      </Text>
-                      {item.newBalance === 0 && (
-                        <Text style={{ fontSize: 10, color: '#10b981', fontWeight: '600' }}>✓ PAID</Text>
-                      )}
-                    </View>
-                  </View>
-                ))}
-              </ScrollView>
-
-              <View style={{ 
-                marginTop: 12, 
-                padding: 8, 
-                backgroundColor: '#fef3c7', 
-                borderRadius: 6 
-              }}>
-                <Text style={{ fontSize: 11, color: '#92400e', textAlign: 'center' }}>
-                  ⚡ Updates will take {cascadePreview.length > 5 ? 'a few seconds' : '~1 second'}
-                </Text>
-              </View>
-            </View>
-          )}
 
           {/* Payment Method */}
           <View
@@ -1032,7 +528,7 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
             onPress={handleRecordPayment}
             disabled={isProcessing || cascadeProgress.visible}
             style={{
-              backgroundColor: '#10b981',
+              backgroundColor: '#9ca3af', // Gray to indicate disabled
               borderRadius: 16,
               paddingVertical: 18,
               flexDirection: 'row',
@@ -1046,11 +542,7 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
               elevation: 3,
             }}
           >
-            {(isProcessing || cascadeProgress.visible) ? (
-              <ActivityIndicator size="small" color="white" style={{ marginRight: 8 }} />
-            ) : (
-              <Ionicons name="checkmark-circle" size={20} color="white" style={{ marginRight: 8 }} />
-            )}
+            <Ionicons name="construct" size={20} color="white" style={{ marginRight: 8 }} />
             <Text
               style={{
                 color: 'white',
@@ -1059,105 +551,13 @@ const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
                 letterSpacing: 0.5,
               }}
             >
-              {isProcessing || cascadeProgress.visible ? 'Recording Payment...' : 'Record Payment'}
+              Feature Being Rebuilt
             </Text>
           </TouchableOpacity>
         </View>
       </View>
-
-      {/* Cascade Progress Modal */}
-      <Modal
-        visible={cascadeProgress.visible}
-        transparent
-        animationType="fade"
-      >
-        <View style={{
-          flex: 1,
-          backgroundColor: 'rgba(0, 0, 0, 0.7)',
-          justifyContent: 'center',
-          alignItems: 'center',
-          padding: 24,
-        }}>
-          <View style={{
-            backgroundColor: 'white',
-            borderRadius: 20,
-            padding: 32,
-            width: '100%',
-            maxWidth: 400,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.3,
-            shadowRadius: 8,
-            elevation: 8,
-          }}>
-            {/* Progress Icon */}
-            <View style={{ alignItems: 'center', marginBottom: 20 }}>
-              <View style={{
-                width: 64,
-                height: 64,
-                borderRadius: 32,
-                backgroundColor: '#dbeafe',
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}>
-                <Ionicons name="git-network" size={32} color="#3b82f6" />
-              </View>
-            </View>
-
-            {/* Title */}
-            <Text style={{
-              fontSize: 18,
-              fontWeight: '700',
-              color: '#111827',
-              textAlign: 'center',
-              marginBottom: 8,
-            }}>
-              Distributing Payment
-            </Text>
-
-            {/* Message */}
-            <Text style={{
-              fontSize: 14,
-              color: '#6b7280',
-              textAlign: 'center',
-              marginBottom: 24,
-            }}>
-              {cascadeProgress.message}
-            </Text>
-
-            {/* Progress Bar */}
-            <View style={{
-              height: 8,
-              backgroundColor: '#e5e7eb',
-              borderRadius: 4,
-              overflow: 'hidden',
-              marginBottom: 12,
-            }}>
-              <Animated.View style={{
-                height: '100%',
-                backgroundColor: '#10b981',
-                width: progressAnim.interpolate({
-                  inputRange: [0, 100],
-                  outputRange: ['0%', '100%'],
-                }),
-              }} />
-            </View>
-
-            {/* Counter */}
-            <Text style={{
-              fontSize: 13,
-              color: '#6b7280',
-              textAlign: 'center',
-              fontWeight: '600',
-            }}>
-              {cascadeProgress.current} of {cascadeProgress.total} receipts updated
-            </Text>
-          </View>
-        </View>
-      </Modal>
     </Modal>
   );
 };
 
 export default RecordPaymentModal;
-

@@ -1,18 +1,14 @@
 /**
  * Payment Store - Zustand
  * Centralized state management for payment operations
- * Handles payment recording, cascade preview, and payment history
+ * 
+ * TODO: Rebuild payment recording and cascade logic from scratch
  */
 
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { devtools } from 'zustand/middleware';
 import { FirebaseReceipt } from '../services/business/ReceiptFirebaseService';
-import { 
-  calculatePaymentCascade, 
-  CascadeReceipt, 
-  validatePaymentAmount 
-} from '../utils/paymentCalculations';
 import { collection, query, where, getDocs, writeBatch, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 import { getFirebaseDb } from '../config/firebase';
 import { useBalanceStore } from './balanceStore';
@@ -22,6 +18,13 @@ export interface PaymentState {
   amount: number;
   method: 'cash' | 'card' | 'upi' | 'bank_transfer' | 'other';
   notes?: string;
+}
+
+export interface CascadeReceipt {
+  receipt: FirebaseReceipt;
+  paymentToApply: number;
+  currentBalance: number;
+  newBalance: number;
 }
 
 export interface CascadePreview {
@@ -71,9 +74,7 @@ export const usePaymentStore = create<PaymentStoreState>()(
       
       /**
        * Preview how payment will cascade across receipts
-       * @param receiptId - Receipt ID to pay
-       * @param amount - Payment amount
-       * @returns Cascade preview or null if error
+       * TODO: Implement cascade preview logic
        */
       previewCascade: async (receiptId: string, amount: number): Promise<CascadePreview | null> => {
         try {
@@ -94,36 +95,19 @@ export const usePaymentStore = create<PaymentStoreState>()(
 
           const receipt = { id: receiptDoc.id, ...receiptDoc.data() } as FirebaseReceipt;
 
-          // Validate payment
-          const validation = validatePaymentAmount(receipt, amount);
-          if (!validation.valid) {
-            set((state) => { state.error = validation.error || 'Invalid payment amount'; });
+          // Basic validation
+          if (amount <= 0) {
+            set((state) => { state.error = 'Payment amount must be greater than zero'; });
             return null;
           }
 
-          // Get older unpaid receipts for cascade
-          const receiptsRef = collection(db, 'receipts');
-          const olderReceiptsQuery = query(
-            receiptsRef,
-            where('customerName', '==', receipt.customerName)
-          );
-          const olderReceiptsSnapshot = await getDocs(olderReceiptsQuery);
-
-          const unpaidReceipts = olderReceiptsSnapshot.docs
-            .map(doc => ({ id: doc.id, ...doc.data() } as FirebaseReceipt))
-            .filter(r => {
-              const balance = (r.total || 0) - (r.amountPaid || 0);
-              return balance > 0.01 && r.id !== receipt.id;
-            });
-
-          // Calculate cascade
-          const cascadeResult = calculatePaymentCascade(receipt, amount, unpaidReceipts);
-
+          // TODO: Implement proper cascade preview calculation
+          // For now, return empty preview
           const preview: CascadePreview = {
-            receiptsAffected: cascadeResult.affectedReceipts,
-            totalReceipts: cascadeResult.affectedReceipts.length,
-            oldBalanceCleared: cascadeResult.oldBalanceCleared,
-            remainingPayment: cascadeResult.remainingPayment,
+            receiptsAffected: [],
+            totalReceipts: 0,
+            oldBalanceCleared: 0,
+            remainingPayment: amount,
           };
 
           set((state) => {
@@ -132,7 +116,7 @@ export const usePaymentStore = create<PaymentStoreState>()(
           });
 
           if (__DEV__) {
-            console.log(`📋 [PaymentStore] Cascade preview: ${preview.totalReceipts} receipts, ₹${cascadeResult.oldBalanceCleared} oldBalance cleared`);
+            console.log(`⚠️ [PaymentStore] Cascade preview not implemented`);
           }
 
           return preview;
@@ -146,8 +130,7 @@ export const usePaymentStore = create<PaymentStoreState>()(
       
       /**
        * Record payment with cascade to Firebase
-       * @param payment - Payment details
-       * @returns Success status
+       * TODO: Implement payment recording logic
        */
       recordPayment: async (payment: PaymentState): Promise<{ success: boolean; error?: string }> => {
         set((state) => {
@@ -156,104 +139,25 @@ export const usePaymentStore = create<PaymentStoreState>()(
         });
 
         try {
-          const db = getFirebaseDb();
-          if (!db) {
-            throw new Error('Firebase not initialized');
-          }
-
-          // Validate input
-          if (!payment.receiptId || payment.amount <= 0) {
-            throw new Error('Invalid payment details');
-          }
-
-          // Get receipt
-          const receiptRef = doc(db, 'receipts', payment.receiptId);
-          const receiptDoc = await getDoc(receiptRef);
-
-          if (!receiptDoc.exists()) {
-            throw new Error('Receipt not found');
-          }
-
-          const receipt = { id: receiptDoc.id, ...receiptDoc.data() } as FirebaseReceipt;
-
-          // Get older unpaid receipts
-          const receiptsRef = collection(db, 'receipts');
-          const olderReceiptsQuery = query(
-            receiptsRef,
-            where('customerName', '==', receipt.customerName)
-          );
-          const olderReceiptsSnapshot = await getDocs(olderReceiptsQuery);
-
-          const unpaidReceipts = olderReceiptsSnapshot.docs
-            .map(doc => ({ id: doc.id, ...doc.data() } as FirebaseReceipt))
-            .filter(r => {
-              const balance = (r.total || 0) - (r.amountPaid || 0);
-              return balance > 0.01 && r.id !== receipt.id;
-            });
-
-          // Calculate cascade
-          const cascadeResult = calculatePaymentCascade(receipt, payment.amount, unpaidReceipts);
-
-          // Create batch write
-          const batch = writeBatch(db);
-
-          // Update all affected receipts
-          cascadeResult.affectedReceipts.forEach((affected) => {
-            const ref = doc(db, 'receipts', affected.receipt.id);
-            const newAmountPaid = (affected.receipt.amountPaid || 0) + affected.paymentToApply;
-            const isPaid = affected.newBalance <= 0.01;
-
-            const updateData: any = {
-              amountPaid: newAmountPaid,
-              newBalance: affected.newBalance,
-              isPaid: isPaid,
-              status: isPaid ? 'printed' : affected.receipt.status,
-              updatedAt: serverTimestamp(),
-            };
-
-            // Clear oldBalance on primary receipt if cascade occurred
-            if (affected.receipt.id === receipt.id && cascadeResult.oldBalanceCleared > 0) {
-              const currentOldBalance = receipt.oldBalance || 0;
-              const newOldBalance = Math.max(0, currentOldBalance - cascadeResult.oldBalanceCleared);
-              updateData.oldBalance = newOldBalance;
-              if (cascadeResult.oldBalanceCleared > 0) {
-                updateData.oldBalanceCleared = cascadeResult.oldBalanceCleared;
-              }
-            }
-
-            batch.update(ref, updateData);
-          });
-
-          // Create payment transaction record
-          const paymentTransactionRef = doc(collection(db, 'payment_transactions'));
-          batch.set(paymentTransactionRef, {
-            receiptId: payment.receiptId,
-            receiptNumber: receipt.receiptNumber,
-            customerName: receipt.customerName || 'Walk-in Customer',
-            amount: payment.amount,
-            paymentMethod: payment.method,
-            notes: payment.notes || '',
-            timestamp: serverTimestamp(),
-            affectedReceipts: cascadeResult.affectedReceipts.map(a => a.receipt.receiptNumber),
-          });
-
-          // Commit batch
-          await batch.commit();
+          // TODO: Implement payment recording logic
+          // This should:
+          // 1. Validate input
+          // 2. Get the receipt
+          // 3. Calculate payment distribution (cascade if needed)
+          // 4. Update receipt(s) with payment
+          // 5. Create payment transaction record
+          // 6. Update customer balance
 
           if (__DEV__) {
-            console.log(`✅ [PaymentStore] Payment of ₹${payment.amount} recorded successfully (${cascadeResult.affectedReceipts.length} receipts updated)`);
+            console.log(`⚠️ [PaymentStore] Payment recording not implemented`);
           }
-
-          // Update balance store after payment
-          useBalanceStore.getState().calculateBalance(receipt.customerName);
 
           set((state) => {
             state.isProcessing = false;
-            state.currentPayment = null;
-            state.cascadePreview = null;
+            state.error = 'Payment recording not implemented - rebuild in progress';
           });
 
-          return { success: true };
+          return { success: false, error: 'Payment recording not implemented - rebuild in progress' };
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to record payment';
           
@@ -324,4 +228,3 @@ export const usePaymentCascadePreview = () => {
 export const usePaymentError = () => {
   return usePaymentStore((state) => state.error);
 };
-
